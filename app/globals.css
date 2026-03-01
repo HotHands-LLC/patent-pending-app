@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+:root {
+  --navy: #1a1f36;
+  --gold: #f5a623;
+}
+
+body {
+  background: #ffffff;
+  color: #1a1f36;
+}
