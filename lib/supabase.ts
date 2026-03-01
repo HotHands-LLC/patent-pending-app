@@ -58,3 +58,40 @@ export function getUrgencyText(days: number): string {
   if (days === 0) return 'DUE TODAY'
   return `${days} days remaining`
 }
+
+export type PatentCorrespondence = {
+  id: string
+  patent_id: string | null
+  owner_id: string
+  title: string
+  type: 'uspto_action' | 'email' | 'filing' | 'attorney_note' | 'boclaw_note' | 'deadline_notice' | 'other'
+  content: string | null
+  from_party: string | null
+  to_party: string | null
+  correspondence_date: string
+  attachments: unknown[]
+  tags: string[] | null
+  created_at: string
+  updated_at: string
+  patents?: { title: string; id: string } | null
+}
+
+export const CORRESPONDENCE_TYPE_LABELS: Record<string, string> = {
+  uspto_action: 'USPTO Action',
+  filing: 'Filing',
+  email: 'Email',
+  attorney_note: 'Attorney Note',
+  boclaw_note: '🦞 BoClaw Note',
+  deadline_notice: 'Deadline Notice',
+  other: 'Other',
+}
+
+export const CORRESPONDENCE_TYPE_COLORS: Record<string, string> = {
+  uspto_action: 'bg-red-100 text-red-800 border border-red-200',
+  filing: 'bg-blue-100 text-blue-800 border border-blue-200',
+  email: 'bg-gray-100 text-gray-700 border border-gray-200',
+  attorney_note: 'bg-purple-100 text-purple-800 border border-purple-200',
+  boclaw_note: 'bg-orange-100 text-orange-800 border border-orange-200',
+  deadline_notice: 'bg-yellow-100 text-yellow-800 border border-yellow-200',
+  other: 'bg-gray-100 text-gray-600 border border-gray-200',
+}
