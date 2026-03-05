@@ -303,7 +303,7 @@ export default function ReviewQueue() {
             )}
           </div>
           <div style={{ fontSize: 11, color: "#52525b", marginTop: 2 }}>
-            BoClaw submits drafts here — you approve, reject, or request revisions
+            AI-generated drafts appear here — you approve, reject, or request revisions
           </div>
         </div>
 
@@ -338,9 +338,9 @@ export default function ReviewQueue() {
         <div style={{ textAlign: "center", padding: 32, color: "#3f3f46", fontSize: 12 }}>Loading queue…</div>
       ) : items.length === 0 && !authError ? (
         <div style={{ borderRadius: 12, border: "1px solid #27272a", background: "#18181b", padding: 32, textAlign: "center" }}>
-          <div style={{ fontSize: 24, marginBottom: 8 }}>🦞</div>
+          <div style={{ fontSize: 24, marginBottom: 8 }}>📋</div>
           <p style={{ color: "#52525b", fontSize: 12, margin: 0 }}>
-            {filter === "pending" ? "No pending drafts. BoClaw is working." : "No items in this filter."}
+            {filter === "pending" ? "No pending drafts." : "No items in this filter."}
           </p>
         </div>
       ) : (
