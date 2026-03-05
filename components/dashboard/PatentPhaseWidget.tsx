@@ -24,7 +24,22 @@ interface Patent {
   filing_date?: string | null;
   provisional_deadline?: string | null;
   non_provisional_deadline?: string | null;
-  current_phase?: number; // 1–7, can be stored in patents table or derived
+  current_phase?: number | null; // 1–7
+  filing_status?: string | null;
+  claims_draft?: string | null;
+  abstract_draft?: string | null;
+  intake_session_id?: string | null;
+  payment_confirmed_at?: string | null;
+  stripe_checkout_session_id?: string | null;
+  tags?: string[];
+  is_listed?: boolean;
+  asking_price?: number | null;
+  uspto_status?: string | null;
+  last_uspto_check?: string | null;
+  description?: string | null;
+  owner_id?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ── Phase definitions ────────────────────────────────────────────────────────
