@@ -188,7 +188,7 @@ const VAGUE_PATTERNS = [
 function getNudge(key: string, value: string): string | null {
   if (!value || value.trim().length === 0) return null
   const v = value.trim()
-  if (v.length < 20) return 'Too brief — add more detail so BoClaw can draft strong claims.'
+  if (v.length < 20) return 'Too brief — add more detail so we can draft strong claims.'
   if (VAGUE_PATTERNS.some(p => p.test(v))) return 'This looks vague. Describe it in plain words — more detail = stronger patent.'
   if (key === 'problem_solved' && !v.includes(' ') && v.split(' ').length < 5) {
     return 'Describe the real-world frustration or gap this solves.'
@@ -263,7 +263,7 @@ function DescriptionStep({
         Describe Your Invention
       </h1>
       <p style={{ fontSize: 14, color: '#71717a', marginBottom: 28 }}>
-        Answer in your own words — no legal language needed. BoClaw will help shape it.
+        Answer in your own words — no legal language needed. We'll help shape it into patent language.
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -416,7 +416,7 @@ function InventorStep({
               </button>
             ))}
           </div>
-          <div style={S.hint}>BoClaw will confirm eligibility during the claims phase.</div>
+          <div style={S.hint}>Eligibility will be confirmed during the claims phase.</div>
         </div>
       </div>
 
@@ -473,7 +473,7 @@ function SummaryStep({
         Review Your Intake
       </h1>
       <p style={{ fontSize: 14, color: '#71717a', marginBottom: 28 }}>
-        Here&apos;s what BoClaw received. Review before submitting.
+        Review your submission before proceeding to payment.
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 28 }}>
@@ -499,7 +499,7 @@ function SummaryStep({
         <div style={{ fontSize: 18, marginBottom: 8 }}>🚀</div>
         <h3 style={{ fontSize: 15, fontWeight: 700, color: '#f4f4f5', marginBottom: 6 }}>Ready to draft your patent claims?</h3>
         <p style={{ fontSize: 13, color: '#71717a', marginBottom: 4, lineHeight: 1.5 }}>
-          BoClaw will generate a full claims draft, spec outline, and USPTO filing package.
+          We'll generate a full claims draft, spec outline, and USPTO filing package.
         </p>
         <p style={{ fontSize: 13, color: '#fbbf24', fontWeight: 700, marginBottom: 16 }}>One-time fee — no subscription.</p>
         <button
