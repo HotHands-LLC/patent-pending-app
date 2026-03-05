@@ -176,6 +176,29 @@ function ConfidentialityStep({ onAccept, saving }: { onAccept: () => void; savin
   )
 }
 
+// ── Static clarification nudge logic (Step 5) ────────────────────────────────
+// No AI call — pure static rules. Future: conversational clarification.
+const VAGUE_PATTERNS = [
+  /^(it|this|the thing|my idea|something|a device|an app|a system)\s*$/i,
+  /^(good|better|improved|new|novel|innovative)\s*$/i,
+  /^n\/a$/i,
+  /^(yes|no|idk|not sure|tbd|todo|later|none)\s*$/i,
+]
+
+function getNudge(key: string, value: string): string | null {
+  if (!value || value.trim().length === 0) return null
+  const v = value.trim()
+  if (v.length < 20) return 'Too brief — add more detail so BoClaw can draft strong claims.'
+  if (VAGUE_PATTERNS.some(p => p.test(v))) return 'This looks vague. Describe it in plain words — more detail = stronger patent.'
+  if (key === 'problem_solved' && !v.includes(' ') && v.split(' ').length < 5) {
+    return 'Describe the real-world frustration or gap this solves.'
+  }
+  if (key === 'what_makes_it_new' && v.length < 40) {
+    return 'Novelty is the core of your patent. What have you never seen anywhere else?'
+  }
+  return null
+}
+
 // ── Step 2: Invention Description ─────────────────────────────────────────────
 function DescriptionStep({
   data, onChange, onNext, onBack, saving
@@ -263,6 +286,16 @@ function DescriptionStep({
                 style={S.textarea}
               />
             )}
+            {/* Static clarification nudge */}
+            {(() => {
+              const nudge = getNudge(q.key, (data[q.key as keyof IntakeSession] as string) || '')
+              return nudge ? (
+                <div style={{ marginTop: 5, padding: '6px 10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 6, fontSize: 11, color: '#fbbf24', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                  <span style={{ flexShrink: 0 }}>💡</span>
+                  <span>{nudge}</span>
+                </div>
+              ) : null
+            })()}
             <div style={S.hint}>{q.hint}</div>
           </div>
         ))}
