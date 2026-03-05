@@ -49,7 +49,7 @@ const CONFIDENTIALITY_TEXT = {
     },
   ],
   acknowledgment: 'I understand that my invention information will be kept confidential, that it will not be shared with third parties or used to train AI models, and that this service does not constitute legal advice.',
-  version: 'v1.1 — ⚠️ DRAFT PENDING REVIEW'
+  version: 'v1.1'
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
