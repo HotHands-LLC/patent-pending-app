@@ -30,7 +30,7 @@ const CONFIDENTIALITY_TEXT = {
     {
       icon: '🔒',
       title: 'Your invention description is encrypted and private.',
-      detail: 'Everything you enter is stored encrypted and is accessible only to you. PatentPending.app and Hot Hands LLC do not share, sell, license, or disclose your invention to any third party — ever.'
+      detail: 'Everything you enter is stored encrypted and is accessible only by you and authorized Hot Hands LLC systems operating on your behalf. PatentPending.app and Hot Hands LLC do not share, sell, license, or disclose your invention to any third party.'
     },
     {
       icon: '🚫',
@@ -40,7 +40,7 @@ const CONFIDENTIALITY_TEXT = {
     {
       icon: '📋',
       title: 'This is a confidential business relationship.',
-      detail: 'By using PatentPending.app, you are engaging in a confidential business relationship with Hot Hands LLC. We treat your invention data with the same discretion as a professional service provider.'
+      detail: 'By using PatentPending.app, you are engaging in a confidential business relationship with Hot Hands LLC. We maintain your invention data in confidence and limit internal access to what is necessary to provide the service.'
     },
     {
       icon: '⚖️',
@@ -49,7 +49,7 @@ const CONFIDENTIALITY_TEXT = {
     },
   ],
   acknowledgment: 'I understand that my invention information will be kept confidential, that it will not be shared with third parties or used to train AI models, and that this service does not constitute legal advice.',
-  version: 'v1.0 — ⚠️ DRAFT PENDING REVIEW'
+  version: 'v1.1 — ⚠️ DRAFT PENDING REVIEW'
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
