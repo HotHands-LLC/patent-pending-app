@@ -24,6 +24,14 @@ export type Patent = {
   tags: string[]
   created_at: string
   updated_at: string
+  // Phase 2+ fields
+  current_phase: number | null          // 1–7 filing phases
+  filing_status: 'draft' | 'approved' | 'filed' | null
+  claims_draft: string | null
+  abstract_draft: string | null
+  intake_session_id: string | null
+  payment_confirmed_at: string | null
+  stripe_checkout_session_id: string | null
 }
 
 export type PatentDeadline = {
@@ -81,7 +89,7 @@ export const CORRESPONDENCE_TYPE_LABELS: Record<string, string> = {
   filing: 'Filing',
   email: 'Email',
   attorney_note: 'Attorney Note',
-  boclaw_note: '🦞 BoClaw Note',
+  boclaw_note: 'AI Note',
   deadline_notice: 'Deadline Notice',
   other: 'Other',
 }
