@@ -198,7 +198,9 @@ export default function PatentDetail() {
                  <span className="flex items-center gap-1.5">
                    Claims
                    {patent.filing_status === 'approved' && <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />}
-                   {patent.filing_status === 'draft' && patent.claims_draft && <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />}
+                   {(patent.claims_status === 'pending' || patent.claims_status === 'generating') && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block" />}
+                   {patent.claims_status === 'failed' && <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />}
+                   {patent.claims_status === 'complete' && patent.filing_status === 'draft' && <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />}
                  </span>
                ) : 'Details'}
             </button>
@@ -341,7 +343,19 @@ export default function PatentDetail() {
               </div>
             )}
 
-            {!patent.claims_draft ? (
+            {patent.claims_status === 'pending' || patent.claims_status === 'generating' ? (
+              <div className="bg-white rounded-xl border border-amber-200 p-10 text-center">
+                <div className="text-3xl mb-3 animate-pulse">⚙️</div>
+                <p className="text-amber-700 text-sm font-semibold mb-1">Your claims draft is being generated…</p>
+                <p className="text-gray-400 text-xs">This usually takes 1–2 minutes. Refresh to check progress.</p>
+              </div>
+            ) : patent.claims_status === 'failed' ? (
+              <div className="bg-white rounded-xl border border-red-200 p-10 text-center">
+                <div className="text-3xl mb-3">❌</div>
+                <p className="text-red-600 text-sm font-semibold mb-1">Generation failed</p>
+                <p className="text-gray-400 text-xs">Contact support — your payment was captured and we'll make it right.</p>
+              </div>
+            ) : !patent.claims_draft ? (
               <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
                 <div className="text-3xl mb-3">⏳</div>
                 <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
