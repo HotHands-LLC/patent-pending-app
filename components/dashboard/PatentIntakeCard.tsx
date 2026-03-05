@@ -21,6 +21,7 @@ interface Patent {
   inventors?: string[];
   current_phase?: number | null;
   filing_status?: string | null;
+  claims_status?: string | null;
   claims_draft?: string | null;
   abstract_draft?: string | null;
   intake_session_id?: string | null;
