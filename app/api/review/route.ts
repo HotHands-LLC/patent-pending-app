@@ -19,17 +19,34 @@ function getToken(req: NextRequest): string | null {
   return auth?.startsWith('Bearer ') ? auth.slice(7) : null
 }
 
-// POST /api/review — BoClaw submits a draft (uses service role)
+// POST /api/review — authenticated user submits a revision request
+// owner_id is derived from the verified Bearer token — never trusted from body
 export async function POST(req: NextRequest) {
+  // Auth: require valid Bearer token
+  const token = getToken(req)
+  if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const supabase = userClient(token)
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
-    const { patent_id, draft_type, title, content, version, owner_id } = await req.json()
-    if (!patent_id || !draft_type || !title || !content || !owner_id) {
+    const { patent_id, draft_type, title, content, version } = await req.json()
+    if (!patent_id || !draft_type || !title || !content) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
     const { data, error } = await supabaseService
       .from('review_queue')
-      .insert({ patent_id, owner_id, draft_type, title, content,
-        version: version ?? 1, status: 'pending', submitted_by: 'boclaw' })
+      .insert({
+        patent_id,
+        owner_id: user.id,  // set from token — not request body
+        draft_type,
+        title,
+        content,
+        version: version ?? 1,
+        status: 'pending',
+        submitted_by: 'boclaw',
+      })
       .select('id, status')
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
