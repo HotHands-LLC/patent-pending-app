@@ -77,17 +77,27 @@ async function handleEvent(event: Stripe.Event) {
   }
 
   // ── Step 2: Convert intake → patents row ─────────────────────────────────
-  // Look up patent_profile for this user
-  const { data: profile } = await supabase
+  // Ensure patent_profile exists — upsert so FK never fails.
+  // patents.owner_id → patent_profiles.id (FK constraint), so this is mandatory.
+  const { data: profile, error: profileErr } = await supabase
     .from('patent_profiles')
+    .upsert(
+      {
+        id: user_id,
+        email: intake.inventor_email ?? null,
+        full_name: intake.inventor_name ?? null,
+      },
+      { onConflict: 'id', ignoreDuplicates: false }
+    )
     .select('id')
-    .eq('id', user_id)
     .single()
 
-  // If no profile yet, we can still create the patent with the auth user id
-  // (the patents table's owner_id should ideally point to patent_profiles,
-  //  but we handle missing profiles gracefully)
-  const ownerId = profile?.id ?? user_id
+  if (profileErr || !profile) {
+    console.error('[webhook] failed to upsert patent_profile:', profileErr)
+    return  // Cannot proceed — would get FK violation on patent insert
+  }
+
+  const ownerId = profile.id
 
   const { data: patent, error: patentErr } = await supabase
     .from('patents')
