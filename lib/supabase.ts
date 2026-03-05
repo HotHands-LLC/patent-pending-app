@@ -24,9 +24,15 @@ export type Patent = {
   tags: string[]
   created_at: string
   updated_at: string
-  // Claims review fields (optional — only present after payment)
+  // Phase 2+ fields (optional — only present after payment/intake)
+  current_phase?: number | null         // 1–7 filing phases
   filing_status?: string | null         // 'draft' | 'approved' | 'filed'
+  claims_status?: 'pending' | 'generating' | 'complete' | 'failed' | null
   claims_draft?: string | null
+  abstract_draft?: string | null
+  intake_session_id?: string | null
+  payment_confirmed_at?: string | null
+  stripe_checkout_session_id?: string | null
 }
 
 export type PatentDeadline = {
