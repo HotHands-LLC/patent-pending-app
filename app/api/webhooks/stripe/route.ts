@@ -3,7 +3,11 @@ import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 import { generateClaimsDraft } from '@/lib/claims-draft'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-02-24.acacia' })
+// Lazy init — avoids build-time crash when env vars not yet set
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not configured')
+  return new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-02-24.acacia' })
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing stripe-signature' }, { status: 401 })
   }
 
+  const stripe = getStripe()
   const rawBody = await req.text()
   let event: Stripe.Event
 
