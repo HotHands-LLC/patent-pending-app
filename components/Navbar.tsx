@@ -1,13 +1,37 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+
+function usePendingReviewCount() {
+  const [count, setCount] = useState(0)
+
+  useEffect(() => {
+    async function fetchCount() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { count: n } = await supabase
+        .from('review_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+        .eq('owner_id', user.id)
+      setCount(n ?? 0)
+    }
+    fetchCount()
+    // Refresh every 60s so the dot stays live
+    const t = setInterval(fetchCount, 60_000)
+    return () => clearInterval(t)
+  }, [])
+
+  return count
+}
 
 export default function Navbar() {
   const pathname = usePathname()
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const pendingCount = usePendingReviewCount()
 
   async function signOut() {
     await supabase.auth.signOut()
@@ -34,13 +58,19 @@ export default function Navbar() {
                 <Link
                   key={l.href}
                   href={l.href}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`relative px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                     pathname === l.href
                       ? 'bg-white/10 text-white'
                       : 'text-white/60 hover:text-white hover:bg-white/10'
                   }`}
                 >
                   {l.label}
+                  {l.href === '/dashboard' && pendingCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                    </span>
+                  )}
                 </Link>
               ))}
             </div>
@@ -88,13 +118,19 @@ export default function Navbar() {
                 key={l.href}
                 href={l.href}
                 onClick={() => setMobileOpen(false)}
-                className={`flex items-center px-3 py-3 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                className={`relative flex items-center px-3 py-3 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
                   pathname === l.href
                     ? 'bg-white/10 text-white'
                     : 'text-white/70 hover:text-white hover:bg-white/10'
                 }`}
               >
                 {l.label}
+                {l.href === '/dashboard' && pendingCount > 0 && (
+                  <span className="ml-2 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                  </span>
+                )}
               </Link>
             ))}
             <div className="pt-2 flex flex-col gap-2">
