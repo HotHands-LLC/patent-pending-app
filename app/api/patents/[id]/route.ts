@@ -13,8 +13,9 @@ const ALLOWED_FILING_STATUSES = ['draft', 'approved', 'filed'] as const
 // Auth: Bearer token required; must be patent owner
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const auth = req.headers.get('authorization')
   if (!auth?.startsWith('Bearer ')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -51,7 +52,7 @@ export async function PATCH(
   const { data: patent } = await supabaseService
     .from('patents')
     .select('id, owner_id, filing_status')
-    .eq('id', params.id)
+    .eq('id', id)
     .single()
 
   if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
@@ -64,7 +65,7 @@ export async function PATCH(
   const { data: updated, error } = await supabaseService
     .from('patents')
     .update({ filing_status, updated_at: new Date().toISOString() })
-    .eq('id', params.id)
+    .eq('id', id)
     .select('id, filing_status, updated_at')
     .single()
 
