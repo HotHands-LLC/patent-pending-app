@@ -57,5 +57,11 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+
+  // Flatten nested patents.title → patent_title for component compatibility
+  const flat = (data ?? []).map((row: Record<string, unknown> & { patents?: { title?: string } | null }) => {
+    const { patents, ...rest } = row
+    return { ...rest, patent_title: patents?.title ?? null }
+  })
+  return NextResponse.json(flat)
 }
