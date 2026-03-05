@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { after } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 import { generateClaimsDraft } from '@/lib/claims-draft'
 
-// Lazy init — avoids build-time crash when env vars not yet set
 function getStripe() {
   if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not configured')
   return new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-02-24.acacia' })
@@ -15,30 +13,28 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// App Router: req.text() reads raw body directly — no bodyParser config needed
-
 export async function POST(req: NextRequest) {
-  // ── Signature verification ───────────────────────────────────────────────
   const sig = req.headers.get('stripe-signature')
   if (!sig) {
     return NextResponse.json({ error: 'Missing stripe-signature' }, { status: 401 })
   }
 
-  const stripe = getStripe()
+  // 1. Read raw body as text — required for Stripe signature verification
   const rawBody = await req.text()
-  let event: Stripe.Event
 
+  const stripe = getStripe()
+
+  // 2. Verify signature using raw string (not parsed object)
   try {
-    event = stripe.webhooks.constructEvent(
-      rawBody,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    )
+    stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET!)
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Signature verification failed'
     console.error('[webhook] sig verification failed:', msg)
     return NextResponse.json({ error: `Webhook signature failed: ${msg}` }, { status: 401 })
   }
+
+  // 3. Parse event from raw body for handler use
+  const event = JSON.parse(rawBody) as Stripe.Event
 
   if (event.type !== 'checkout.session.completed') {
     return NextResponse.json({ received: true })
@@ -48,50 +44,43 @@ export async function POST(req: NextRequest) {
   const { intake_session_id, user_id } = session.metadata ?? {}
 
   if (!intake_session_id || !user_id) {
-    console.error('[webhook] missing metadata on session:', session.id)
+    console.error('[webhook] missing metadata — session:', session.id)
     return NextResponse.json({ received: true })
   }
 
-  // ── Await sync DB operations before responding ───────────────────────────
-  // These must complete before we return 200 so data is consistent.
-  // Target: < 3s total. Gemini claims draft is deferred via after().
+  // 4. Full handler awaited synchronously (Pro plan = 60s timeout)
   let patentId: string | null = null
 
   try {
     // Step 1: Mark intake as paid
     const { data: intake, error: intakeErr } = await supabase
       .from('patent_intake_sessions')
-      .update({
-        payment_status: 'paid',
-        updated_at: new Date().toISOString(),
-      })
+      .update({ payment_status: 'paid', updated_at: new Date().toISOString() })
       .eq('id', intake_session_id)
       .select('*')
       .single()
 
     if (intakeErr || !intake) {
-      console.error('[webhook] failed to update intake session:', intakeErr)
-      return NextResponse.json({ received: true })
+      console.error('[webhook] Step 1 failed — intake update:', JSON.stringify(intakeErr))
+      return NextResponse.json({ error: 'intake update failed', detail: intakeErr }, { status: 500 })
     }
+    console.log('[webhook] Step 1 OK — intake marked paid:', intake_session_id)
 
     // Step 2: Upsert patent_profile (patents.owner_id FK requires this)
     const { data: profile, error: profileErr } = await supabase
       .from('patent_profiles')
       .upsert(
-        {
-          id: user_id,
-          email: intake.inventor_email ?? null,
-          full_name: intake.inventor_name ?? null,
-        },
-        { onConflict: 'id', ignoreDuplicates: false }
+        { id: user_id, email: intake.inventor_email ?? null, full_name: intake.inventor_name ?? null },
+        { onConflict: 'id' }
       )
       .select('id')
       .single()
 
     if (profileErr || !profile) {
-      console.error('[webhook] failed to upsert patent_profile:', profileErr)
-      return NextResponse.json({ received: true })
+      console.error('[webhook] Step 2 failed — profile upsert:', JSON.stringify(profileErr))
+      return NextResponse.json({ error: 'profile upsert failed', detail: profileErr }, { status: 500 })
     }
+    console.log('[webhook] Step 2 OK — profile:', profile.id)
 
     // Step 3: Create patents row
     const { data: patent, error: patentErr } = await supabase
@@ -100,11 +89,8 @@ export async function POST(req: NextRequest) {
         owner_id: profile.id,
         intake_session_id: intake.id,
         title: intake.invention_name || 'Untitled Invention',
-        description: [
-          intake.problem_solved,
-          intake.how_it_works,
-          intake.what_makes_it_new,
-        ].filter(Boolean).join('\n\n'),
+        description: [intake.problem_solved, intake.how_it_works, intake.what_makes_it_new]
+          .filter(Boolean).join('\n\n'),
         inventors: [intake.inventor_name, ...(intake.co_inventors ?? [])].filter(Boolean),
         stripe_checkout_session_id: intake.stripe_checkout_session_id,
         payment_confirmed_at: new Date().toISOString(),
@@ -115,10 +101,10 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (patentErr || !patent) {
-      console.error('[webhook] failed to create patent:', patentErr)
-      return NextResponse.json({ received: true })
+      console.error('[webhook] Step 3 failed — patent insert:', JSON.stringify(patentErr))
+      return NextResponse.json({ error: 'patent insert failed', detail: patentErr }, { status: 500 })
     }
-
+    console.log('[webhook] Step 3 OK — patent created:', patent.id)
     patentId = patent.id
 
     // Step 4: Link intake → patent
@@ -126,21 +112,21 @@ export async function POST(req: NextRequest) {
       .from('patent_intake_sessions')
       .update({ converted_to_patent_id: patent.id, status: 'completed' })
       .eq('id', intake_session_id)
+    console.log('[webhook] Step 4 OK — intake linked to patent')
 
-    // Step 5: Defer claims draft via after() — runs post-response, keeps function alive
-    after(async () => {
-      try {
-        await generateClaimsDraft(patent.id, intake)
-        console.log('[webhook] claims draft complete for patent:', patent.id)
-      } catch (err) {
-        console.error('[webhook] claims draft failed:', err)
-      }
-    })
+    // Step 5: Generate claims draft (awaited — Pro plan 60s timeout covers this)
+    try {
+      await generateClaimsDraft(patent.id, intake)
+      console.log('[webhook] Step 5 OK — claims draft generated for:', patent.id)
+    } catch (geminiErr) {
+      // Claims draft failure is non-fatal — patent row is already created
+      console.error('[webhook] Step 5 WARN — claims draft failed (non-fatal):', geminiErr)
+    }
 
   } catch (err) {
     console.error('[webhook] unexpected error:', err)
+    return NextResponse.json({ error: 'internal error', detail: String(err) }, { status: 500 })
   }
 
-  // ── Respond 200 to Stripe ────────────────────────────────────────────────
   return NextResponse.json({ received: true, patent_id: patentId })
 }
