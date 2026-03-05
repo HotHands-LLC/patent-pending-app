@@ -5,6 +5,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type DraftStatus = "pending" | "approved" | "rejected" | "revision_requested";
@@ -53,6 +54,13 @@ function timeAgo(dateStr: string): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// ── Auth helper ───────────────────────────────────────────────────────────────
+async function getAuthHeader(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) return {};
+  return { Authorization: `Bearer ${session.access_token}` };
 }
 
 // ── Single review card ────────────────────────────────────────────────────────
@@ -240,21 +248,35 @@ export default function ReviewQueue() {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [filter, setFilter] = useState<DraftStatus | "all">("pending");
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(false);
 
   const fetchItems = useCallback(async () => {
+    const authHeader = await getAuthHeader();
+    if (!authHeader.Authorization) {
+      setAuthError(true);
+      setLoading(false);
+      return;
+    }
     const params = filter !== "all" ? `?status=${filter}` : "";
-    const res = await fetch(`/api/review${params}`);
+    const res = await fetch(`/api/review${params}`, { headers: authHeader });
+    if (res.status === 401) {
+      setAuthError(true);
+      setLoading(false);
+      return;
+    }
     const data = await res.json();
-    setItems(data);
+    setItems(Array.isArray(data) ? data : []);
+    setAuthError(false);
     setLoading(false);
   }, [filter]);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
   const handleDecision = async (id: string, status: DraftStatus, notes?: string) => {
+    const authHeader = await getAuthHeader();
     await fetch(`/api/review/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeader },
       body: JSON.stringify({ status, reviewer_notes: notes }),
     });
     await fetchItems();
@@ -304,10 +326,17 @@ export default function ReviewQueue() {
         </div>
       </div>
 
+      {/* Auth error state */}
+      {authError && (
+        <div style={{ borderRadius: 12, border: "1px solid rgba(153,27,27,0.5)", background: "rgba(69,10,10,0.3)", padding: "16px 18px", marginBottom: 12 }}>
+          <p style={{ color: "#f87171", fontSize: 12, margin: 0 }}>⚠️ Session expired — please refresh the page to reload your session.</p>
+        </div>
+      )}
+
       {/* Items */}
       {loading ? (
         <div style={{ textAlign: "center", padding: 32, color: "#3f3f46", fontSize: 12 }}>Loading queue…</div>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && !authError ? (
         <div style={{ borderRadius: 12, border: "1px solid #27272a", background: "#18181b", padding: 32, textAlign: "center" }}>
           <div style={{ fontSize: 24, marginBottom: 8 }}>🦞</div>
           <p style={{ color: "#52525b", fontSize: 12, margin: 0 }}>
@@ -324,7 +353,3 @@ export default function ReviewQueue() {
     </div>
   );
 }
-
-// ── Usage in dashboard ────────────────────────────────────────────────────────
-// import ReviewQueue from "@/components/dashboard/ReviewQueue";
-// <ReviewQueue />   ← place above PatentPhaseWidget in /dashboard
