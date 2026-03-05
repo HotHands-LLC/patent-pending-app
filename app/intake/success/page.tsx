@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useState } from 'react'
+export const dynamic = 'force-dynamic'
+import { useEffect, useState, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
-export default function IntakeSuccessPage() {
+function SuccessContent() {
   const params = useSearchParams()
   const sessionId = params.get('session_id')
   const [dots, setDots] = useState('.')
@@ -55,5 +56,13 @@ export default function IntakeSuccessPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function IntakeSuccessPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#09090b' }} />}>
+      <SuccessContent />
+    </Suspense>
   )
 }
