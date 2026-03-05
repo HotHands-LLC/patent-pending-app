@@ -26,6 +26,7 @@ interface Patent {
   non_provisional_deadline?: string | null;
   current_phase?: number | null; // 1–7
   filing_status?: string | null;
+  claims_status?: string | null;
   claims_draft?: string | null;
   abstract_draft?: string | null;
   intake_session_id?: string | null;
