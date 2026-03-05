@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { generateClaimsDraft } from '@/lib/claims-draft'
+import { sendClaimsReadyEmail } from '@/lib/email'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -93,6 +94,14 @@ export async function GET(req: NextRequest) {
         .from('patents')
         .update({ claims_status: 'complete' })
         .eq('id', patent.id)
+
+      // Notify inventor — fire-and-forget; failure never crashes the job
+      await sendClaimsReadyEmail({
+        to: intake.inventor_email ?? '',
+        inventorName: intake.inventor_name ?? null,
+        inventionName: intake.invention_name ?? null,
+        patentId: patent.id,
+      })
 
       console.log(`[cron] ✅ claims complete for patent ${patent.id}`)
       results.push({ id: patent.id, status: 'complete' })
