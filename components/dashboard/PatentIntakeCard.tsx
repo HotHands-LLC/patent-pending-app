@@ -260,7 +260,7 @@ function IntakeForm({
                 placeholder="Optional — create at account.uspto.gov if needed"
                 style={inputStyle}
               />
-              <div style={hintStyle}>Required to file non-provisional. BoClaw will guide setup if missing.</div>
+              <div style={hintStyle}>Required to file non-provisional. Setup guidance provided if missing.</div>
             </div>
 
             {/* Invention summary */}
@@ -338,7 +338,7 @@ export default function PatentIntakeCard({ patents }: { patents: Patent[] }) {
           </span>
         </div>
         <div style={{ fontSize: 11, color: "#52525b", marginTop: 2 }}>
-          Enter once — BoClaw never asks again. Unlocks Phase 2 automatically.
+          Enter once — never asked again. Unlocks Phase 2 automatically.
         </div>
       </div>
 
