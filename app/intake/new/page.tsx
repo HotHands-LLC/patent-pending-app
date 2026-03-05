@@ -438,9 +438,10 @@ function InventorStep({
 
 // ── Step 4: Summary ───────────────────────────────────────────────────────────
 function SummaryStep({
-  data, onBack, onSubmit, saving
+  data, sessionId, onBack, onSubmit, saving
 }: {
   data: Partial<IntakeSession>
+  sessionId: string | null
   onBack: () => void
   onSubmit: () => void
   saving: boolean
@@ -493,20 +494,20 @@ function SummaryStep({
         ))}
       </div>
 
-      {/* CTA — pay gate placeholder */}
+      {/* CTA — pay gate */}
       <div style={{ background: 'rgba(245,166,35,0.08)', border: '1px solid rgba(245,166,35,0.3)', borderRadius: 12, padding: '20px', marginBottom: 20, textAlign: 'center' }}>
         <div style={{ fontSize: 18, marginBottom: 8 }}>🚀</div>
         <h3 style={{ fontSize: 15, fontWeight: 700, color: '#f4f4f5', marginBottom: 6 }}>Ready to draft your patent claims?</h3>
-        <p style={{ fontSize: 13, color: '#71717a', marginBottom: 16, lineHeight: 1.5 }}>
-          BoClaw will use your intake to generate a full claims draft, spec outline, and USPTO filing package.
-          One-time fee — no subscription.
+        <p style={{ fontSize: 13, color: '#71717a', marginBottom: 4, lineHeight: 1.5 }}>
+          BoClaw will generate a full claims draft, spec outline, and USPTO filing package.
         </p>
+        <p style={{ fontSize: 13, color: '#fbbf24', fontWeight: 700, marginBottom: 16 }}>One-time fee — no subscription.</p>
         <button
           onClick={onSubmit}
-          disabled={saving}
+          disabled={saving || !sessionId}
           style={{ ...S.btn, background: '#f5a623', color: '#1a1f36', width: 'auto', padding: '12px 32px' }}
         >
-          {saving ? 'Saving…' : 'Submit Intake — I\'ll Decide on Claims Later'}
+          {saving ? 'Redirecting to payment…' : 'Draft My Claims — $49 →'}
         </button>
       </div>
 
@@ -621,8 +622,24 @@ export default function IntakeNewPage() {
   async function handleFinalSubmit() {
     setSaving(true)
     await saveSession({ status: 'summary_viewed', step: 4 })
-    setSaving(false)
-    router.push('/dashboard?intake=complete')
+    // Initiate Stripe Checkout
+    const { data: { session: authSession } } = await supabase.auth.getSession()
+    const token = authSession?.access_token
+    const res = await fetch('/api/checkout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ intake_session_id: sessionId }),
+    })
+    const json = await res.json()
+    if (json.url) {
+      window.location.href = json.url
+    } else {
+      setError(json.error || 'Checkout failed — please try again.')
+      setSaving(false)
+    }
   }
 
   if (loading) {
@@ -678,6 +695,7 @@ export default function IntakeNewPage() {
         {step === 4 && (
           <SummaryStep
             data={session || {}}
+            sessionId={sessionId}
             onBack={() => setStep(3)}
             onSubmit={handleFinalSubmit}
             saving={saving}
