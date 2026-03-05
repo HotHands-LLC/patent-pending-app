@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-02-24.acacia' })
+// Lazy init — avoids build-time crash when env vars not yet set
+function getStripe() {
+  if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not configured')
+  return new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-02-24.acacia' })
+}
 
 const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,6 +18,7 @@ const PRICE_CENTS = parseInt(process.env.CLAIMS_PRICE_CENTS || '4900', 10)
 
 export async function POST(req: NextRequest) {
   try {
+    const stripe = getStripe()
     const { intake_session_id } = await req.json()
     if (!intake_session_id) {
       return NextResponse.json({ error: 'intake_session_id required' }, { status: 400 })
