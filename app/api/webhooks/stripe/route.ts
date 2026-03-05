@@ -14,8 +14,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Required: disable body parsing so we can verify the raw Stripe signature
-export const config = { api: { bodyParser: false } }
+// App Router: req.text() reads raw body directly — no bodyParser config needed
 
 export async function POST(req: NextRequest) {
   // ── Signature verification — MUST pass before processing anything ────────
