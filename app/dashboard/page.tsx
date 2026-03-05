@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import { supabase, Patent, PatentDeadline, getDaysUntil, getUrgencyBadge } from '@/lib/supabase'
 import PatentPhaseWidget from "@/components/dashboard/PatentPhaseWidget"
+import ReviewQueue from "@/components/dashboard/ReviewQueue"
 
 export default function Dashboard() {
   const [patents, setPatents] = useState<Patent[]>([])
@@ -128,6 +129,11 @@ export default function Dashboard() {
             {patents.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-400 text-sm mb-4">No patents registered yet.</p>
+
+        {/* Review Queue */}
+        <div className="mb-8">
+          <ReviewQueue />
+        </div>
 
         {/* Phase Progress Widget */}
         <div className="mb-8">
