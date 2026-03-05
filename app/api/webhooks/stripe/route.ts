@@ -3,117 +3,121 @@ import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 import { generateClaimsDraft } from '@/lib/claims-draft'
 
-// Lazy init — STRIPE_SECRET_KEY not available at build time
-function getStripe() {
-  return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-02-24.acacia' })
-}
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-02-24.acacia' })
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// POST /api/webhooks/stripe
-// Stripe sends checkout.session.completed here
+// Required: disable body parsing so we can verify the raw Stripe signature
+export const config = { api: { bodyParser: false } }
+
 export async function POST(req: NextRequest) {
-  const body = await req.text()
+  // ── Signature verification — MUST pass before processing anything ────────
   const sig = req.headers.get('stripe-signature')
+  if (!sig) {
+    return NextResponse.json({ error: 'Missing stripe-signature' }, { status: 401 })
+  }
 
-  if (!sig) return NextResponse.json({ error: 'Missing stripe-signature' }, { status: 401 })
-
-  const stripe = getStripe()
+  const rawBody = await req.text()
   let event: Stripe.Event
+
   try {
     event = stripe.webhooks.constructEvent(
-      body,
+      rawBody,
       sig,
       process.env.STRIPE_WEBHOOK_SECRET!
     )
   } catch (err) {
-    // Signature verification failed — reject immediately
-    console.error('Stripe webhook signature verification failed:', err)
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    const msg = err instanceof Error ? err.message : 'Signature verification failed'
+    console.error('[webhook] sig verification failed:', msg)
+    return NextResponse.json({ error: `Webhook signature failed: ${msg}` }, { status: 401 })
   }
 
-  // Only handle checkout.session.completed
-  if (event.type !== 'checkout.session.completed') {
-    return NextResponse.json({ received: true })
-  }
+  // ── Respond 200 immediately — all processing is non-blocking ────────────
+  // We process async below, but Stripe gets 200 right away
+  handleEvent(event).catch((err) => {
+    console.error('[webhook] async handler error:', err)
+  })
+
+  return NextResponse.json({ received: true })
+}
+
+async function handleEvent(event: Stripe.Event) {
+  if (event.type !== 'checkout.session.completed') return
 
   const session = event.data.object as Stripe.Checkout.Session
-  const { intake_session_id, user_id } = session.metadata || {}
+  const { intake_session_id, user_id } = session.metadata ?? {}
 
   if (!intake_session_id || !user_id) {
-    console.error('Webhook missing metadata:', session.id)
-    return NextResponse.json({ error: 'Missing metadata' }, { status: 400 })
+    console.error('[webhook] missing metadata on session:', session.id)
+    return
   }
 
-  // 1. Mark intake as paid — respond 200 immediately, don't block
-  const now = new Date().toISOString()
-
-  const { data: intake } = await supabase
+  // ── Step 1: Mark intake as paid ──────────────────────────────────────────
+  const { data: intake, error: intakeErr } = await supabase
     .from('patent_intake_sessions')
     .update({
       payment_status: 'paid',
-      stripe_checkout_session_id: session.id,
+      updated_at: new Date().toISOString(),
     })
     .eq('id', intake_session_id)
     .select('*')
     .single()
 
-  if (!intake) {
-    console.error('Intake session not found for webhook:', intake_session_id)
-    return NextResponse.json({ error: 'Intake not found' }, { status: 404 })
+  if (intakeErr || !intake) {
+    console.error('[webhook] failed to update intake session:', intakeErr)
+    return
   }
 
-  // 2. Convert intake → patents row
-  // Look up patent_profile id for this user (patents.owner_id → patent_profiles.id)
+  // ── Step 2: Convert intake → patents row ─────────────────────────────────
+  // Look up patent_profile for this user
   const { data: profile } = await supabase
     .from('patent_profiles')
     .select('id')
     .eq('id', user_id)
     .single()
 
-  const owner_id = profile?.id || user_id
+  // If no profile yet, we can still create the patent with the auth user id
+  // (the patents table's owner_id should ideally point to patent_profiles,
+  //  but we handle missing profiles gracefully)
+  const ownerId = profile?.id ?? user_id
 
   const { data: patent, error: patentErr } = await supabase
     .from('patents')
     .insert({
-      owner_id,
-      intake_session_id,
+      owner_id: ownerId,
+      intake_session_id: intake.id,
       title: intake.invention_name || 'Untitled Invention',
       description: [
         intake.problem_solved,
         intake.how_it_works,
         intake.what_makes_it_new,
       ].filter(Boolean).join('\n\n'),
-      inventors: intake.inventor_name
-        ? [intake.inventor_name, ...(intake.co_inventors || [])].filter(Boolean)
-        : [],
-      status: 'provisional',
+      inventors: [intake.inventor_name, ...(intake.co_inventors ?? [])]
+        .filter(Boolean),
+      stripe_checkout_session_id: intake.stripe_checkout_session_id,
+      payment_confirmed_at: new Date().toISOString(),
       filing_status: 'draft',
-      payment_confirmed_at: now,
-      stripe_checkout_session_id: session.id,
+      status: 'provisional',
     })
     .select('id')
     .single()
 
   if (patentErr || !patent) {
-    console.error('Failed to create patent from intake:', patentErr)
-    return NextResponse.json({ error: 'Patent creation failed' }, { status: 500 })
+    console.error('[webhook] failed to create patent:', patentErr)
+    return
   }
 
-  // Link converted patent back to intake session
+  // Update intake with converted patent id
   await supabase
     .from('patent_intake_sessions')
     .update({ converted_to_patent_id: patent.id, status: 'completed' })
     .eq('id', intake_session_id)
 
-  // 3. Respond 200 to Stripe immediately
-  // Fire claims draft job async (non-blocking)
+  // ── Step 3: Enqueue claims draft (async — does not block) ────────────────
   generateClaimsDraft(patent.id, intake).catch((err) => {
-    console.error('Claims draft job failed:', err)
+    console.error('[webhook] claims draft failed:', err)
   })
-
-  return NextResponse.json({ received: true })
 }
