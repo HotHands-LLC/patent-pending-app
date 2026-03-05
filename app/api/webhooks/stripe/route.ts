@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
-import { generateClaimsDraft } from '@/lib/claims-draft'
 
 function getStripe() {
   if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not configured')
@@ -19,12 +18,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing stripe-signature' }, { status: 401 })
   }
 
-  // 1. Read raw body as text — required for Stripe signature verification
+  // 1. Read raw body — required for Stripe signature verification
   const rawBody = await req.text()
-
   const stripe = getStripe()
 
-  // 2. Verify signature using raw string (not parsed object)
+  // 2. Verify signature using raw string
   try {
     stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET!)
   } catch (err) {
@@ -33,7 +31,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Webhook signature failed: ${msg}` }, { status: 401 })
   }
 
-  // 3. Parse event from raw body for handler use
+  // 3. Parse event from raw body
   const event = JSON.parse(rawBody) as Stripe.Event
 
   if (event.type !== 'checkout.session.completed') {
@@ -48,7 +46,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true })
   }
 
-  // 4. Full handler awaited synchronously (Pro plan = 60s timeout)
   let patentId: string | null = null
 
   try {
@@ -82,7 +79,7 @@ export async function POST(req: NextRequest) {
     }
     console.log('[webhook] Step 2 OK — profile:', profile.id)
 
-    // Step 3: Create patents row
+    // Step 3: Create patents row — claims_status='pending' enqueues cron job
     const { data: patent, error: patentErr } = await supabase
       .from('patents')
       .insert({
@@ -96,6 +93,7 @@ export async function POST(req: NextRequest) {
         payment_confirmed_at: new Date().toISOString(),
         filing_status: 'draft',
         status: 'provisional',
+        claims_status: 'pending', // ← Picked up by /api/cron/generate-claims within 60s
       })
       .select('id')
       .single()
@@ -104,7 +102,7 @@ export async function POST(req: NextRequest) {
       console.error('[webhook] Step 3 failed — patent insert:', JSON.stringify(patentErr))
       return NextResponse.json({ error: 'patent insert failed', detail: patentErr }, { status: 500 })
     }
-    console.log('[webhook] Step 3 OK — patent created:', patent.id)
+    console.log('[webhook] Step 3 OK — patent created with claims_status=pending:', patent.id)
     patentId = patent.id
 
     // Step 4: Link intake → patent
@@ -112,16 +110,11 @@ export async function POST(req: NextRequest) {
       .from('patent_intake_sessions')
       .update({ converted_to_patent_id: patent.id, status: 'completed' })
       .eq('id', intake_session_id)
-    console.log('[webhook] Step 4 OK — intake linked to patent')
+    console.log('[webhook] Step 4 OK — intake linked, webhook complete in <2s')
 
-    // Step 5: Generate claims draft (awaited — Pro plan 60s timeout covers this)
-    try {
-      await generateClaimsDraft(patent.id, intake)
-      console.log('[webhook] Step 5 OK — claims draft generated for:', patent.id)
-    } catch (geminiErr) {
-      // Claims draft failure is non-fatal — patent row is already created
-      console.error('[webhook] Step 5 WARN — claims draft failed (non-fatal):', geminiErr)
-    }
+    // NOTE: Gemini claims generation is intentionally removed from webhook.
+    // The cron job at /api/cron/generate-claims picks up claims_status='pending'
+    // rows every 60s — no timeout risk.
 
   } catch (err) {
     console.error('[webhook] unexpected error:', err)
