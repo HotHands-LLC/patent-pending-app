@@ -24,14 +24,14 @@ export type Patent = {
   tags: string[]
   created_at: string
   updated_at: string
-  // Phase 2+ fields
-  current_phase: number | null          // 1–7 filing phases
-  filing_status: 'draft' | 'approved' | 'filed' | null
-  claims_draft: string | null
-  abstract_draft: string | null
-  intake_session_id: string | null
-  payment_confirmed_at: string | null
-  stripe_checkout_session_id: string | null
+  // Phase 2+ fields (optional for backwards compat with local component interfaces)
+  current_phase?: number | null         // 1–7 filing phases
+  filing_status?: 'draft' | 'approved' | 'filed' | null
+  claims_draft?: string | null
+  abstract_draft?: string | null
+  intake_session_id?: string | null
+  payment_confirmed_at?: string | null
+  stripe_checkout_session_id?: string | null
 }
 
 export type PatentDeadline = {
