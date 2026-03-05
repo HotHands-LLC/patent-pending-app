@@ -368,7 +368,7 @@ function InventorStep({
                 key={String(val)}
                 onClick={() => onChange('micro_entity_eligible', val)}
                 style={{
-                  flex: 1, padding: '12px', borderRadius: 8, cursor: 'pointer', border: 'none',
+                  flex: 1, padding: '12px', borderRadius: 8, cursor: 'pointer',
                   background: data.micro_entity_eligible === val
                     ? (val ? 'rgba(5,150,105,0.25)' : 'rgba(146,64,14,0.25)')
                     : '#18181b',
