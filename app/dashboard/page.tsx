@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import { supabase, Patent, PatentDeadline, getDaysUntil, getUrgencyBadge } from '@/lib/supabase'
+import PatentPhaseWidget from "@/components/dashboard/PatentPhaseWidget"
 
 export default function Dashboard() {
   const [patents, setPatents] = useState<Patent[]>([])
@@ -127,6 +128,12 @@ export default function Dashboard() {
             {patents.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-400 text-sm mb-4">No patents registered yet.</p>
+
+        {/* Phase Progress Widget */}
+        <div className="mb-8">
+          <PatentPhaseWidget patents={patents ?? []} />
+        </div>
+
                 <Link href="/dashboard/patents/new" className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium min-h-[44px]">
                   Register First Patent
                 </Link>
