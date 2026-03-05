@@ -18,19 +18,19 @@ function SuccessContent() {
   return (
     <div style={{ minHeight: '100vh', background: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <div style={{ maxWidth: 520, width: '100%', textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 20 }}>🦞</div>
+        <div style={{ fontSize: 48, marginBottom: 20 }}>✅</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: '#f4f4f5', marginBottom: 12 }}>
-          Payment confirmed — BoClaw is on it
+          Payment confirmed — your claims draft is generating
         </h1>
         <p style={{ fontSize: 14, color: '#71717a', lineHeight: 1.7, marginBottom: 28 }}>
-          Your claims draft is being generated now{dots}<br />
-          This takes 1–2 minutes. You can close this tab — we'll have your draft ready in the dashboard.
+          This takes 1–2 minutes. You can close this tab —<br />
+          your draft will be ready in your dashboard.
         </p>
 
         <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 12, padding: '16px 20px', marginBottom: 28, textAlign: 'left' }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#52525b', marginBottom: 10 }}>What happens next</div>
           {[
-            ['⚡', 'BoClaw drafts independent + dependent claims from your intake'],
+            ['⚡', 'AI drafts independent + dependent claims from your intake'],
             ['📋', 'Claims appear in your patent dashboard when ready'],
             ['✏️', 'You review, approve, or request revisions'],
             ['📬', 'Full filing package assembled for USPTO submission'],
