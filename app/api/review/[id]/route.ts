@@ -25,8 +25,9 @@ function createUserClient() {
 // PATCH /api/review/[id] — Chad approves or rejects
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   const supabase = createUserClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -44,7 +45,7 @@ export async function PATCH(
       reviewer_notes: reviewer_notes ?? null,
       reviewed_at: new Date().toISOString(),
     })
-    .eq('id', params.id)
+    .eq('id', id)
     .eq('owner_id', user.id) // RLS enforced at DB level too, double-check here
     .select('id, status, reviewed_at')
     .single()
