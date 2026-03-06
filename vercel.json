@@ -3,6 +3,11 @@
     {
       "path": "/api/cron/generate-claims",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/process-revisions",
+      "schedule": "* * * * *"
     }
   ]
 }
+
