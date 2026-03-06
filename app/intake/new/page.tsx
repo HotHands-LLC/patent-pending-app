@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import SmartHandoffModal, { type ExtractedFields } from '@/components/SmartHandoffModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface IntakeSession {
@@ -201,13 +202,14 @@ function getNudge(key: string, value: string): string | null {
 
 // ── Step 2: Invention Description ─────────────────────────────────────────────
 function DescriptionStep({
-  data, onChange, onNext, onBack, saving
+  data, onChange, onNext, onBack, saving, onOpenSmartHandoff
 }: {
   data: Partial<IntakeSession>
   onChange: (k: string, v: string) => void
   onNext: () => void
   onBack: () => void
   saving: boolean
+  onOpenSmartHandoff: () => void
 }) {
   const [error, setError] = useState('')
 
@@ -262,9 +264,38 @@ function DescriptionStep({
       <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f4f4f5', marginBottom: 6 }}>
         Describe Your Invention
       </h1>
-      <p style={{ fontSize: 14, color: '#71717a', marginBottom: 28 }}>
+      <p style={{ fontSize: 14, color: '#71717a', marginBottom: 20 }}>
         Answer in your own words — no legal language needed. We'll help shape it into patent language.
       </p>
+
+      {/* Smart Handoff fast-track button */}
+      <button
+        onClick={onOpenSmartHandoff}
+        style={{
+          width: '100%',
+          padding: '14px 16px',
+          borderRadius: 10,
+          border: '1px solid rgba(245,158,11,0.4)',
+          background: 'rgba(245,158,11,0.07)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 24,
+          transition: 'all 0.15s',
+          textAlign: 'left',
+        } as React.CSSProperties}
+      >
+        <span style={{ fontSize: 22, flexShrink: 0 }}>⚡</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>
+            I already have research — fast track it →
+          </div>
+          <div style={{ fontSize: 11, color: '#71717a', marginTop: 2 }}>
+            Upload PDFs, docs, images, or notes and we'll fill in the form automatically
+          </div>
+        </div>
+      </button>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         {questions.map((q) => (
@@ -522,6 +553,30 @@ function SummaryStep({
   )
 }
 
+// ── Toast notification ────────────────────────────────────────────────────────
+function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 6000)
+    return () => clearTimeout(t)
+  }, [onDismiss])
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 1000, maxWidth: 480, width: 'calc(100% - 32px)',
+      background: 'rgba(5,150,105,0.95)', backdropFilter: 'blur(8px)',
+      border: '1px solid rgba(52,211,153,0.4)',
+      borderRadius: 10, padding: '12px 16px',
+      display: 'flex', alignItems: 'center', gap: 10,
+      boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+    }}>
+      <span style={{ fontSize: 18, flexShrink: 0 }}>✅</span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', flex: 1 }}>{message}</span>
+      <button onClick={onDismiss} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', fontSize: 16, flexShrink: 0 }}>✕</button>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function IntakeNewPage() {
   const router = useRouter()
@@ -531,12 +586,19 @@ export default function IntakeNewPage() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [authToken, setAuthToken] = useState<string | null>(null)
+  const [showSmartHandoff, setShowSmartHandoff] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   // Auth check + load or create session
   useEffect(() => {
     async function init() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
+
+      // Capture access token for Smart Handoff upload
+      const { data: { session: authSession } } = await supabase.auth.getSession()
+      if (authSession?.access_token) setAuthToken(authSession.access_token)
 
       // Look for existing draft session
       const { data: existing } = await supabase
@@ -619,6 +681,29 @@ export default function IntakeNewPage() {
     setSaving(false)
   }
 
+  function handleSmartHandoffSuccess(extracted: ExtractedFields) {
+    // Map extracted fields → intake session fields
+    const updates: Partial<IntakeSession> = {}
+    if (extracted.title) updates.invention_name = extracted.title
+    if (extracted.problem_solved) updates.problem_solved = extracted.problem_solved
+    if (extracted.description) updates.how_it_works = extracted.description
+    if (extracted.key_features?.length) {
+      updates.what_makes_it_new = extracted.key_features.map(f => `• ${f}`).join('\n')
+    }
+    // Apply to local state immediately
+    setSession(prev => ({ ...prev, ...updates }))
+    // Persist to DB
+    if (sessionId) {
+      supabase
+        .from('patent_intake_sessions')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', sessionId)
+        .then()
+    }
+    setShowSmartHandoff(false)
+    setToast('We filled in your application from your documents. Review and continue.')
+  }
+
   async function handleFinalSubmit() {
     setSaving(true)
     await saveSession({ status: 'summary_viewed', step: 4 })
@@ -681,6 +766,7 @@ export default function IntakeNewPage() {
             onNext={handleDescriptionNext}
             onBack={() => setStep(1)}
             saving={saving}
+            onOpenSmartHandoff={() => setShowSmartHandoff(true)}
           />
         )}
         {step === 3 && (
@@ -702,6 +788,19 @@ export default function IntakeNewPage() {
           />
         )}
       </div>
+
+      {/* Smart Handoff Modal */}
+      {showSmartHandoff && sessionId && authToken && (
+        <SmartHandoffModal
+          intakeSessionId={sessionId}
+          authToken={authToken}
+          onSuccess={handleSmartHandoffSuccess}
+          onClose={() => setShowSmartHandoff(false)}
+        />
+      )}
+
+      {/* Success toast */}
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>
   )
 }
