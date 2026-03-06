@@ -8,6 +8,12 @@
       "path": "/api/cron/process-revisions",
       "schedule": "* * * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/intake/analyze-upload/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
 }
 

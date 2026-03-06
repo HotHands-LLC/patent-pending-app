@@ -29,6 +29,7 @@ export type Patent = {
   filing_status?: string | null         // 'draft' | 'approved' | 'filed'
   claims_status?: 'pending' | 'generating' | 'complete' | 'failed' | null
   claims_draft?: string | null
+  claims_score?: Record<string, unknown> | null  // jsonb — see lib/claims-score.ts ClaimsScore
   abstract_draft?: string | null
   intake_session_id?: string | null
   payment_confirmed_at?: string | null

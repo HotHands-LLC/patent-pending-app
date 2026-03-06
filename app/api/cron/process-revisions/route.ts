@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { sendClaimsReadyEmail } from '@/lib/email'
+import { scoreClaimsDraft } from '@/lib/claims-score'
 
 const GEMINI_MODEL = 'gemini-2.5-pro'
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
@@ -126,6 +127,15 @@ export async function GET(req: NextRequest) {
         reviewed_at: new Date().toISOString(),
       })
       .eq('id', queueRow.id)
+
+    // ── Re-score claims after revision (fire-and-forget) ──────────────────
+    const score = await scoreClaimsDraft(patent.id, revisedDraft)
+    if (score) {
+      await supabase
+        .from('patents')
+        .update({ claims_score: score })
+        .eq('id', patent.id)
+    }
 
     // ── Notify patent owner via email (fire-and-forget) ───────────────────
     const ownerEmail = await getOwnerEmail(queueRow.owner_id)

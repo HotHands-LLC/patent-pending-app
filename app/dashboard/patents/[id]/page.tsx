@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
@@ -9,6 +9,16 @@ import {
   getDaysUntil, getUrgencyBadge,
   CORRESPONDENCE_TYPE_LABELS, CORRESPONDENCE_TYPE_COLORS
 } from '@/lib/supabase'
+import type { ClaimsScore } from '@/lib/claims-score'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface UploadedFile {
+  name: string
+  size: number
+  type: string
+  storage_path: string
+  uploaded_at: string
+}
 
 const STATUS_COLORS: Record<string, string> = {
   provisional: 'bg-blue-100 text-blue-800',
@@ -20,30 +30,213 @@ const STATUS_COLORS: Record<string, string> = {
 
 type Tab = 'details' | 'claims' | 'correspondence'
 
+// ── Revision chips ─────────────────────────────────────────────────────────────
+const REVISION_CHIPS = [
+  { id: 'broaden', label: 'Broaden the independent claims' },
+  { id: 'more_dependent', label: 'Add more dependent claims' },
+  { id: 'uspto_language', label: 'Improve USPTO language compliance' },
+  { id: 'missing_embodiments', label: 'Add missing embodiments' },
+  { id: 'prior_art', label: 'Run prior art check and strengthen novelty' },
+  { id: 'custom', label: 'Custom note…' },
+]
+
+// ── Filing readiness score card ───────────────────────────────────────────────
+function ScoreCard({ score }: { score: ClaimsScore }) {
+  const readinessColor = score.provisional_ready ? '#059669' : '#d97706'
+  const noveltyColor = score.novelty_score >= 8 ? '#059669' : score.novelty_score >= 6 ? '#d97706' : '#dc2626'
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-5">
+      <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Filing Readiness</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: readinessColor }}>
+          {score.provisional_ready ? '✅ FILE NOW' : '⚠️ NEEDS WORK'}
+        </span>
+      </div>
+      <div className="px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div>
+          <div className="text-xs text-gray-400 mb-1">Independent Claims</div>
+          <div className="text-xl font-bold text-[#1a1f36]">
+            {score.independent_claims_count}
+            {score.independent_claims_count >= 3 && <span className="text-green-500 text-base ml-1">✅</span>}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-400 mb-1">Dependent Claims</div>
+          <div className="text-xl font-bold text-[#1a1f36]">
+            {score.dependent_claims_count}
+            {score.dependent_claims_count >= 6 && <span className="text-green-500 text-base ml-1">✅</span>}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-400 mb-1">Novelty Score</div>
+          <div className="text-xl font-bold" style={{ color: noveltyColor }}>
+            {score.novelty_score}<span className="text-sm font-normal text-gray-400">/10</span>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-400 mb-1">Provisional Ready?</div>
+          <div className="text-base font-bold" style={{ color: readinessColor }}>
+            {score.provisional_ready ? 'YES' : 'NOT YET'}
+          </div>
+        </div>
+      </div>
+      {(score.top_strength || score.top_gap) && (
+        <div className="px-5 pb-4 grid sm:grid-cols-2 gap-3">
+          {score.top_strength && (
+            <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+              <div className="text-xs font-semibold text-green-700 mb-1">💪 Top Strength</div>
+              <div className="text-xs text-green-800">{score.top_strength}</div>
+            </div>
+          )}
+          {score.top_gap && (
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+              <div className="text-xs font-semibold text-amber-700 mb-1">⚠️ Top Gap</div>
+              <div className="text-xs text-amber-800">{score.top_gap}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Pro badge ──────────────────────────────────────────────────────────────────
+function ProBadge() {
+  return (
+    <div className="bg-white rounded-xl border border-amber-200 overflow-hidden mb-5">
+      <div className="px-5 py-3 border-b border-amber-100 bg-amber-50 flex items-center gap-2">
+        <span className="text-base">⚡</span>
+        <span className="text-xs font-bold uppercase tracking-wider text-amber-700">Go Deeper with Pro</span>
+      </div>
+      <div className="px-5 py-4">
+        <ul className="space-y-2 mb-4">
+          {[
+            'Deep Research Pass (12-min Gemini)',
+            'Claude Language Refinement Pass',
+            'Unlimited revision rounds',
+          ].map(f => (
+            <li key={f} className="text-xs text-gray-600 flex items-center gap-2">
+              <span className="text-amber-500">•</span> {f}
+            </li>
+          ))}
+        </ul>
+        <Link
+          href="/pricing"
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 transition-colors"
+        >
+          Upgrade to Pro →
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────────
+function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 3000)
+    return () => clearTimeout(t)
+  }, [onDismiss])
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 1000, background: '#1a1f36', color: '#fff',
+      padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+      boxShadow: '0 4px 20px rgba(0,0,0,0.3)', whiteSpace: 'nowrap',
+    }}>
+      {message}
+    </div>
+  )
+}
+
+// ── Claims text with individual copy ──────────────────────────────────────────
+function ClaimsText({ text, onCopy }: { text: string; onCopy: (t: string) => void }) {
+  // Split into individual claims by numbered lines
+  const claims = text.split(/(?=^\d+\.\s)/m).filter(s => s.trim())
+
+  return (
+    <div className="px-5 py-4 font-mono text-xs text-gray-700 leading-relaxed max-h-[500px] overflow-y-auto">
+      {claims.length > 1 ? (
+        claims.map((claim, i) => (
+          <div
+            key={i}
+            className="group relative mb-3 p-2 -mx-2 rounded hover:bg-gray-50 transition-colors"
+          >
+            <button
+              onClick={() => onCopy(claim.trim())}
+              className="absolute right-1 top-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-200"
+              title="Copy this claim"
+            >
+              <span className="text-gray-400 text-xs">📋</span>
+            </button>
+            <pre className="whitespace-pre-wrap pr-6">{claim}</pre>
+          </div>
+        ))
+      ) : (
+        <pre className="whitespace-pre-wrap">{text}</pre>
+      )}
+    </div>
+  )
+}
+
+// ── File type icon ────────────────────────────────────────────────────────────
+function fileIcon(type: string): string {
+  if (type === 'application/pdf') return '📄'
+  if (type.includes('word') || type.includes('doc')) return '📝'
+  if (type.startsWith('image/')) return '🖼️'
+  if (type === 'text/plain') return '📃'
+  if (type === 'text/markdown') return '🗒️'
+  return '📁'
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function PatentDetail() {
   const [patent, setPatent] = useState<Patent | null>(null)
   const [deadlines, setDeadlines] = useState<PatentDeadline[]>([])
   const [correspondence, setCorrespondence] = useState<PatentCorrespondence[]>([])
   const [allPatents, setAllPatents] = useState<Patent[]>([])
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
+  const [fileSignedUrls, setFileSignedUrls] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editData, setEditData] = useState<Partial<Patent>>({})
   const [tab, setTab] = useState<Tab>('details')
   const [claimsAction, setClaimsAction] = useState<'idle' | 'approving' | 'requesting'>('idle')
-  const [revisionNote, setRevisionNote] = useState('')
+  const [selectedChips, setSelectedChips] = useState<string[]>([])
+  const [customNote, setCustomNote] = useState('')
   const [claimsMsg, setClaimsMsg] = useState('')
   const [showCorrespondenceForm, setShowCorrespondenceForm] = useState(false)
   const [expandedCorr, setExpandedCorr] = useState<string | null>(null)
   const [ownerId, setOwnerId] = useState('')
+  const [authToken, setAuthToken] = useState('')
+  const [toast, setToast] = useState<string | null>(null)
+  // Inline title editing
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
   const router = useRouter()
   const params = useParams()
   const id = params.id as string
+
+  const showToast = useCallback((msg: string) => { setToast(msg) }, [])
 
   async function loadAll() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
     setOwnerId(user.id)
+
+    const { data: { session: authSession } } = await supabase.auth.getSession()
+    if (authSession?.access_token) setAuthToken(authSession.access_token)
 
     const [{ data: p }, { data: d }, { data: c }, { data: ap }] = await Promise.all([
       supabase.from('patents').select('*').eq('id', id).single(),
@@ -58,20 +251,76 @@ export default function PatentDetail() {
     setDeadlines(d || [])
     setCorrespondence((c as PatentCorrespondence[]) || [])
     setAllPatents(ap || [])
+
+    // ── BUG 1 FIX: load uploaded files from intake session ────────────────
+    if (p.intake_session_id) {
+      const { data: intakeSession } = await supabase
+        .from('patent_intake_sessions')
+        .select('uploaded_files')
+        .eq('id', p.intake_session_id)
+        .single()
+
+      const files: UploadedFile[] = (intakeSession?.uploaded_files as UploadedFile[]) || []
+      setUploadedFiles(files)
+
+      // Generate signed URLs for files with storage paths
+      if (files.length > 0) {
+        const urls: Record<string, string> = {}
+        for (const f of files) {
+          if (f.storage_path) {
+            const { data: signed } = await supabase.storage
+              .from('patent-uploads')
+              .createSignedUrl(f.storage_path, 3600) // 1 hour
+            if (signed?.signedUrl) urls[f.storage_path] = signed.signedUrl
+          }
+        }
+        setFileSignedUrls(urls)
+      }
+    }
+
     setLoading(false)
   }
 
   useEffect(() => { loadAll() }, [id, router])
 
+  // Focus title input when entering edit mode
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus()
+      titleInputRef.current.select()
+    }
+  }, [editingTitle])
+
+  // ── Inline title save ──────────────────────────────────────────────────────
+  async function saveTitleInline() {
+    if (!patent || !titleDraft.trim() || titleDraft.trim() === patent.title) {
+      setEditingTitle(false)
+      return
+    }
+    const newTitle = titleDraft.trim()
+    const res = await fetch(`/api/patents/${patent.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ title: newTitle }),
+    })
+    if (res.ok) {
+      setPatent(prev => prev ? { ...prev, title: newTitle } : null)
+      setEditData(prev => ({ ...prev, title: newTitle }))
+    }
+    setEditingTitle(false)
+  }
+
+  // ── Claims actions ─────────────────────────────────────────────────────────
   async function approveClaims() {
     if (!patent) return
     setClaimsAction('approving')
     setClaimsMsg('')
-    const { data: { session } } = await supabase.auth.getSession()
-    const token = session?.access_token
     const res = await fetch(`/api/patents/${patent.id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ filing_status: 'approved' }),
     })
     const json = await res.json()
@@ -85,43 +334,62 @@ export default function PatentDetail() {
   }
 
   async function requestRevision() {
-    if (!patent || !revisionNote.trim()) return
+    if (!patent) return
+    const chips = selectedChips.filter(c => c !== 'custom')
+    const chipLabels = chips.map(c => REVISION_CHIPS.find(r => r.id === c)?.label || c)
+    const parts = [...chipLabels]
+    if (customNote.trim()) parts.push(`Custom: ${customNote.trim()}`)
+    const content = parts.join('. ')
+    if (!content) return
+
     setClaimsAction('requesting')
     setClaimsMsg('')
-    const { data: { session } } = await supabase.auth.getSession()
-    const token = session?.access_token
-    // Create a review_queue entry for the revision request
     const res = await fetch('/api/review', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({
         patent_id: patent.id,
         draft_type: 'claims_revision',
         title: `Claims Revision Request — ${patent.title}`,
-        content: revisionNote.trim(),
+        content,
         version: 1,
       }),
     })
     const json = await res.json()
     if (res.ok) {
-      setRevisionNote('')
-      setClaimsMsg('Revision request submitted. It will appear in the review queue.')
+      setSelectedChips([])
+      setCustomNote('')
+      setClaimsMsg('Revision request submitted. Updated claims will appear here shortly.')
     } else {
       setClaimsMsg(`Error: ${json.error || 'Failed to submit'}`)
     }
     setClaimsAction('idle')
   }
 
+  // ── Copy to clipboard ──────────────────────────────────────────────────────
+  async function copyToClipboard(text: string, label = 'Copied!') {
+    try {
+      await navigator.clipboard.writeText(text)
+      showToast(label)
+    } catch {
+      showToast('Copy failed — try selecting manually')
+    }
+  }
+
+  // ── Details save ───────────────────────────────────────────────────────────
   async function saveEdits() {
     if (!patent) return
     setSaving(true)
-    const { data } = await supabase
-      .from('patents')
-      .update({ ...editData, updated_at: new Date().toISOString() })
-      .eq('id', patent.id)
-      .select()
-      .single()
-    if (data) { setPatent(data); setEditing(false) }
+    const res = await fetch(`/api/patents/${patent.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify(editData),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setPatent(updated)
+      setEditing(false)
+    }
     setSaving(false)
   }
 
@@ -130,11 +398,14 @@ export default function PatentDetail() {
 
   const deadline = patent.provisional_deadline
   const days = deadline ? getDaysUntil(deadline) : null
+  const claimsScore = patent.claims_score as ClaimsScore | null
+  const revisionContentReady = selectedChips.some(c => c !== 'custom') || customNote.trim().length > 0
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-4 sm:mb-6">
           <Link href="/dashboard/patents" className="hover:text-[#1a1f36]">Patents</Link>
@@ -142,10 +413,31 @@ export default function PatentDetail() {
           <span className="text-[#1a1f36] truncate">{patent.title}</span>
         </div>
 
-        {/* Header */}
+        {/* Header — BUG 2 FIX: inline title editing */}
         <div className="flex items-start justify-between mb-4 sm:mb-6 gap-3">
-          <div>
-            <h1 className="text-lg sm:text-2xl font-bold text-[#1a1f36] leading-snug">{patent.title}</h1>
+          <div className="flex-1 min-w-0">
+            {editingTitle ? (
+              <input
+                ref={titleInputRef}
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={saveTitleInline}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') saveTitleInline()
+                  if (e.key === 'Escape') setEditingTitle(false)
+                }}
+                className="text-lg sm:text-2xl font-bold text-[#1a1f36] leading-snug bg-transparent border-b-2 border-[#1a1f36] outline-none w-full pb-0.5"
+              />
+            ) : (
+              <div
+                className="group flex items-center gap-2 cursor-pointer"
+                onClick={() => { setTitleDraft(patent.title); setEditingTitle(true) }}
+                title="Click to edit title"
+              >
+                <h1 className="text-lg sm:text-2xl font-bold text-[#1a1f36] leading-snug">{patent.title}</h1>
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-sm flex-shrink-0">✏️</span>
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2">
               <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[patent.status] || 'bg-gray-100 text-gray-800'}`}>
                 {patent.status.replace('_', ' ')}
@@ -193,21 +485,22 @@ export default function PatentDetail() {
                 tab === t ? 'bg-white text-[#1a1f36] shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {t === 'correspondence' ? `Correspondence (${correspondence.length})` :
-               t === 'claims' ? (
-                 <span className="flex items-center gap-1.5">
-                   Claims
-                   {patent.filing_status === 'approved' && <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />}
-                   {(patent.claims_status === 'pending' || patent.claims_status === 'generating') && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block" />}
-                   {patent.claims_status === 'failed' && <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />}
-                   {patent.claims_status === 'complete' && patent.filing_status === 'draft' && <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />}
-                 </span>
-               ) : 'Details'}
+              {t === 'correspondence'
+                ? `Correspondence (${correspondence.length + uploadedFiles.length})`
+                : t === 'claims' ? (
+                  <span className="flex items-center gap-1.5">
+                    Claims
+                    {patent.filing_status === 'approved' && <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />}
+                    {(patent.claims_status === 'pending' || patent.claims_status === 'generating') && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block" />}
+                    {patent.claims_status === 'failed' && <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />}
+                    {patent.claims_status === 'complete' && patent.filing_status === 'draft' && <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />}
+                  </span>
+                ) : 'Details'}
             </button>
           ))}
         </div>
 
-        {/* Details Tab */}
+        {/* ── DETAILS TAB ─────────────────────────────────────────────────────── */}
         {tab === 'details' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className="lg:col-span-2 space-y-4 sm:space-y-6">
@@ -320,25 +613,15 @@ export default function PatentDetail() {
           </div>
         )}
 
-        {/* Claims Tab */}
+        {/* ── CLAIMS TAB ──────────────────────────────────────────────────────── */}
         {tab === 'claims' && (
           <div>
-            {/* Status banner */}
             {patent.filing_status === 'approved' && (
               <div className="mb-5 p-4 bg-green-50 border border-green-200 rounded-xl flex items-center gap-3">
                 <span className="text-xl">✅</span>
                 <div>
                   <div className="font-semibold text-green-800 text-sm">Claims approved</div>
                   <div className="text-xs text-green-600 mt-0.5">Ready for drawing generation and filing assembly (Phases 4–6).</div>
-                </div>
-              </div>
-            )}
-            {patent.filing_status === 'filed' && (
-              <div className="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3">
-                <span className="text-xl">📬</span>
-                <div>
-                  <div className="font-semibold text-blue-800 text-sm">Filed with USPTO</div>
-                  <div className="text-xs text-blue-600 mt-0.5">Claims are part of the filed application.</div>
                 </div>
               </div>
             )}
@@ -363,13 +646,19 @@ export default function PatentDetail() {
               </div>
             ) : (
               <div className="space-y-5">
-                {/* Claims text */}
+                {/* Filing Readiness Score card — FEATURE 1B */}
+                {claimsScore && <ScoreCard score={claimsScore} />}
+
+                {/* Pro badge — FEATURE 1D */}
+                <ProBadge />
+
+                {/* Claims viewer — FEATURE 1A: copy buttons */}
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                   <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
-                    <div>
+                    <div className="flex items-center gap-3">
                       <span className="text-xs font-bold uppercase tracking-wider text-gray-500">AI-Generated Claims Draft</span>
                       {patent.filing_status && (
-                        <span className={`ml-3 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                           patent.filing_status === 'approved' ? 'bg-green-100 text-green-700' :
                           patent.filing_status === 'filed' ? 'bg-blue-100 text-blue-700' :
                           'bg-amber-100 text-amber-700'
@@ -378,14 +667,23 @@ export default function PatentDetail() {
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-gray-400">{patent.claims_draft.length.toLocaleString()} chars</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-gray-400">{patent.claims_draft.length.toLocaleString()} chars</span>
+                      <button
+                        onClick={() => copyToClipboard(patent.claims_draft!, '📋 All claims copied!')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] transition-colors"
+                      >
+                        📋 Copy All
+                      </button>
+                    </div>
                   </div>
-                  <pre className="px-5 py-4 text-xs text-gray-700 leading-relaxed whitespace-pre-wrap font-mono overflow-x-auto max-h-[500px] overflow-y-auto">
-                    {patent.claims_draft}
-                  </pre>
+                  <ClaimsText
+                    text={patent.claims_draft}
+                    onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
+                  />
                 </div>
 
-                {/* Action bar — only show if not approved/filed */}
+                {/* Action bar */}
                 {patent.filing_status === 'draft' && (
                   <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
                     <h3 className="font-semibold text-[#1a1f36] text-sm">Review this draft</h3>
@@ -406,25 +704,49 @@ export default function PatentDetail() {
                       </button>
                     </div>
 
+                    {/* FEATURE 1C: AI-assisted revision chips */}
                     {claimsAction === 'requesting' && (
-                      <div className="space-y-3">
-                        <textarea
-                          value={revisionNote}
-                          onChange={(e) => setRevisionNote(e.target.value)}
-                          placeholder="Describe what needs to change — e.g. 'Claim 1 is too narrow, should cover wireless mesh topologies not just QR codes' or 'Add a method claim for the server-side recording component'"
-                          rows={4}
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a1f36] resize-none"
-                        />
+                      <div className="space-y-4 pt-2 border-t border-gray-100">
+                        <h4 className="text-sm font-semibold text-[#1a1f36]">What would you like improved?</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {REVISION_CHIPS.map((chip) => {
+                            const selected = selectedChips.includes(chip.id)
+                            return (
+                              <button
+                                key={chip.id}
+                                onClick={() => setSelectedChips(prev =>
+                                  selected ? prev.filter(c => c !== chip.id) : [...prev, chip.id]
+                                )}
+                                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                                  selected
+                                    ? 'bg-[#1a1f36] text-white border-[#1a1f36]'
+                                    : 'bg-white text-gray-600 border-gray-300 hover:border-[#1a1f36]'
+                                }`}
+                              >
+                                {chip.label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {selectedChips.includes('custom') && (
+                          <textarea
+                            value={customNote}
+                            onChange={(e) => setCustomNote(e.target.value)}
+                            placeholder="Describe what needs to change in detail…"
+                            rows={3}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a1f36] resize-none"
+                          />
+                        )}
                         <div className="flex gap-3">
                           <button
                             onClick={requestRevision}
-                            disabled={!revisionNote.trim()}
+                            disabled={!revisionContentReady || claimsAction !== 'requesting'}
                             className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-40 min-h-[44px]"
                           >
                             Submit Revision Request
                           </button>
                           <button
-                            onClick={() => { setClaimsAction('idle'); setRevisionNote('') }}
+                            onClick={() => { setClaimsAction('idle'); setSelectedChips([]); setCustomNote('') }}
                             className="px-4 py-2 border border-gray-200 text-gray-500 rounded-lg text-sm hover:bg-gray-50 min-h-[44px]"
                           >
                             Cancel
@@ -441,36 +763,38 @@ export default function PatentDetail() {
                   </div>
                 )}
 
-                {/* Re-approval option if already approved */}
+                {/* Re-revision option when approved */}
                 {patent.filing_status === 'approved' && (
                   <div className="flex justify-end">
-                    <button
-                      onClick={() => setClaimsAction('requesting')}
-                      className="text-xs text-gray-400 hover:text-gray-600 underline"
-                    >
+                    <button onClick={() => setClaimsAction('requesting')} className="text-xs text-gray-400 hover:text-gray-600 underline">
                       Request changes
                     </button>
                   </div>
                 )}
                 {patent.filing_status === 'approved' && claimsAction === 'requesting' && (
-                  <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+                  <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
                     <h3 className="font-semibold text-[#1a1f36] text-sm">Request changes to approved claims</h3>
-                    <textarea
-                      value={revisionNote}
-                      onChange={(e) => setRevisionNote(e.target.value)}
-                      placeholder="Describe the changes needed…"
-                      rows={3}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a1f36] resize-none"
-                    />
+                    <div className="flex flex-wrap gap-2">
+                      {REVISION_CHIPS.map((chip) => {
+                        const selected = selectedChips.includes(chip.id)
+                        return (
+                          <button key={chip.id} onClick={() => setSelectedChips(prev => selected ? prev.filter(c => c !== chip.id) : [...prev, chip.id])}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${selected ? 'bg-[#1a1f36] text-white border-[#1a1f36]' : 'bg-white text-gray-600 border-gray-300 hover:border-[#1a1f36]'}`}>
+                            {chip.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {selectedChips.includes('custom') && (
+                      <textarea value={customNote} onChange={(e) => setCustomNote(e.target.value)} placeholder="Describe the changes needed…" rows={3}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a1f36] resize-none" />
+                    )}
                     <div className="flex gap-3">
-                      <button
-                        onClick={requestRevision}
-                        disabled={!revisionNote.trim()}
-                        className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-40 min-h-[44px]"
-                      >
+                      <button onClick={requestRevision} disabled={!revisionContentReady}
+                        className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-40 min-h-[44px]">
                         Submit
                       </button>
-                      <button onClick={() => { setClaimsAction('idle'); setRevisionNote('') }}
+                      <button onClick={() => { setClaimsAction('idle'); setSelectedChips([]); setCustomNote('') }}
                         className="px-4 py-2 border border-gray-200 text-gray-500 rounded-lg text-sm hover:bg-gray-50 min-h-[44px]">
                         Cancel
                       </button>
@@ -483,10 +807,9 @@ export default function PatentDetail() {
           </div>
         )}
 
-        {/* Correspondence Tab */}
+        {/* ── CORRESPONDENCE TAB ──────────────────────────────────────────────── */}
         {tab === 'correspondence' && (
           <div>
-            {/* Add form modal */}
             {showCorrespondenceForm && (
               <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
                 <div className="bg-white w-full sm:max-w-2xl sm:rounded-xl rounded-t-xl max-h-[90vh] overflow-y-auto">
@@ -495,47 +818,77 @@ export default function PatentDetail() {
                     <button onClick={() => setShowCorrespondenceForm(false)} className="text-gray-400 hover:text-gray-600 text-xl w-8 h-8 flex items-center justify-center">×</button>
                   </div>
                   <div className="p-5">
-                    <CorrespondenceForm
-                      patents={allPatents}
-                      preselectedPatentId={patent.id}
-                      ownerId={ownerId}
+                    <CorrespondenceForm patents={allPatents} preselectedPatentId={patent.id} ownerId={ownerId}
                       onSuccess={() => { setShowCorrespondenceForm(false); loadAll() }}
-                      onCancel={() => setShowCorrespondenceForm(false)}
-                    />
+                      onCancel={() => setShowCorrespondenceForm(false)} />
                   </div>
                 </div>
               </div>
             )}
 
             <div className="flex items-center justify-between mb-4">
-              <p className="text-sm text-gray-500">{correspondence.length} record{correspondence.length !== 1 ? 's' : ''} for this patent</p>
-              <button
-                onClick={() => setShowCorrespondenceForm(true)}
-                className="px-3 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors min-h-[44px] flex items-center"
-              >
+              <p className="text-sm text-gray-500">
+                {uploadedFiles.length + correspondence.length} record{(uploadedFiles.length + correspondence.length) !== 1 ? 's' : ''} for this patent
+              </p>
+              <button onClick={() => setShowCorrespondenceForm(true)}
+                className="px-3 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors min-h-[44px] flex items-center">
                 + Add
               </button>
             </div>
 
-            {correspondence.length === 0 ? (
+            {/* BUG 1 FIX: Uploaded files section — shown before AI-generated items */}
+            {uploadedFiles.length > 0 && (
+              <div className="mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-400">User Uploaded Documents</span>
+                  <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-xs font-semibold">{uploadedFiles.length}</span>
+                </div>
+                <div className="space-y-2">
+                  {uploadedFiles.map((file, i) => (
+                    <div key={i} className="bg-white rounded-xl border border-amber-100 p-4 flex items-center gap-3">
+                      <span className="text-2xl flex-shrink-0">{fileIcon(file.type)}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm text-[#1a1f36] truncate">{file.name}</div>
+                        <div className="flex gap-3 mt-0.5">
+                          <span className="text-xs text-gray-400">{formatBytes(file.size)}</span>
+                          <span className="text-xs text-gray-400">
+                            {new Date(file.uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                        </div>
+                      </div>
+                      {fileSignedUrls[file.storage_path] ? (
+                        <a
+                          href={fileSignedUrls[file.storage_path]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-shrink-0 px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] transition-colors"
+                        >
+                          View ↗
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-300">No link</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {correspondence.length === 0 && uploadedFiles.length === 0 ? (
               <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
                 <div className="text-3xl mb-3">📬</div>
                 <p className="text-gray-400 text-sm mb-4">No correspondence for this patent yet.</p>
-                <button
-                  onClick={() => setShowCorrespondenceForm(true)}
-                  className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold min-h-[44px]"
-                >
+                <button onClick={() => setShowCorrespondenceForm(true)}
+                  className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold min-h-[44px]">
                   Add Record
                 </button>
               </div>
-            ) : (
+            ) : correspondence.length > 0 && (
               <div className="space-y-2">
                 {correspondence.map(item => (
                   <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <button
-                      onClick={() => setExpandedCorr(expandedCorr === item.id ? null : item.id)}
-                      className="w-full text-left p-4 hover:bg-gray-50 transition-colors"
-                    >
+                    <button onClick={() => setExpandedCorr(expandedCorr === item.id ? null : item.id)}
+                      className="w-full text-left p-4 hover:bg-gray-50 transition-colors">
                       <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -577,15 +930,20 @@ export default function PatentDetail() {
         {/* Save/cancel when editing details */}
         {tab === 'details' && editing && (
           <div className="mt-4 flex gap-3">
-            <button onClick={saveEdits} disabled={saving} className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium hover:bg-[#2d3561] disabled:opacity-50 min-h-[44px]">
+            <button onClick={saveEdits} disabled={saving}
+              className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium hover:bg-[#2d3561] disabled:opacity-50 min-h-[44px]">
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
-            <button onClick={() => { setEditing(false); setEditData(patent) }} className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 min-h-[44px]">
+            <button onClick={() => { setEditing(false); setEditData(patent) }}
+              className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 min-h-[44px]">
               Cancel
             </button>
           </div>
         )}
       </div>
+
+      {/* Toast */}
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>
   )
 }

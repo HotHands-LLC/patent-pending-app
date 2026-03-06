@@ -8,8 +8,26 @@ const supabaseService = createClient(
 
 const ALLOWED_FILING_STATUSES = ['draft', 'approved', 'filed'] as const
 
-// PATCH /api/patents/[id] — update filing_status
-// Allowed transitions: draft → approved, approved → filed
+// Fields user is allowed to update via PATCH
+const ALLOWED_UPDATE_FIELDS = [
+  'filing_status',
+  'title',
+  'description',
+  'provisional_number',
+  'application_number',
+  'filing_date',
+  'provisional_deadline',
+  'non_provisional_deadline',
+  'inventors',
+  'tags',
+  'status',
+  'asking_price',
+  'is_listed',
+] as const
+
+type AllowedField = typeof ALLOWED_UPDATE_FIELDS[number]
+
+// PATCH /api/patents/[id] — update allowed fields
 // Auth: Bearer token required; must be patent owner
 export async function PATCH(
   req: NextRequest,
@@ -31,42 +49,48 @@ export async function PATCH(
   const { data: { user } } = await userClient.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  let body: { filing_status?: string }
+  let body: Record<string, unknown>
   try { body = await req.json() } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { filing_status } = body
-
-  if (!filing_status) {
-    return NextResponse.json({ error: 'filing_status required' }, { status: 400 })
+  // Validate filing_status if present
+  if (body.filing_status !== undefined) {
+    if (!ALLOWED_FILING_STATUSES.includes(body.filing_status as typeof ALLOWED_FILING_STATUSES[number])) {
+      return NextResponse.json(
+        { error: `filing_status must be one of: ${ALLOWED_FILING_STATUSES.join(', ')}` },
+        { status: 400 }
+      )
+    }
   }
-  if (!ALLOWED_FILING_STATUSES.includes(filing_status as typeof ALLOWED_FILING_STATUSES[number])) {
-    return NextResponse.json(
-      { error: `filing_status must be one of: ${ALLOWED_FILING_STATUSES.join(', ')}` },
-      { status: 400 }
-    )
+
+  // Build update payload — only allowed fields
+  const updates: Partial<Record<AllowedField, unknown>> = {}
+  for (const field of ALLOWED_UPDATE_FIELDS) {
+    if (field in body) updates[field] = body[field]
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
   // Verify ownership
   const { data: patent } = await supabaseService
     .from('patents')
-    .select('id, owner_id, filing_status')
+    .select('id, owner_id')
     .eq('id', id)
     .single()
 
   if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
-
-  // Owner check — patent_profiles.id matches auth user id
   if (patent.owner_id !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const { data: updated, error } = await supabaseService
     .from('patents')
-    .update({ filing_status, updated_at: new Date().toISOString() })
+    .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
-    .select('id, filing_status, updated_at')
+    .select()
     .single()
 
   if (error) {

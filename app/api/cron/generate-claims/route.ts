@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { generateClaimsDraft } from '@/lib/claims-draft'
 import { sendClaimsReadyEmail } from '@/lib/email'
+import { scoreClaimsDraft } from '@/lib/claims-score'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -94,6 +95,22 @@ export async function GET(req: NextRequest) {
         .from('patents')
         .update({ claims_status: 'complete' })
         .eq('id', patent.id)
+
+      // Generate filing readiness score — fire-and-forget, never crashes the job
+      const { data: fresh } = await supabase
+        .from('patents')
+        .select('claims_draft')
+        .eq('id', patent.id)
+        .single()
+      if (fresh?.claims_draft) {
+        const score = await scoreClaimsDraft(patent.id, fresh.claims_draft)
+        if (score) {
+          await supabase
+            .from('patents')
+            .update({ claims_score: score })
+            .eq('id', patent.id)
+        }
+      }
 
       // Notify inventor — fire-and-forget; failure never crashes the job
       await sendClaimsReadyEmail({
