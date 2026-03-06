@@ -38,6 +38,8 @@ export type Patent = {
   spec_uploaded?: boolean
   figures_uploaded?: boolean
   cover_sheet_acknowledged?: boolean
+  // Spec drafting (cont.11)
+  spec_draft?: string | null
 }
 
 export type PatentDeadline = {

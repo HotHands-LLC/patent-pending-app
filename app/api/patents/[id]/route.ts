@@ -24,6 +24,7 @@ const ALLOWED_UPDATE_FIELDS = [
   'asking_price',
   'is_listed',
   'cover_sheet_acknowledged',  // set by client after printing/saving cover sheet
+  'spec_draft',               // AI-generated or manually entered spec draft text
 ] as const
 
 type AllowedField = typeof ALLOWED_UPDATE_FIELDS[number]
