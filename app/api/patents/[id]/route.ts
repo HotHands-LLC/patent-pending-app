@@ -23,6 +23,7 @@ const ALLOWED_UPDATE_FIELDS = [
   'status',
   'asking_price',
   'is_listed',
+  'cover_sheet_acknowledged',  // set by client after printing/saving cover sheet
 ] as const
 
 type AllowedField = typeof ALLOWED_UPDATE_FIELDS[number]

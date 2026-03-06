@@ -1,9 +1,11 @@
 'use client'
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import CorrespondenceForm from '@/components/CorrespondenceForm'
+import FilingProgressTracker, { computeStepStatus, currentStep } from '@/components/FilingProgressTracker'
+import DocumentUploadZone from '@/components/DocumentUploadZone'
 import {
   supabase, Patent, PatentDeadline, PatentCorrespondence,
   getDaysUntil, getUrgencyBadge,
@@ -28,7 +30,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'correspondence'
+type Tab = 'details' | 'claims' | 'filing' | 'correspondence'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -226,6 +228,7 @@ export default function PatentDetail() {
 
   const router = useRouter()
   const params = useParams()
+  const searchParams = useSearchParams()
   const id = params.id as string
 
   const showToast = useCallback((msg: string) => { setToast(msg) }, [])
@@ -282,6 +285,24 @@ export default function PatentDetail() {
   }
 
   useEffect(() => { loadAll() }, [id, router])
+
+  // Handle cover-sheet acknowledgment redirect from cover-sheet page
+  useEffect(() => {
+    if (searchParams.get('ack') === 'cover-sheet' && patent && authToken && !patent.cover_sheet_acknowledged) {
+      fetch(`/api/patents/${patent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ cover_sheet_acknowledged: true }),
+      }).then(r => r.ok && r.json()).then(updated => {
+        if (updated) {
+          setPatent(prev => prev ? { ...prev, cover_sheet_acknowledged: true } : null)
+          showToast('✅ Cover sheet marked complete — Step 7 done!')
+          setTab('filing')
+        }
+      })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, authToken, patent?.id])
 
   // Focus title input when entering edit mode
   useEffect(() => {
@@ -476,17 +497,32 @@ export default function PatentDetail() {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl w-full sm:w-auto sm:inline-flex">
-          {(['details', 'claims', 'correspondence'] as Tab[]).map(t => (
+        <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl w-full sm:w-auto sm:inline-flex flex-wrap sm:flex-nowrap">
+          {(['details', 'claims', 'filing', 'correspondence'] as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize min-h-[40px] ${
+              className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize min-h-[40px] ${
                 tab === t ? 'bg-white text-[#1a1f36] shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               {t === 'correspondence'
                 ? `Correspondence (${correspondence.length + uploadedFiles.length})`
+                : t === 'filing'
+                ? (() => {
+                    const statuses = computeStepStatus(patent)
+                    const cur = currentStep(statuses)
+                    return (
+                      <span className="flex items-center gap-1.5">
+                        Filing
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
+                          cur === 9 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {cur}/9
+                        </span>
+                      </span>
+                    )
+                  })()
                 : t === 'claims' ? (
                   <span className="flex items-center gap-1.5">
                     Claims
@@ -495,7 +531,8 @@ export default function PatentDetail() {
                     {patent.claims_status === 'failed' && <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />}
                     {patent.claims_status === 'complete' && patent.filing_status === 'draft' && <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />}
                   </span>
-                ) : 'Details'}
+                ) : 'Details'
+              }
             </button>
           ))}
         </div>
@@ -804,6 +841,186 @@ export default function PatentDetail() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── FILING TAB ──────────────────────────────────────────────────────── */}
+        {tab === 'filing' && (
+          <div className="space-y-5">
+            {/* 9-step progress tracker */}
+            <FilingProgressTracker patent={patent} />
+
+            {/* What's Next guidance card */}
+            {(() => {
+              const statuses = computeStepStatus(patent)
+              const cur = currentStep(statuses)
+
+              const GUIDANCE: Record<number, {
+                icon: string; title: string; body: string; action?: { label: string; href?: string; onClick?: () => void }
+              }> = {
+                4: {
+                  icon: '✍️',
+                  title: 'Step 4: Approve your claims draft',
+                  body: 'Your AI-generated claims are ready. Review them in the Claims tab. When you\'re satisfied, click "Approve Claims" to move forward.',
+                  action: { label: 'Go to Claims →', onClick: () => setTab('claims') },
+                },
+                5: {
+                  icon: '📋',
+                  title: 'Step 5: Upload your specification document',
+                  body: 'A provisional filing requires a written description: Background, Summary, and Detailed Description. Upload your spec below (PDF, DOCX, or MD). Don\'t have one yet? We\'ll help you draft it in a future step.',
+                },
+                6: {
+                  icon: '📐',
+                  title: 'Step 6: Upload your drawings / figures',
+                  body: 'USPTO provisionals benefit from drawings that illustrate your invention. Upload your figures below (PDF or PNG/JPG). Even rough diagrams help establish your priority date.',
+                },
+                7: {
+                  icon: '📄',
+                  title: 'Step 7: Generate and save your cover sheet',
+                  body: 'The USPTO cover sheet (Form SB/16) identifies your invention and inventor. We\'ve pre-filled it from your intake data. Open it, review, print or save as PDF, then mark it complete.',
+                  action: { label: 'Open Cover Sheet →', href: `/dashboard/patents/${patent.id}/cover-sheet` },
+                },
+                8: {
+                  icon: '🏛️',
+                  title: 'Step 8: File with USPTO Patent Center',
+                  body: 'You now have your claims, spec, drawings, and cover sheet. Go to patentcenter.uspto.gov, create an account, and file your provisional application. Filing fee: ~$320 (micro entity) or ~$640 (small entity).',
+                  action: { label: 'Open USPTO Patent Center ↗', href: 'https://patentcenter.uspto.gov' },
+                },
+                9: {
+                  icon: '🎉',
+                  title: 'Patent Pending!',
+                  body: 'You\'ve filed your provisional application. Your non-provisional must be filed within 12 months of your provisional filing date to claim priority. Mark it on your calendar.',
+                },
+              }
+
+              const guide = GUIDANCE[cur]
+              if (!guide) return null
+
+              return (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl flex-shrink-0">{guide.icon}</span>
+                    <div className="flex-1">
+                      <div className="font-semibold text-blue-900 text-sm mb-1">{guide.title}</div>
+                      <p className="text-sm text-blue-700 leading-relaxed mb-3">{guide.body}</p>
+                      {guide.action && (
+                        guide.action.href ? (
+                          <Link
+                            href={guide.action.href}
+                            target={guide.action.href.startsWith('http') ? '_blank' : undefined}
+                            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors"
+                          >
+                            {guide.action.label}
+                          </Link>
+                        ) : (
+                          <button
+                            onClick={guide.action.onClick}
+                            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors"
+                          >
+                            {guide.action.label}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Step 5: Specification upload */}
+            {(() => {
+              const statuses = computeStepStatus(patent)
+              const claimsApproved = statuses[3] // step 4
+              return (
+                <DocumentUploadZone
+                  type="spec"
+                  patentId={patent.id}
+                  authToken={authToken}
+                  disabled={!claimsApproved}
+                  disabledReason={!claimsApproved ? 'Approve claims first (Step 4)' : undefined}
+                  onSuccess={() => {
+                    setPatent(prev => prev ? { ...prev, spec_uploaded: true } : null)
+                    showToast('✅ Specification uploaded — Step 5 complete!')
+                    loadAll()
+                  }}
+                />
+              )
+            })()}
+
+            {/* Step 6: Figures upload */}
+            {(() => {
+              const statuses = computeStepStatus(patent)
+              const specUploaded = statuses[4] // step 5
+              return (
+                <DocumentUploadZone
+                  type="figures"
+                  patentId={patent.id}
+                  authToken={authToken}
+                  disabled={!specUploaded}
+                  disabledReason={!specUploaded ? 'Upload specification first (Step 5)' : undefined}
+                  onSuccess={() => {
+                    setPatent(prev => prev ? { ...prev, figures_uploaded: true } : null)
+                    showToast('✅ Figures uploaded — Step 6 complete!')
+                    loadAll()
+                  }}
+                />
+              )
+            })()}
+
+            {/* Step 7: Cover sheet */}
+            {(() => {
+              const statuses = computeStepStatus(patent)
+              const figuresUploaded = statuses[5] // step 6
+              const coverDone = patent.cover_sheet_acknowledged
+
+              if (!figuresUploaded && !coverDone) return null
+
+              return (
+                <div className={`bg-white rounded-xl border ${coverDone ? 'border-green-200' : 'border-gray-200'} overflow-hidden`}>
+                  <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span>📄</span>
+                      <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Cover Sheet (USPTO Form SB/16)</span>
+                    </div>
+                    {coverDone && <span className="text-xs font-semibold text-green-700">✅ Complete</span>}
+                  </div>
+                  <div className="p-5">
+                    <p className="text-sm text-gray-600 mb-4">
+                      {coverDone
+                        ? 'Your cover sheet has been generated and acknowledged. You can regenerate it at any time.'
+                        : 'We\'ve pre-filled a cover sheet from your patent data. Open it, review, print or save as PDF, then mark it complete below.'}
+                    </p>
+                    <div className="flex gap-3 flex-wrap">
+                      <Link
+                        href={`/dashboard/patents/${patent.id}/cover-sheet`}
+                        target="_blank"
+                        className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors"
+                      >
+                        {coverDone ? '🔄 Regenerate Cover Sheet ↗' : '📄 Open Cover Sheet ↗'}
+                      </Link>
+                      {!coverDone && (
+                        <button
+                          onClick={async () => {
+                            const res = await fetch(`/api/patents/${patent.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                              body: JSON.stringify({ cover_sheet_acknowledged: true }),
+                            })
+                            if (res.ok) {
+                              setPatent(prev => prev ? { ...prev, cover_sheet_acknowledged: true } : null)
+                              showToast('✅ Cover sheet marked complete — Step 7 done!')
+                            }
+                          }}
+                          className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors"
+                        >
+                          ✅ I've saved my cover sheet
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
 
