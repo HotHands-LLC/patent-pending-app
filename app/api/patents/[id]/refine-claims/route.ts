@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { createClient } from '@supabase/supabase-js'
 import { getUserTier, isTierPro } from '@/lib/subscription'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
@@ -93,16 +94,18 @@ export async function POST(
     cost_usd: 0,
   })
 
-  // Fire async
-  runRefinementPass(
-    patentId,
-    patent.title,
-    patent.claims_draft,
-    patent.description ?? '',
-    user.id,
-    profile?.email ?? '',
-    profile?.full_name ?? 'Inventor'
-  ).catch(console.error)
+  // waitUntil keeps the Vercel function alive after HTTP response is sent
+  waitUntil(
+    runRefinementPass(
+      patentId,
+      patent.title,
+      patent.claims_draft,
+      patent.description ?? '',
+      user.id,
+      profile?.email ?? '',
+      profile?.full_name ?? 'Inventor'
+    )
+  )
 
   return NextResponse.json({
     ok: true,

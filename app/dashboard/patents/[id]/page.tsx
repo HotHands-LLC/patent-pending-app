@@ -232,6 +232,9 @@ export default function PatentDetail() {
   const [isPro, setIsPro] = useState(false)
   const [figureUrls, setFigureUrls] = useState<Array<{ number: number; label: string; filename: string; url: string }>>([])
   const [figuresLoaded, setFiguresLoaded] = useState(false)
+  const [userEmail, setUserEmail] = useState('')
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollStartRef = useRef<number | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [isCollaborator, setIsCollaborator] = useState(false)
   const [collaboratorRole, setCollaboratorRole] = useState<string | null>(null)
@@ -256,6 +259,7 @@ export default function PatentDetail() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
     setOwnerId(user.id)
+    if (user.email) setUserEmail(user.email)
 
     const { data: { session: authSession } } = await supabase.auth.getSession()
     if (authSession?.access_token) setAuthToken(authSession.access_token)
@@ -389,6 +393,68 @@ export default function PatentDetail() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
+
+  // Auto-poll claims_status while generating/refining — clears when done or timed out
+  useEffect(() => {
+    const POLL_STATUSES = ['pending', 'generating', 'refining']
+    const POLL_INTERVAL_MS = 15_000
+    const MAX_POLL_MS = 15 * 60 * 1_000 // 15 min timeout
+
+    if (!patent || !authToken) return
+    const isActive = POLL_STATUSES.includes(patent.claims_status ?? '')
+
+    if (isActive) {
+      if (!pollStartRef.current) pollStartRef.current = Date.now()
+      if (pollRef.current) return // already polling
+
+      pollRef.current = setInterval(async () => {
+        const elapsed = Date.now() - (pollStartRef.current ?? Date.now())
+        if (elapsed > MAX_POLL_MS) {
+          // Timed out client-side — update DB to failed
+          clearInterval(pollRef.current!); pollRef.current = null; pollStartRef.current = null
+          await fetch(`/api/patents/${patent.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+            body: JSON.stringify({ claims_status: 'failed' }),
+          })
+          setPatent(prev => prev ? { ...prev, claims_status: 'failed' } : null)
+          return
+        }
+
+        // Poll DB for status change
+        const { data: fresh } = await supabase
+          .from('patents')
+          .select('claims_status, claims_draft, claims_draft_pre_refine')
+          .eq('id', patent.id)
+          .single()
+
+        if (!fresh) return
+        if (!POLL_STATUSES.includes(fresh.claims_status ?? '')) {
+          clearInterval(pollRef.current!); pollRef.current = null; pollStartRef.current = null
+          setPatent(prev => prev ? {
+            ...prev,
+            claims_status: fresh.claims_status,
+            claims_draft: fresh.claims_draft ?? prev.claims_draft,
+            claims_draft_pre_refine: fresh.claims_draft_pre_refine ?? prev.claims_draft_pre_refine,
+          } : null)
+          if (fresh.claims_status === 'complete' || fresh.claims_status === 'refined') {
+            showToast('✅ Claims updated! Scroll down to review.')
+          } else if (fresh.claims_status === 'failed') {
+            showToast('⚠️ Generation failed — you can retry from the Claims tab.')
+          }
+        }
+      }, POLL_INTERVAL_MS)
+    } else {
+      // Status is stable — clear poll if running
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+      pollStartRef.current = null
+    }
+
+    return () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patent?.claims_status, authToken])
 
   // Focus title input when entering edit mode
   useEffect(() => {
@@ -860,17 +926,55 @@ export default function PatentDetail() {
               </div>
             )}
 
-            {patent.claims_status === 'pending' || patent.claims_status === 'generating' ? (
+            {(patent.claims_status === 'pending' || patent.claims_status === 'generating' || patent.claims_status === 'refining') ? (
               <div className="bg-white rounded-xl border border-amber-200 p-10 text-center">
-                <div className="text-3xl mb-3 animate-pulse">⚙️</div>
-                <p className="text-amber-700 text-sm font-semibold mb-1">Your claims draft is being generated…</p>
-                <p className="text-gray-400 text-xs">This usually takes 1–2 minutes. Refresh to check progress.</p>
+                <div className="text-3xl mb-3 animate-pulse">
+                  {patent.claims_status === 'refining' ? '✨' : '🔬'}
+                </div>
+                <p className="text-amber-700 text-sm font-semibold mb-1">
+                  {patent.claims_status === 'refining'
+                    ? 'Claude Refinement Pass in progress…'
+                    : patent.claims_status === 'generating'
+                    ? 'Deep Research Pass in progress…'
+                    : 'Generating your claims draft…'}
+                </p>
+                <p className="text-gray-500 text-xs mb-2">
+                  {patent.claims_status === 'refining'
+                    ? 'This usually takes 2–4 minutes.'
+                    : patent.claims_status === 'generating'
+                    ? 'This usually takes 8–12 minutes.'
+                    : 'This usually takes 1–2 minutes.'}
+                  {' '}This page will update automatically.
+                </p>
+                {userEmail && (
+                  <p className="text-indigo-600 text-xs">
+                    ✉️ We&apos;ll email you at <strong>{userEmail}</strong> when it&apos;s ready. Safe to close this tab.
+                  </p>
+                )}
+                <div className="mt-4 flex justify-center gap-1">
+                  {[0,1,2].map(i => (
+                    <div key={i} className={`w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce`} style={{animationDelay:`${i*150}ms`}} />
+                  ))}
+                </div>
               </div>
             ) : patent.claims_status === 'failed' ? (
-              <div className="bg-white rounded-xl border border-red-200 p-10 text-center">
-                <div className="text-3xl mb-3">❌</div>
-                <p className="text-red-600 text-sm font-semibold mb-1">Generation failed</p>
-                <p className="text-gray-400 text-xs">Contact support — your payment was captured and we'll make it right.</p>
+              <div className="bg-white rounded-xl border border-red-200 p-8 text-center">
+                <div className="text-3xl mb-3">⚠️</div>
+                <p className="text-red-600 text-sm font-semibold mb-1">Something went wrong</p>
+                <p className="text-gray-500 text-xs mb-4">Your original claims draft is safe. You can try again below.</p>
+                <button
+                  onClick={async () => {
+                    await fetch(`/api/patents/${patent.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                      body: JSON.stringify({ claims_status: 'complete' }),
+                    })
+                    setPatent(prev => prev ? { ...prev, claims_status: 'complete' } : null)
+                  }}
+                  className="px-4 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-100 transition-colors"
+                >
+                  Reset &amp; Try Again
+                </button>
               </div>
             ) : !patent.claims_draft ? (
               <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
@@ -891,7 +995,7 @@ export default function PatentDetail() {
                   <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3">
                     <button
                       onClick={async () => {
-                        if (!confirm('Run Deep Research Pass? This will strengthen claims using prior art analysis (~2 min).')) return
+                        if (!confirm('Run Deep Research Pass? Gemini will analyze prior art and strengthen your claims. This takes 8–12 minutes — we\'ll email you when done.')) return
                         const res = await fetch(`/api/patents/${patent.id}/deep-research`, {
                           method: 'POST',
                           headers: { Authorization: `Bearer ${authToken}` },
@@ -901,25 +1005,25 @@ export default function PatentDetail() {
                           if (res.status === 403 && d.upgrade_url) { window.location.href = d.upgrade_url; return }
                           showToast(d.error ?? 'Failed')
                         } else {
-                          showToast('🔬 Deep Research Pass started — claims will update in ~2 min')
+                          showToast('🔬 Deep Research started — 8–12 min, we\'ll email you when done')
                           setPatent(prev => prev ? { ...prev, claims_status: 'generating' } : null)
                         }
                       }}
-                      disabled={patent.claims_status === ('generating' as string)}
+                      disabled={(['generating','refining','pending'] as string[]).includes(patent.claims_status ?? '')}
                       className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors"
                     >
                       🔬 Deep Research Pass
                       <span className="text-xs bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
                     </button>
-                    {patent.claims_status === 'refining' ? (
+                    {(patent.claims_status as string) === 'refining' ? (
                       <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-sm font-semibold">
                         <span className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                        Refinement in progress — check email when done
+                        Refinement in progress…
                       </div>
                     ) : (
                       <button
                         onClick={async () => {
-                          if (!confirm('Run Claude Refinement Pass? Claude will polish your claim language for USPTO precision. You\'ll get an email when done (~2-3 min).')) return
+                          if (!confirm('Run Claude Refinement Pass? Claude will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
                           const res = await fetch(`/api/patents/${patent.id}/refine-claims`, {
                             method: 'POST',
                             headers: { Authorization: `Bearer ${authToken}` },
