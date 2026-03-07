@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getUserTier } from '@/lib/subscription'
+import { getUserTier, isTierPro } from '@/lib/subscription'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
 
 export const maxDuration = 300
@@ -45,7 +45,7 @@ export async function POST(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const tier = await getUserTier(user.id)
-  if (tier !== 'pro') {
+  if (!isTierPro(tier)) {
     return NextResponse.json({
       error: 'Claude Refinement Pass requires PatentPending Pro',
       upgrade_url: '/pricing',

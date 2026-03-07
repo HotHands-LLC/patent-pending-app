@@ -74,7 +74,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'content' | 'agency' | 'partners'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'content' | 'agency' | 'partners' | 'accounts'>('overview')
   const [authToken, setAuthToken] = useState('')
 
   // Inbox state
@@ -287,6 +287,7 @@ export default function AdminPage() {
     { key: 'content', label: 'Content', icon: '✍️' },
     { key: 'agency', label: 'Agency', icon: '🤝' },
     { key: 'partners', label: 'Partners', icon: '⚖️' },
+    { key: 'accounts', label: 'Accounts', icon: '👥' },
     { key: 'patents', label: `Patents (${summary.total_patents})`, icon: '📋' },
     { key: 'users', label: `Users (${summary.total_users})`, icon: '👤' },
     { key: 'ai-costs', label: 'AI Costs', icon: '🤖' },
@@ -963,6 +964,9 @@ export default function AdminPage() {
           {activeSection === 'partners' && (
             <AdminPartnersPanel authToken={authToken} />
           )}
+          {activeSection === 'accounts' && (
+            <AdminAccountsPanel authToken={authToken} />
+          )}
 
         </main>
       </div>
@@ -1062,6 +1066,158 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Admin Accounts Panel ────────────────────────────────────────────────────
+function AdminAccountsPanel({ authToken }: { authToken: string }) {
+  const [accounts, setAccounts] = React.useState<any[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [editing, setEditing] = React.useState<string | null>(null)
+  const [editTier, setEditTier] = React.useState<'free' | 'pro' | 'complimentary'>('free')
+  const [editReason, setEditReason] = React.useState('')
+  const [sendNotif, setSendNotif] = React.useState(true)
+  const [saving, setSaving] = React.useState(false)
+  const [msg, setMsg] = React.useState('')
+
+  React.useEffect(() => {
+    fetch('/api/admin/accounts', {
+      headers: { 'x-admin-key': authToken },
+    })
+      .then(r => r.json())
+      .then(d => { setAccounts(d.accounts ?? []); setLoading(false) })
+  }, [authToken])
+
+  async function saveEdit(userId: string, email: string) {
+    if (editTier === 'complimentary' && !editReason.trim()) {
+      setMsg('Reason required for complimentary tier'); return
+    }
+    setSaving(true)
+    const res = await fetch('/api/admin/accounts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': authToken },
+      body: JSON.stringify({
+        user_id: userId,
+        tier: editTier,
+        reason: editReason.trim() || undefined,
+        granted_by: 'chad@hotdeck.com',
+        send_notification: sendNotif,
+      }),
+    })
+    const d = await res.json()
+    if (res.ok) {
+      setMsg(`✅ ${email} updated to ${editTier}`)
+      setAccounts(prev => prev.map(a => a.id === userId ? { ...a, subscription_status: editTier, comp_reason: editReason || null } : a))
+      setEditing(null)
+    } else {
+      setMsg(`❌ ${d.error}`)
+    }
+    setSaving(false)
+  }
+
+  const TIER_BADGE: Record<string, string> = {
+    free: 'bg-gray-100 text-gray-600',
+    pro: 'bg-indigo-100 text-indigo-700',
+    cancelled: 'bg-red-100 text-red-600',
+    complimentary: 'bg-amber-100 text-amber-700',
+  }
+
+  if (loading) return <div className="text-gray-400 text-sm">Loading accounts…</div>
+
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-[#1a1f36] mb-4">Account Management</h2>
+      {msg && <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">{msg}</div>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="border-b border-gray-200 text-left text-xs text-gray-500 uppercase tracking-wider">
+              <th className="pb-2 pr-4">User</th>
+              <th className="pb-2 pr-4">Tier</th>
+              <th className="pb-2 pr-4">Period End</th>
+              <th className="pb-2 pr-4">Comp Reason</th>
+              <th className="pb-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {accounts.map(a => (
+              <tr key={a.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="py-3 pr-4">
+                  <div className="font-medium text-[#1a1f36]">{a.full_name ?? '—'}</div>
+                  <div className="text-xs text-gray-400">{a.email}</div>
+                </td>
+                <td className="py-3 pr-4">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${TIER_BADGE[a.subscription_status] ?? 'bg-gray-100 text-gray-600'}`}>
+                    {a.subscription_status}
+                  </span>
+                </td>
+                <td className="py-3 pr-4 text-xs text-gray-500">
+                  {a.subscription_period_end ? new Date(a.subscription_period_end).toLocaleDateString() : '—'}
+                </td>
+                <td className="py-3 pr-4 text-xs text-gray-500 max-w-[200px] truncate">
+                  {a.comp_reason ?? '—'}
+                </td>
+                <td className="py-3">
+                  {editing === a.id ? (
+                    <div className="flex flex-col gap-2 min-w-[280px]">
+                      <select
+                        value={editTier}
+                        onChange={e => setEditTier(e.target.value as 'free' | 'pro' | 'complimentary')}
+                        className="border border-gray-200 rounded-lg px-2 py-1 text-xs"
+                      >
+                        <option value="free">Free</option>
+                        <option value="pro">Pro</option>
+                        <option value="complimentary">Complimentary</option>
+                      </select>
+                      {editTier === 'complimentary' && (
+                        <input
+                          placeholder="Reason (required)"
+                          value={editReason}
+                          onChange={e => setEditReason(e.target.value)}
+                          className="border border-gray-200 rounded-lg px-2 py-1 text-xs"
+                        />
+                      )}
+                      <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                        <input type="checkbox" checked={sendNotif} onChange={e => setSendNotif(e.target.checked)} />
+                        Send notification email
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveEdit(a.id, a.email)}
+                          disabled={saving}
+                          className="px-3 py-1 bg-indigo-600 text-white rounded text-xs font-semibold disabled:opacity-50"
+                        >
+                          {saving ? 'Saving…' : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => setEditing(null)}
+                          className="px-3 py-1 bg-gray-100 text-gray-600 rounded text-xs"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setEditing(a.id)
+                        setEditTier(a.subscription_status === 'complimentary' ? 'complimentary' : a.subscription_status === 'pro' ? 'pro' : 'free')
+                        setEditReason(a.comp_reason ?? '')
+                        setSendNotif(true)
+                        setMsg('')
+                      }}
+                      className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200 transition-colors"
+                    >
+                      Edit tier
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )

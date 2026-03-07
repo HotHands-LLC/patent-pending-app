@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const maxDuration = 300 // 5 min — keeps function alive for Gemini async completion
 import { createClient } from '@supabase/supabase-js'
-import { getUserTier } from '@/lib/subscription'
+import { getUserTier, isTierPro } from '@/lib/subscription'
 
 const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,7 +41,7 @@ export async function POST(
 
   // Pro gate
   const tier = await getUserTier(user.id)
-  if (tier !== 'pro') {
+  if (!isTierPro(tier)) {
     return NextResponse.json({ error: 'Deep Research Pass requires PatentPending Pro', upgrade_url: '/pricing' }, { status: 403 })
   }
 

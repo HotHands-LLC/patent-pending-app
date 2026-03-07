@@ -230,6 +230,8 @@ export default function PatentDetail() {
   const [ownerId, setOwnerId] = useState('')
   const [authToken, setAuthToken] = useState('')
   const [isPro, setIsPro] = useState(false)
+  const [figureUrls, setFigureUrls] = useState<Array<{ number: number; label: string; filename: string; url: string }>>([])
+  const [figuresLoaded, setFiguresLoaded] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [isCollaborator, setIsCollaborator] = useState(false)
   const [collaboratorRole, setCollaboratorRole] = useState<string | null>(null)
@@ -269,8 +271,9 @@ export default function PatentDetail() {
 
     // Determine Pro status from fresh DB read (not stale session token)
     const periodEnd = profileData?.subscription_period_end
-    const proActive = profileData?.subscription_status === 'pro' &&
-      (!periodEnd || new Date(periodEnd) > new Date())
+    const status = profileData?.subscription_status ?? 'free'
+    const proActive = status === 'complimentary' ||
+      (status === 'pro' && (!periodEnd || new Date(periodEnd) > new Date()))
     setIsPro(proActive)
 
     if (!p) { router.push('/dashboard/patents'); return }
@@ -338,6 +341,18 @@ export default function PatentDetail() {
     }
 
     setLoading(false)
+
+    // Load figure signed URLs if figures have been generated
+    if (p?.figures_uploaded && token) {
+      fetch(`/api/patents/${p.id}/generate-figures`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(r => r.json()).then(d => {
+        if (d.figures?.length) setFigureUrls(d.figures)
+        setFiguresLoaded(true)
+      }).catch(() => setFiguresLoaded(true))
+    } else {
+      setFiguresLoaded(true)
+    }
   }
 
   useEffect(() => { loadAll() }, [id, router])
@@ -744,6 +759,37 @@ export default function PatentDetail() {
               </div>
 
               {/* ── Arc 3: Deal Page ──────────────────────────────────────────── */}
+              {/* Figures summary in Details sidebar */}
+              {patent.figures_uploaded && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="font-semibold text-[#1a1f36] text-sm">Figures</h2>
+                    <button
+                      onClick={() => setTab('filing')}
+                      className="text-xs text-indigo-600 hover:underline"
+                    >
+                      View all →
+                    </button>
+                  </div>
+                  {figureUrls.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {figureUrls.slice(0, 6).map(fig => (
+                        <a key={fig.number} href={fig.url} target="_blank" rel="noreferrer" title={fig.label}>
+                          <img
+                            src={fig.url}
+                            alt={fig.label}
+                            className="w-full h-16 object-contain bg-gray-50 rounded border border-gray-100 hover:opacity-80 transition-opacity"
+                            loading="lazy"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400">Figures uploaded — click "View all" to access</p>
+                  )}
+                </div>
+              )}
+
               {!isCollaborator && (
                 <div className={`rounded-xl border p-5 ${
                   (patent as Patent & { arc3_active?: boolean }).arc3_active
@@ -1321,6 +1367,46 @@ export default function PatentDetail() {
                       </button>
                     </div>
                   )}
+                  {/* Generated figures gallery */}
+                  {patent.figures_uploaded && figureUrls.length > 0 && (
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-[#1a1f36]">Generated Figures ({figureUrls.length})</h4>
+                        <a
+                          href={`/api/patents/${patent.id}/figures-zip?token=${authToken}`}
+                          className="text-xs text-indigo-600 hover:underline font-medium"
+                          title="Download all figures as ZIP"
+                        >
+                          ⬇ Download All
+                        </a>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {figureUrls.map(fig => (
+                          <div key={fig.number} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                            <a href={fig.url} target="_blank" rel="noreferrer" className="block">
+                              <img
+                                src={fig.url}
+                                alt={fig.label}
+                                className="w-full h-32 object-contain bg-gray-50 hover:opacity-90 transition-opacity"
+                                loading="lazy"
+                              />
+                            </a>
+                            <div className="px-2 py-1.5 flex items-center justify-between">
+                              <span className="text-xs font-medium text-gray-700">{fig.label}</span>
+                              <a
+                                href={fig.url}
+                                download={fig.filename}
+                                className="text-xs text-indigo-600 hover:underline"
+                              >
+                                ⬇
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <DocumentUploadZone
                     type="figures"
                     patentId={patent.id}

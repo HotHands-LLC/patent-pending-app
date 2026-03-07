@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
+import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
 
 function getStripe() {
   if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not configured')
@@ -29,6 +30,46 @@ async function updateSubscription(
     })
     .eq('id', userId)
   if (error) throw new Error(`updateSubscription failed for ${userId}: ${error.message}`)
+}
+
+/** Fire welcome email once on first Pro upgrade */
+async function maybeSendWelcomeEmail(userId: string) {
+  const { data: profile } = await supabase
+    .from('patent_profiles')
+    .select('email, full_name, pro_welcome_sent')
+    .eq('id', userId)
+    .single()
+  if (!profile?.email || profile.pro_welcome_sent) return
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
+  try {
+    await sendEmail(buildEmail({
+      to: profile.email,
+      from: FROM_DEFAULT,
+      subject: "Welcome to Pro — you're all set ✅",
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
+  <h2 style="color:#4f46e5">You're now on PatentPending Pro 🎉</h2>
+  <p>Hi ${profile.full_name?.split(' ')[0] ?? 'there'},</p>
+  <p>Your Pro subscription is active. Here's what you now have access to:</p>
+  <ul>
+    <li><strong>Deep Research Pass</strong> — 12-minute Gemini analysis strengthens claims with prior art</li>
+    <li><strong>Claude Refinement Pass</strong> — USPTO-precision language polish on your claims</li>
+    <li><strong>Unlimited revision rounds</strong> — iterate as many times as you need</li>
+    <li><strong>AI Figure Generation</strong> — USPTO-style technical drawings from your spec</li>
+  </ul>
+  <p>All of these are available directly from each patent's Claims tab.</p>
+  <p><a href="${appUrl}/dashboard/patents" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Go to my patents →</a></p>
+</div>`,
+    }))
+    // Mark as sent
+    await supabase
+      .from('patent_profiles')
+      .update({ pro_welcome_sent: true, updated_at: new Date().toISOString() })
+      .eq('id', userId)
+    console.log('[stripe-billing] welcome email sent to:', profile.email)
+  } catch (err) {
+    console.error('[stripe-billing] welcome email failed (non-fatal):', err)
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -74,6 +115,8 @@ export async function POST(req: NextRequest) {
 
         await updateSubscription(userId, 'pro', periodEnd)
         console.log('[stripe-billing] upgraded user to pro:', userId, 'until', periodEnd.toISOString())
+        // Fire welcome email (once per user, non-blocking)
+        maybeSendWelcomeEmail(userId).catch(console.error)
         break
       }
 

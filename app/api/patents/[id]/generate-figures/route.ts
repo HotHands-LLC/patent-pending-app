@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getUserTier } from '@/lib/subscription'
+import { getUserTier, isTierPro } from '@/lib/subscription'
 
 const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,7 +39,7 @@ export async function POST(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const tier = await getUserTier(user.id)
-  if (tier !== 'pro') {
+  if (!isTierPro(tier)) {
     return NextResponse.json({
       error: 'AI Figure Generation requires PatentPending Pro',
       upgrade_url: '/pricing',
@@ -98,10 +98,32 @@ export async function GET(
     return NextResponse.json({ figures: [], generated: false })
   }
 
-  const figures = Array.from({ length: 6 }, (_, i) => ({
-    number: i + 1,
-    label: `FIG. ${i + 1}`,
-    url: `${SUPABASE_STORAGE_BASE}/${patentId}/figures/fig${i + 1}.png`,
+  // Determine how many figures exist by trying to list the folder
+  const { data: storageList } = await supabaseService.storage
+    .from('patent-uploads')
+    .list(`${patentId}/figures`, { limit: 20 })
+
+  const figFiles = (storageList ?? [])
+    .filter(f => f.name.match(/^fig\d+\.png$/))
+    .sort((a, b) => {
+      const an = parseInt(a.name.replace(/\D/g, ''))
+      const bn = parseInt(b.name.replace(/\D/g, ''))
+      return an - bn
+    })
+
+  // Generate signed URLs (1-hour expiry) — bucket is private
+  const figures = await Promise.all(figFiles.map(async (f, i) => {
+    const path = `${patentId}/figures/${f.name}`
+    const { data: signed } = await supabaseService.storage
+      .from('patent-uploads')
+      .createSignedUrl(path, 3600)
+    return {
+      number: i + 1,
+      label: `FIG. ${i + 1}`,
+      filename: f.name,
+      url: signed?.signedUrl ?? '',
+      path,
+    }
   }))
 
   return NextResponse.json({ figures, generated: true })

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
-export type UserTier = 'free' | 'pro'
+export type UserTier = 'free' | 'pro' | 'complimentary'
 
 export interface SubscriptionInfo {
   tier: UserTier
@@ -21,6 +21,8 @@ const supabaseService = createClient(
  */
 export async function getUserTier(userId: string): Promise<UserTier> {
   const info = await getUserSubscription(userId)
+  // Complimentary = Pro access, no expiry check
+  if (info.subscription_status === 'complimentary') return 'complimentary'
   if (
     info.subscription_status === 'pro' &&
     (info.subscription_period_end === null ||
@@ -29,6 +31,11 @@ export async function getUserTier(userId: string): Promise<UserTier> {
     return 'pro'
   }
   return 'free'
+}
+
+/** Returns true if user has Pro-equivalent access (pro or complimentary) */
+export function isTierPro(tier: UserTier): boolean {
+  return tier === 'pro' || tier === 'complimentary'
 }
 
 /**
