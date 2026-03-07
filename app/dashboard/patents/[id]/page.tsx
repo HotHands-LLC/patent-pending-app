@@ -12,6 +12,7 @@ import {
   CORRESPONDENCE_TYPE_LABELS, CORRESPONDENCE_TYPE_COLORS
 } from '@/lib/supabase'
 import type { ClaimsScore } from '@/lib/claims-score'
+import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -30,7 +31,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'correspondence'
+type Tab = 'details' | 'claims' | 'filing' | 'correspondence' | 'collaborators'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -221,6 +222,9 @@ export default function PatentDetail() {
   const [ownerId, setOwnerId] = useState('')
   const [authToken, setAuthToken] = useState('')
   const [toast, setToast] = useState<string | null>(null)
+  const [isCollaborator, setIsCollaborator] = useState(false)
+  const [collaboratorRole, setCollaboratorRole] = useState<string | null>(null)
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   // Inline title editing
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -242,6 +246,7 @@ export default function PatentDetail() {
 
     const { data: { session: authSession } } = await supabase.auth.getSession()
     if (authSession?.access_token) setAuthToken(authSession.access_token)
+    const token = authSession?.access_token ?? ''
 
     const [{ data: p }, { data: d }, { data: c }, { data: ap }] = await Promise.all([
       supabase.from('patents').select('*').eq('id', id).single(),
@@ -251,6 +256,37 @@ export default function PatentDetail() {
     ])
 
     if (!p) { router.push('/dashboard/patents'); return }
+
+    // Detect if user is a collaborator (not the owner)
+    const isOwner = p.owner_id === user.id
+    if (!isOwner) {
+      // Check collaborator record
+      const { data: collabRecord } = await supabase
+        .from('patent_collaborators')
+        .select('role')
+        .eq('patent_id', id)
+        .eq('user_id', user.id)
+        .not('accepted_at', 'is', null)
+        .single()
+      if (collabRecord) {
+        setIsCollaborator(true)
+        setCollaboratorRole(collabRecord.role)
+      }
+    }
+
+    // Load collaborators list (owner only)
+    if (isOwner && token) {
+      try {
+        const collabRes = await fetch(`/api/patents/${id}/invite`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (collabRes.ok) {
+          const collabData = await collabRes.json()
+          setCollaborators(collabData.collaborators ?? [])
+        }
+      } catch { /* non-critical */ }
+    }
+
     setPatent(p)
     setEditData(p)
     setDeadlines(d || [])
@@ -498,9 +534,27 @@ export default function PatentDetail() {
           </div>
         )}
 
+        {/* Co-inventor read-only banner */}
+        {isCollaborator && (
+          <div className="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
+            <span className="text-amber-500 text-lg">👁</span>
+            <div>
+              <span className="text-sm font-semibold text-amber-800">Read-Only Access</span>
+              <span className="text-sm text-amber-700 ml-2">
+                You are viewing this patent as a{' '}
+                <span className="font-semibold capitalize">{collaboratorRole?.replace('_', '-') ?? 'collaborator'}</span>.
+                Contact the patent owner to make changes.
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl w-full sm:w-auto sm:inline-flex flex-wrap sm:flex-nowrap">
-          {(['details', 'claims', 'filing', 'correspondence'] as Tab[]).map(t => (
+          {(([
+            'details', 'claims', 'filing', 'correspondence',
+            ...(!isCollaborator ? ['collaborators'] : []),
+          ]) as Tab[]).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -532,6 +586,13 @@ export default function PatentDetail() {
                     {(patent.claims_status === 'pending' || patent.claims_status === 'generating') && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block" />}
                     {patent.claims_status === 'failed' && <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />}
                     {patent.claims_status === 'complete' && patent.filing_status === 'draft' && <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />}
+                  </span>
+                ) : t === 'collaborators' ? (
+                  <span className="flex items-center gap-1.5">
+                    Collaborators
+                    {collaborators.length > 0 && (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-bold">{collaborators.length}</span>
+                    )}
                   </span>
                 ) : 'Details'
               }
@@ -1230,6 +1291,16 @@ export default function PatentDetail() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ── COLLABORATORS TAB ───────────────────────────────────────────────── */}
+        {tab === 'collaborators' && !isCollaborator && (
+          <CollaboratorsTab
+            patentId={patent.id}
+            authToken={authToken}
+            collaborators={collaborators}
+            onRefresh={loadAll}
+          />
         )}
 
         {/* Save/cancel when editing details */}
