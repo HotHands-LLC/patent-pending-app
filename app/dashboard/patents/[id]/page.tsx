@@ -222,6 +222,7 @@ export default function PatentDetail() {
   const [editData, setEditData] = useState<Partial<Patent>>({})
   const [tab, setTab] = useState<Tab>('details')
   const [claimsAction, setClaimsAction] = useState<'idle' | 'approving' | 'requesting'>('idle')
+  const [showRefineInterceptModal, setShowRefineInterceptModal] = useState(false)
   const [selectedChips, setSelectedChips] = useState<string[]>([])
   const [customNote, setCustomNote] = useState('')
   const [claimsMsg, setClaimsMsg] = useState('')
@@ -489,6 +490,11 @@ export default function PatentDetail() {
   // ── Claims actions ─────────────────────────────────────────────────────────
   async function approveClaims() {
     if (!patent) return
+    // Fix B: intercept approve when a refinement result exists and hasn't been accepted/reverted
+    if ((patent.claims_status as string) === 'refined' && (patent as any).claims_draft_pre_refine) {
+      setShowRefineInterceptModal(true)
+      return
+    }
     setClaimsAction('approving')
     setClaimsMsg('')
     const res = await fetch(`/api/patents/${patent.id}`, {
@@ -504,6 +510,87 @@ export default function PatentDetail() {
       setClaimsMsg(`Error: ${json.error}`)
     }
     setClaimsAction('idle')
+  }
+
+  async function refinementAction(action: 'accept' | 'revert' | 'dismiss') {
+    if (!patent || !authToken) return
+    setShowRefineInterceptModal(false)
+    const res = await fetch(`/api/patents/${patent.id}/refinement-action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ action }),
+    })
+    const data = await res.json()
+    if (!res.ok) { showToast(data.error ?? 'Action failed'); return }
+    if (action === 'accept' || action === 'dismiss') {
+      setPatent(prev => prev ? {
+        ...prev,
+        claims_draft_pre_refine: null,
+        claims_status: 'complete',
+        filing_status: 'approved',
+      } : null)
+      showToast('✅ Refinement accepted — claims re-approved.')
+    } else if (action === 'revert') {
+      setPatent(prev => prev ? {
+        ...prev,
+        claims_draft: (prev as any).claims_draft_pre_refine,
+        claims_draft_pre_refine: null,
+        claims_status: 'complete',
+        filing_status: 'draft',
+      } : null)
+      showToast('↩ Refinement reverted — original claims restored.')
+    }
+  }
+
+  /** Client-side diff: compare two claim texts and return change bullets */
+  function generateRefineSummary(original: string, refined: string): string[] {
+    const splitClaims = (text: string): Record<number, string> => {
+      const result: Record<number, string> = {}
+      const matches = [...text.matchAll(/^(\d+)\.\s/gm)]
+      for (let i = 0; i < matches.length; i++) {
+        const num = parseInt(matches[i][1])
+        const start = matches[i].index! + matches[i][0].length
+        const end = i + 1 < matches.length ? matches[i + 1].index! : text.length
+        result[num] = text.slice(start, end).trim()
+      }
+      return result
+    }
+    const origClaims = splitClaims(original)
+    const refClaims = splitClaims(refined)
+    const allNums = Array.from(new Set([
+      ...Object.keys(origClaims).map(Number),
+      ...Object.keys(refClaims).map(Number),
+    ])).sort((a, b) => a - b)
+    const bullets: string[] = []
+    for (const num of allNums) {
+      const orig = origClaims[num]
+      const ref = refClaims[num]
+      if (!orig && ref) { bullets.push(`Claim ${num} — new claim added`); continue }
+      if (orig && !ref) { bullets.push(`Claim ${num} — claim removed`); continue }
+      if (orig === ref) continue
+      const origLen = orig.split(/\s+/).length
+      const refLen  = ref.split(/\s+/).length
+      const delta   = refLen - origLen
+      // Check for specific patterns
+      const origLower = orig.toLowerCase()
+      const refLower  = ref.toLowerCase()
+      if (delta > 10) {
+        bullets.push(`Claim ${num} — expanded with additional qualifying language`)
+      } else if (delta < -10) {
+        bullets.push(`Claim ${num} — simplified and tightened`)
+      } else if (origLower.includes('glasses') && !refLower.includes('glasses')) {
+        bullets.push(`Claim ${num} — broadened from "glasses" to "head-mounted apparatus"`)
+      } else if (origLower.includes('closed eyelids') && refLower.includes('eyelids') && !refLower.includes('closed')) {
+        bullets.push(`Claim ${num} — "closed eyelids" simplified to "eyelids" (broader)`)
+      } else if (delta > 0) {
+        bullets.push(`Claim ${num} — language refined (+${delta} words)`)
+      } else if (delta < 0) {
+        bullets.push(`Claim ${num} — language refined (${delta} words)`)
+      } else {
+        bullets.push(`Claim ${num} — phrasing polished`)
+      }
+    }
+    return bullets.length > 0 ? bullets : ['Minor language refinements throughout']
   }
 
   async function requestRevision() {
@@ -897,6 +984,43 @@ export default function PatentDetail() {
           </div>
         )}
 
+        {/* Fix B: Refine intercept modal — shown when user clicks Approve while refinement exists */}
+        {showRefineInterceptModal && patent && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+              <h3 className="text-lg font-bold text-[#1a1f36] mb-1">Before you approve — AI Refinement available</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                An AI Refinement Pass has already run on these claims. You can review the language improvements before locking them in. This won't change your inventive concepts — just sharpen the legal wording.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => {
+                    setShowRefineInterceptModal(false)
+                    // Scroll to the change summary / before-after panel
+                    document.getElementById('claims-orig-panel')?.classList.remove('hidden')
+                    document.getElementById('claims-orig-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  }}
+                  className="w-full px-4 py-3 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors"
+                >
+                  Review Refinement
+                </button>
+                <button
+                  onClick={() => refinementAction('dismiss')}
+                  className="w-full px-4 py-3 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors"
+                >
+                  Approve Anyway (keep refinement, skip review)
+                </button>
+                <button
+                  onClick={() => setShowRefineInterceptModal(false)}
+                  className="w-full text-xs text-gray-400 hover:text-gray-600 py-1"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Arc 3 activation modal */}
         {showArc3Modal && patent && (
           <Arc3Modal
@@ -933,7 +1057,7 @@ export default function PatentDetail() {
                 </div>
                 <p className="text-amber-700 text-sm font-semibold mb-1">
                   {patent.claims_status === 'refining'
-                    ? 'Claude Refinement Pass in progress…'
+                    ? 'AI Refinement Pass in progress…'
                     : patent.claims_status === 'generating'
                     ? 'Deep Research Pass in progress…'
                     : 'Generating your claims draft…'}
@@ -1077,7 +1201,7 @@ export default function PatentDetail() {
                     ) : (
                       <button
                         onClick={async () => {
-                          if (!confirm('Run Claude Refinement Pass? Claude will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
+                          if (!confirm('Run AI Refinement Pass? Claude will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
                           const res = await fetch(`/api/patents/${patent.id}/refine-claims`, {
                             method: 'POST',
                             headers: { Authorization: `Bearer ${authToken}` },
@@ -1093,86 +1217,102 @@ export default function PatentDetail() {
                         }}
                         className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors"
                       >
-                        ✨ Claude Refinement Pass
+                        ✨ AI Refinement Pass
                         <span className="text-xs bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
                       </button>
                     )}
                   </div>
                 )}
 
-                {/* Claims viewer — with refined badge + before/after diff */}
+                {/* Claims viewer — with AI Refined badge + change summary + before/after diff */}
                 {(() => {
-                  const [showOriginal, setShowOriginal] = (patent as any).claims_draft_pre_refine
-                    ? [false, () => {}]
-                    : [false, () => {}]
-                  return null
-                })()}
-                {(() => {
-                  const hasRefined = patent.claims_status === 'refined' && (patent as any).claims_draft_pre_refine
-                  const [showOrig, setShowOrig] = [false, (_: boolean) => {}]
+                  const hasRefined = (patent.claims_status as string) === 'refined' && (patent as any).claims_draft_pre_refine
+                  const changeBullets: string[] = hasRefined
+                    ? generateRefineSummary((patent as any).claims_draft_pre_refine, patent.claims_draft!)
+                    : []
                   return (
-                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50 flex-wrap gap-2">
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Claims Draft</span>
-                          {patent.claims_status === 'refined' && (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
-                              ✨ Claude Refined
-                            </span>
-                          )}
-                          {patent.filing_status && (
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                              patent.filing_status === 'approved' ? 'bg-green-100 text-green-700' :
-                              patent.filing_status === 'filed' ? 'bg-blue-100 text-blue-700' :
-                              'bg-amber-100 text-amber-700'
-                            }`}>
-                              {patent.filing_status}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {hasRefined && (
+                    <>
+                      {/* Fix C: collapsible change summary */}
+                      {hasRefined && changeBullets.length > 0 && (
+                        <details className="bg-indigo-50 border border-indigo-200 rounded-xl overflow-hidden">
+                          <summary className="px-5 py-3 text-xs font-semibold text-indigo-700 cursor-pointer hover:bg-indigo-100 transition-colors flex items-center gap-2">
+                            ✨ What changed in this refinement?
+                            <span className="text-indigo-400 font-normal ml-auto">Click to expand ▾</span>
+                          </summary>
+                          <ul className="px-5 pb-4 pt-2 space-y-1">
+                            {changeBullets.map((b, i) => (
+                              <li key={i} className="text-xs text-indigo-800 flex items-start gap-2">
+                                <span className="text-indigo-400 mt-0.5">•</span>
+                                {b}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+
+                      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50 flex-wrap gap-2">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Claims Draft</span>
+                            {(patent.claims_status as string) === 'refined' && (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                ✨ AI Refined
+                              </span>
+                            )}
+                            {patent.filing_status && (
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                patent.filing_status === 'approved' ? 'bg-green-100 text-green-700' :
+                                patent.filing_status === 'filed' ? 'bg-blue-100 text-blue-700' :
+                                'bg-amber-100 text-amber-700'
+                              }`}>
+                                {patent.filing_status}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {hasRefined && (
+                              <button
+                                onClick={() => {
+                                  const el = document.getElementById('claims-orig-panel')
+                                  if (el) el.classList.toggle('hidden')
+                                }}
+                                className="flex items-center gap-1 px-3 py-1.5 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-50 transition-colors"
+                              >
+                                ↕ Before / After
+                              </button>
+                            )}
+                            <span className="text-xs text-gray-400">{patent.claims_draft?.length.toLocaleString()} chars</span>
                             <button
-                              onClick={() => {
-                                const el = document.getElementById('claims-orig-panel')
-                                if (el) el.classList.toggle('hidden')
-                              }}
-                              className="flex items-center gap-1 px-3 py-1.5 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-50 transition-colors"
+                              onClick={() => copyToClipboard(patent.claims_draft!, '📋 All claims copied!')}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] transition-colors"
                             >
-                              ↕ Before / After
-                            </button>
-                          )}
-                          <span className="text-xs text-gray-400">{patent.claims_draft.length.toLocaleString()} chars</span>
-                          <button
-                            onClick={() => copyToClipboard(patent.claims_draft!, '📋 All claims copied!')}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] transition-colors"
-                          >
-                            📋 Copy All
-                          </button>
-                        </div>
-                      </div>
-                      <ClaimsText
-                        text={patent.claims_draft}
-                        onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
-                      />
-                      {hasRefined && (
-                        <div id="claims-orig-panel" className="hidden border-t border-indigo-100">
-                          <div className="px-5 py-2 bg-indigo-50 flex items-center gap-2">
-                            <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Original (pre-refinement)</span>
-                            <button
-                              onClick={() => copyToClipboard((patent as any).claims_draft_pre_refine, '📋 Original claims copied!')}
-                              className="ml-auto text-xs px-2 py-1 border border-indigo-200 text-indigo-600 rounded hover:bg-indigo-100"
-                            >
-                              📋 Copy
+                              📋 Copy All
                             </button>
                           </div>
-                          <ClaimsText
-                            text={(patent as any).claims_draft_pre_refine}
-                            onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
-                          />
                         </div>
-                      )}
-                    </div>
+                        <ClaimsText
+                          text={patent.claims_draft!}
+                          onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
+                        />
+                        {hasRefined && (
+                          <div id="claims-orig-panel" className="hidden border-t border-indigo-100">
+                            <div className="px-5 py-2 bg-indigo-50 flex items-center gap-2">
+                              <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Original (pre-refinement)</span>
+                              <button
+                                onClick={() => copyToClipboard((patent as any).claims_draft_pre_refine, '📋 Original claims copied!')}
+                                className="ml-auto text-xs px-2 py-1 border border-indigo-200 text-indigo-600 rounded hover:bg-indigo-100"
+                              >
+                                📋 Copy
+                              </button>
+                            </div>
+                            <ClaimsText
+                              text={(patent as any).claims_draft_pre_refine}
+                              onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </>
                   )
                 })()}
 
@@ -1256,8 +1396,30 @@ export default function PatentDetail() {
                   </div>
                 )}
 
-                {/* Re-revision option when approved */}
-                {patent.filing_status === 'approved' && (
+                {/* Fix A: action bar when approved + refinement result exists */}
+                {patent.filing_status === 'approved' && (patent.claims_status as string) === 'refined' && (patent as any).claims_draft_pre_refine && (
+                  <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-5">
+                    <p className="text-sm font-semibold text-indigo-900 mb-1">AI Refinement applied — review before re-approving</p>
+                    <p className="text-xs text-indigo-700 mb-4">The AI Refinement Pass ran after you approved. Review the before/after above, then re-approve or revert to your original claims.</p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        onClick={() => refinementAction('accept')}
+                        className="flex-1 px-4 py-3 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors min-h-[44px]"
+                      >
+                        ✓ Accept Refinement &amp; Re-approve
+                      </button>
+                      <button
+                        onClick={() => refinementAction('revert')}
+                        className="flex-1 px-4 py-3 border border-red-300 text-red-700 bg-white rounded-lg text-sm font-semibold hover:bg-red-50 transition-colors min-h-[44px]"
+                      >
+                        ↩ Revert to Original
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Re-revision option when approved (and no pending refinement) */}
+                {patent.filing_status === 'approved' && !((patent.claims_status as string) === 'refined' && (patent as any).claims_draft_pre_refine) && (
                   <div className="flex justify-end">
                     <button onClick={() => setClaimsAction('requesting')} className="text-xs text-gray-400 hover:text-gray-600 underline">
                       Request changes

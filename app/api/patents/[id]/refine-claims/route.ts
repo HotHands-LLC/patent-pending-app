@@ -32,7 +32,7 @@ export async function POST(
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({
-      error: 'Claude Refinement Pass is not yet configured.',
+      error: 'AI Refinement Pass is not yet configured.',
       detail: 'ANTHROPIC_API_KEY environment variable is missing.',
     }, { status: 503 })
   }
@@ -48,7 +48,7 @@ export async function POST(
   const tier = await getUserTier(user.id)
   if (!isTierPro(tier)) {
     return NextResponse.json({
-      error: 'Claude Refinement Pass requires PatentPending Pro',
+      error: 'AI Refinement Pass requires PatentPending Pro',
       upgrade_url: '/pricing',
     }, { status: 403 })
   }
