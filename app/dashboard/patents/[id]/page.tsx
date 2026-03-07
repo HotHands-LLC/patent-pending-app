@@ -1204,23 +1204,55 @@ export default function PatentDetail() {
               />
             </div>
 
-            {/* Step 6: Figures upload */}
+            {/* Step 6: Figures upload + AI Generate */}
             {(() => {
               const statuses = computeStepStatus(patent)
               const specUploaded = statuses[4] // step 5
               return (
-                <DocumentUploadZone
-                  type="figures"
-                  patentId={patent.id}
-                  authToken={authToken}
-                  disabled={!specUploaded}
-                  disabledReason={!specUploaded ? 'Upload specification first (Step 5)' : undefined}
-                  onSuccess={() => {
-                    setPatent(prev => prev ? { ...prev, figures_uploaded: true } : null)
-                    showToast('✅ Figures uploaded — Step 6 complete!')
-                    loadAll()
-                  }}
-                />
+                <div>
+                  {/* AI Generate Figures — Pro */}
+                  {specUploaded && !patent.figures_uploaded && (
+                    <div className="mb-3 p-4 bg-violet-50 border border-violet-200 rounded-xl flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-violet-900">✨ Generate Patent Figures with AI</p>
+                        <p className="text-xs text-violet-700 mt-0.5">Analyzes your spec + claims and generates 6 USPTO-style technical drawings automatically.</p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Generate AI figures from your spec and claims? This takes ~60 seconds.')) return
+                          const res = await fetch(`/api/patents/${patent.id}/generate-figures`, {
+                            method: 'POST',
+                            headers: { Authorization: `Bearer ${authToken}` },
+                          })
+                          const d = await res.json()
+                          if (!res.ok) {
+                            if (res.status === 403 && d.upgrade_url) { window.location.href = d.upgrade_url; return }
+                            showToast(d.error ?? 'Failed to start figure generation')
+                          } else {
+                            showToast('✨ Generating figures — check back in 60 seconds')
+                            setTimeout(() => loadAll(), 70000)
+                          }
+                        }}
+                        className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-semibold hover:bg-violet-700 transition-colors"
+                      >
+                        🖼️ Generate Figures
+                        <span className="text-xs bg-violet-800 px-1.5 py-0.5 rounded font-bold">Pro</span>
+                      </button>
+                    </div>
+                  )}
+                  <DocumentUploadZone
+                    type="figures"
+                    patentId={patent.id}
+                    authToken={authToken}
+                    disabled={!specUploaded}
+                    disabledReason={!specUploaded ? 'Upload specification first (Step 5)' : undefined}
+                    onSuccess={() => {
+                      setPatent(prev => prev ? { ...prev, figures_uploaded: true } : null)
+                      showToast('✅ Figures uploaded — Step 6 complete!')
+                      loadAll()
+                    }}
+                  />
+                </div>
               )
             })()}
 
