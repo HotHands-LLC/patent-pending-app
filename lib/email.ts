@@ -1,126 +1,118 @@
-import { Resend } from 'resend'
+/**
+ * Shared email utilities for PatentPending
+ * - Consistent from name ("Chad at PatentPending")
+ * - Plain-text version alongside HTML (improves deliverability)
+ * - Unsubscribe/reply footer on every email
+ */
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+export const FROM_DEFAULT = 'Chad at PatentPending <notifications@patentpending.app>'
+export const FROM_ADMIN = 'Chad at PatentPending <notifications@hotdeck.com>'
 
-const FROM = 'Patent Pending <notifications@patentpending.app>'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
 
-interface ClaimsReadyEmailParams {
-  to: string
-  inventorName: string | null
-  inventionName: string | null
-  patentId: string
+/** Wraps HTML with standard footer */
+export function withFooter(html: string, unsubUrl?: string): string {
+  const unsub = unsubUrl ?? `${APP_URL}/unsubscribe`
+  return `${html}
+<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;color:#9ca3af;font-size:12px;font-family:Arial,sans-serif;">
+  <p>PatentPending · <a href="${APP_URL}" style="color:#6366f1">patentpending.app</a></p>
+  <p>Questions? Reply to this email or contact <a href="mailto:support@hotdeck.com" style="color:#6366f1">support@hotdeck.com</a></p>
+  <p><a href="${unsub}" style="color:#9ca3af">Unsubscribe</a></p>
+</div>`
 }
 
+/** Strips HTML tags for plain-text fallback */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<li>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** Build a Resend-compatible email payload with html + text */
+export function buildEmail({
+  to,
+  subject,
+  html,
+  from = FROM_DEFAULT,
+  replyTo = 'support@hotdeck.com',
+}: {
+  to: string | string[]
+  subject: string
+  html: string
+  from?: string
+  replyTo?: string
+}) {
+  const htmlWithFooter = withFooter(html)
+  return {
+    from,
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    html: htmlWithFooter,
+    text: htmlToText(htmlWithFooter),
+    reply_to: replyTo,
+  }
+}
+
+/** Send via Resend — returns { id } or throws */
+export async function sendEmail(payload: ReturnType<typeof buildEmail>): Promise<{ id: string }> {
+  if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY not set')
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`Resend error ${res.status}: ${JSON.stringify(err)}`)
+  }
+  return res.json()
+}
+
+/** Legacy convenience: claims ready notification (used by generate-claims cron) */
 export async function sendClaimsReadyEmail({
   to,
   inventorName,
   inventionName,
   patentId,
-}: ClaimsReadyEmailParams): Promise<void> {
-  if (!to) {
-    console.warn('[email] sendClaimsReadyEmail: no recipient address — skipping')
-    return
-  }
-
+}: {
+  to: string
+  inventorName?: string | null
+  inventionName?: string | null
+  patentId: string
+}) {
+  if (!to || !process.env.RESEND_API_KEY) return
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
   const name = inventorName ?? 'Inventor'
   const title = inventionName ?? 'your invention'
-  const patentUrl = `${APP_URL}/dashboard/patents/${patentId}`
+  const patentUrl = `${appUrl}/dashboard/patents/${patentId}?tab=claims`
 
-  const textBody = `Hi ${name},
-
-Your AI-generated claims draft for "${title}" is ready to review.
-
-View it here: ${patentUrl}
-
-From the patent detail page, you can:
-  • Read and review the full claims draft
-  • Approve it to move forward with filing
-  • Request a revision if anything needs adjustment
-
-If you have any questions, reply to this email.
-
-— Patent Pending
-  ${APP_URL}`
-
-  const htmlBody = `
-<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 20px;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;max-width:600px;">
-        <!-- Header -->
-        <tr>
-          <td style="background:#1a1f36;padding:28px 40px;">
-            <p style="margin:0;color:#ffffff;font-size:18px;font-weight:600;letter-spacing:-0.3px;">⚖️ Patent Pending</p>
-          </td>
-        </tr>
-        <!-- Body -->
-        <tr>
-          <td style="padding:40px;">
-            <p style="margin:0 0 8px;color:#6b7280;font-size:14px;">Hi ${name},</p>
-            <h1 style="margin:0 0 20px;color:#1a1f36;font-size:22px;font-weight:700;line-height:1.3;">
-              Your claims draft is ready to review
-            </h1>
-            <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.6;">
-              The AI-generated claims draft for <strong>${title}</strong> has been prepared and is waiting for your review.
-            </p>
-            <!-- CTA -->
-            <table cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
-              <tr>
-                <td style="background:#1a1f36;border-radius:8px;">
-                  <a href="${patentUrl}"
-                     style="display:inline-block;padding:14px 28px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;">
-                    Review My Claims Draft →
-                  </a>
-                </td>
-              </tr>
-            </table>
-            <!-- What you can do -->
-            <p style="margin:0 0 12px;color:#1a1f36;font-size:14px;font-weight:600;">From the patent page you can:</p>
-            <ul style="margin:0 0 28px;padding-left:20px;color:#374151;font-size:14px;line-height:2;">
-              <li>Read and review the full claims draft</li>
-              <li>Approve it to move forward with filing</li>
-              <li>Request a revision if anything needs adjustment</li>
-            </ul>
-            <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.6;">
-              Questions? Reply to this email and we'll get back to you.
-            </p>
-          </td>
-        </tr>
-        <!-- Footer -->
-        <tr>
-          <td style="padding:20px 40px;border-top:1px solid #f3f4f6;">
-            <p style="margin:0;color:#9ca3af;font-size:12px;">
-              Patent Pending &nbsp;·&nbsp;
-              <a href="${APP_URL}" style="color:#9ca3af;">patentpending.app</a>
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`
-
-  try {
-    const { data, error } = await resend.emails.send({
-      from: FROM,
-      to,
-      subject: 'Your claims draft is ready to review',
-      text: textBody,
-      html: htmlBody,
-    })
-
-    if (error) {
-      console.error('[email] Resend error:', error)
-    } else {
-      console.log(`[email] ✅ claims-ready email sent to ${to} — id: ${data?.id}`)
-    }
-  } catch (err) {
-    // Never throw — email failure must not crash the cron job
-    console.error('[email] sendClaimsReadyEmail unexpected error:', err)
-  }
+  await sendEmail(buildEmail({
+    to,
+    from: FROM_DEFAULT,
+    subject: `Your patent claims are ready — ${title}`,
+    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
+  <h2 style="color:#4f46e5">Your claims draft is ready 🎉</h2>
+  <p>Hi ${name},</p>
+  <p>We've generated an initial claims draft for <strong>${title}</strong>.</p>
+  <p>Review your claims, request revisions, or proceed to the filing checklist.</p>
+  <p><a href="${patentUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">View Your Claims →</a></p>
+</div>`,
+  }))
 }

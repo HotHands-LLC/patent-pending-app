@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserTier } from '@/lib/subscription'
+import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
 
 export const maxDuration = 300
 
@@ -201,15 +202,12 @@ ${claimsDraft.slice(0, 5000)}`
 
     // Send completion email via Resend
     if (ownerEmail && process.env.RESEND_API_KEY) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
-      const patentUrl = `${appUrl}/dashboard/patents/${patentId}?tab=claims`
-
-      const emailBody = {
-        from: 'PatentPending <notifications@patentpending.app>',
-        to: [ownerEmail],
-        subject: `Claims refined: ${title}`,
-        html: `
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
+      const patentUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'}/dashboard/patents/${patentId}?tab=claims`
+      await sendEmail(buildEmail({
+        to: ownerEmail,
+        from: FROM_DEFAULT,
+        subject: `Your claims have been refined — ${title}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
   <h2 style="color:#4f46e5">Your claims have been refined ✨</h2>
   <p>Hi ${ownerName},</p>
   <p>Claude has completed a precision language refinement pass on the claims for <strong>${title}</strong>.</p>
@@ -220,24 +218,10 @@ ${claimsDraft.slice(0, 5000)}`
     <li>§ 112 written description vulnerabilities addressed</li>
     <li>Non-standard terminology corrected</li>
   </ul>
-  <p>Your original claims are saved and you can compare them side-by-side in the Claims tab.</p>
-  <p>
-    <a href="${patentUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">
-      View Refined Claims →
-    </a>
-  </p>
-  <p style="color:#666;font-size:13px">PatentPending · <a href="${appUrl}" style="color:#4f46e5">patentpending.app</a></p>
+  <p>Your original claims are saved — use the Before / After toggle in the Claims tab to compare.</p>
+  <p><a href="${patentUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">View Refined Claims →</a></p>
 </div>`,
-      }
-
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(emailBody),
-      })
+      }))
     }
 
     console.log(`[refine-claims] Complete for ${patentId} — ${inputTok}+${outputTok} tokens, $${cost.toFixed(4)}`)

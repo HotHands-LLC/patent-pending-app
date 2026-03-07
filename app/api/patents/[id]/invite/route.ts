@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { buildEmail, FROM_DEFAULT, sendEmail } from '@/lib/email'
 
 const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -240,30 +241,34 @@ async function sendInviteEmail(
     ? `<p style="color:#374151;">Your ownership stake: <strong>${ownershipPct}%</strong></p>`
     : ''
 
-  await resend.emails.send({
-    from: 'PatentPending <notifications@patentpending.app>',
+  const html = `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;">
+      <h1 style="font-size:22px;color:#111827;">${role === 'counsel' ? 'Patent Legal Counsel Access' : 'Patent Collaboration Invite'}</h1>
+      <p style="color:#374151;">You've been granted <strong>${roleLabel}</strong> access to:</p>
+      <blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:16px 0;color:#1f2937;font-weight:600;">
+        ${patentTitle}
+      </blockquote>
+      ${ownershipLine}
+      ${counselNote}
+      <p style="color:#374151;">Click the button below to accept and access the patent:</p>
+      <a href="${inviteUrl}"
+         style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0;">
+        ${role === 'counsel' ? 'Access Patent Documents →' : 'Accept Invite →'}
+      </a>
+      <p style="color:#6b7280;font-size:14px;margin-top:20px;">
+        <strong>Don't have an account?</strong> That's fine — the link above will guide you through creating a free account and accepting your invite automatically.
+      </p>
+      <p style="color:#9ca3af;font-size:13px;margin-top:8px;">
+        This link is single-use. If you have questions, reply to this email.
+      </p>
+    </div>`
+
+  await sendEmail(buildEmail({
     to: toEmail,
+    from: FROM_DEFAULT,
     subject: role === 'counsel'
       ? `Legal counsel access granted — ${patentTitle}`
-      : `You've been invited to collaborate on a patent — ${patentTitle}`,
-    html: `
-      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;">
-        <h1 style="font-size:22px;color:#111827;">${role === 'counsel' ? 'Patent Legal Counsel Access' : 'Patent Collaboration Invite'}</h1>
-        <p style="color:#374151;">You've been granted <strong>${roleLabel}</strong> access to:</p>
-        <blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:16px 0;color:#1f2937;font-weight:600;">
-          ${patentTitle}
-        </blockquote>
-        ${ownershipLine}
-        ${counselNote}
-        <p style="color:#374151;">Click below to accept and access the patent:</p>
-        <a href="${inviteUrl}"
-           style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0;">
-          ${role === 'counsel' ? 'Access Patent Documents →' : 'Accept Invite →'}
-        </a>
-        <p style="color:#9ca3af;font-size:13px;margin-top:24px;">
-          This link expires after use. If you have questions, reply to this email.
-        </p>
-      </div>
-    `,
-  })
+      : `You've been invited to collaborate on ${patentTitle}`,
+    html,
+  }))
 }
