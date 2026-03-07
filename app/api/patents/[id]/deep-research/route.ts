@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 
-export const maxDuration = 300 // 5 min — required for Gemini async completion
+export const maxDuration = 300 // 5 min max — Gemini Pro can take 2-3 min
 import { createClient } from '@supabase/supabase-js'
 import { getUserTier, isTierPro } from '@/lib/subscription'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
@@ -19,16 +19,23 @@ function getUserClient(token: string) {
   )
 }
 
-const GEMINI_FLASH = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`
+// Use Gemini 2.5 Pro for Deep Research Pass — more thorough analysis than Flash
+const GEMINI_PRO = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${process.env.GEMINI_API_KEY}`
 
-/** Max chars to send to Gemini — ~100k tokens is safe for Flash */
-const MAX_INPUT_CHARS = 60_000
+// Gemini 2.5 Pro pricing: $1.25/M input, $10.00/M output (under 200k tokens)
+const COST_PER_M_INPUT = 1.25
+const COST_PER_M_OUTPUT = 10.0
+
+/** Max chars per input section — Pro handles up to 1M tokens */
+const MAX_CLAIMS_CHARS  = 8_000
+const MAX_SPEC_CHARS    = 30_000  // ~7500 tokens — substantial spec context
+const MAX_DESC_CHARS    = 4_000
 
 /**
  * POST /api/patents/[id]/deep-research
- * Pro-only. Runs extended Gemini prior art analysis and strengthens claims.
- * Uses waitUntil() to safely run Gemini after returning 202 — avoids
- * Vercel serverless terminating the background work.
+ * Pro-only. Uses Gemini 2.5 Pro for adversarial claim analysis.
+ * Result is staged in claims_draft_research_pending — never overwrites claims_draft.
+ * User must explicitly Apply the result from the review banner.
  */
 export async function POST(
   req: NextRequest,
@@ -53,49 +60,45 @@ export async function POST(
 
   const { data: patent } = await supabaseService
     .from('patents')
-    .select('id, title, owner_id, description, claims_draft, claims_status')
+    .select('id, title, owner_id, description, claims_draft, claims_status, spec_draft')
     .eq('id', patentId)
     .single()
 
   if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
   if (patent.owner_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  if (!patent.claims_draft) return NextResponse.json({ error: 'No claims draft to refine' }, { status: 400 })
+  if (!patent.claims_draft) return NextResponse.json({ error: 'No claims draft to analyze' }, { status: 400 })
   if (patent.claims_status === 'generating') {
     return NextResponse.json({ error: 'Deep Research is already running — check back in a few minutes' }, { status: 409 })
   }
 
-  // Get user email for completion notification
   const { data: profile } = await supabaseService
     .from('patent_profiles')
     .select('email, full_name')
     .eq('id', user.id)
     .single()
 
-  // Mark as generating
   await supabaseService
     .from('patents')
     .update({ claims_status: 'generating', updated_at: new Date().toISOString() })
     .eq('id', patentId)
 
-  // Log usage
   await supabaseService.from('ai_usage_log').insert({
     user_id: user.id,
     patent_id: patentId,
     action: 'deep_research_pass',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-pro',
     input_tokens: 0,
     output_tokens: 0,
     cost_usd: 0,
   })
 
-  // waitUntil keeps the Vercel function alive until the promise resolves,
-  // even after the HTTP response is sent — this is the correct pattern.
   waitUntil(
     runDeepResearch(
       patentId,
       patent.title,
       patent.claims_draft,
       patent.description ?? '',
+      patent.spec_draft ?? '',
       user.id,
       profile?.email ?? null,
       profile?.full_name ?? null
@@ -104,7 +107,7 @@ export async function POST(
 
   return NextResponse.json({
     ok: true,
-    message: 'Deep Research Pass started — this usually takes 8-12 minutes. We\'ll email you when it\'s ready.',
+    message: "Deep Research Pass started — Gemini Pro is conducting adversarial claim analysis. This usually takes 8–12 minutes. We'll email you when it's ready to review.",
   })
 }
 
@@ -113,62 +116,79 @@ async function runDeepResearch(
   title: string,
   claimsDraft: string,
   description: string,
+  specDraft: string,
   userId: string,
   userEmail: string | null,
   userName: string | null
 ) {
-  // Input size guard — truncate if over limit
-  const claimsInput = claimsDraft.slice(0, 6_000)
-  const descInput = description.slice(0, 4_000)
-  const totalChars = claimsInput.length + descInput.length + 1_000 // prompt overhead
+  const claimsInput = claimsDraft.slice(0, MAX_CLAIMS_CHARS)
+  const specInput   = specDraft.slice(0, MAX_SPEC_CHARS)
+  const descInput   = description.slice(0, MAX_DESC_CHARS)
 
-  console.log(`[deep-research] patent=${patentId} input_chars=${totalChars} (claims=${claimsInput.length} desc=${descInput.length})`)
+  const totalChars = claimsInput.length + specInput.length + descInput.length
+  console.log(`[deep-research] patent=${patentId} model=gemini-2.5-pro input_chars=${totalChars} (claims=${claimsInput.length} spec=${specInput.length} desc=${descInput.length})`)
 
-  if (totalChars > MAX_INPUT_CHARS) {
-    console.warn(`[deep-research] Input ${totalChars} chars exceeds ${MAX_INPUT_CHARS} limit — truncating`)
-  }
+  // ── ADVERSARIAL ANALYSIS PROMPT ─────────────────────────────────────────────
+  // Two-phase prompt:
+  // Phase 1: Adversarial analysis — finds every weakness a competitor or examiner would exploit
+  // Phase 2: Improved claims — uses the analysis to write stronger claims
+  // Output: analysis narrative + improved claims, separated by a clear delimiter
+  const prompt = `You are a senior patent prosecution attorney conducting adversarial claim analysis. Your job is not merely to rewrite claims — it is to find every weakness a patent examiner or competitor could exploit, then produce specific stronger claims.
 
-  const prompt = `You are a senior USPTO patent examiner AND a patent attorney with 20 years of experience.
+**PHASE 1 — ADVERSARIAL ANALYSIS**
+Analyze the following patent claims against the specification provided. For each independent claim:
 
-Your task is the Deep Research Pass for this patent. Do the following in sequence:
+1. **SCOPE ANALYSIS**: Does any language unnecessarily narrow the claim? Identify specific phrases that allow a competitor to design around by using a technically equivalent approach.
 
-**STEP 1 — Prior Art Analysis**
-Review the claims below. Identify the 3 most likely categories of prior art that could challenge novelty:
-- What existing technologies does this overlap with?
-- What would an examiner search for?
-- What are the key distinctions that make this novel?
+2. **ADVERSARIAL TEST**: How would a sophisticated competitor build the same invention while avoiding each independent claim? What would they change?
 
-**STEP 2 — Strengthened Claims**
-Rewrite the claims to:
-1. Maximize protection while avoiding the prior art you identified
-2. Ensure each independent claim has a clear point of novelty
-3. Add or improve dependent claims to create a stronger claim tree
-4. Use precise USPTO-compliant language (means-plus-function only where appropriate)
-5. Ensure claim 1 is broad but defensible
+3. **DEPENDENCY RISK**: Does any claim depend on external IP, named third-party systems, named products, or co-pending applications? Flag any dependencies that create prosecution risk.
 
-**STEP 3 — Output**
-Return ONLY the complete rewritten claims in standard USPTO numbered format (1., 2., 3., etc.)
-No preamble, no analysis, just the claims.
+4. **PRIOR ART PRESSURE**: What categories of prior art are most likely cited against each independent claim? Which claim language is most vulnerable to §102/§103 rejections?
 
+5. **RECOMMENDED FIXES**: For each identified weakness, provide specific alternative language that broadens protection while remaining fully supported by the specification.
+
+**PHASE 2 — IMPROVED CLAIMS**
+Using your adversarial analysis, write complete improved claims. Requirements:
+- Every independent claim must be broadened to its maximum defensible scope
+- Add dependent claims that capture specific preferred embodiments described in the spec
+- Remove any named dependencies on third-party products, brands, or co-pending applications
+- Ensure each claim is supported verbatim by language in the specification
+- Use precise USPTO-compliant language
+- Number claims sequentially
+
+**OUTPUT FORMAT**
+First output your analysis (Phase 1) as a structured summary.
+Then output a clear delimiter: ---IMPROVED CLAIMS---
+Then output the complete improved claims in standard USPTO numbered format (1., 2., 3., etc.).
+No additional text after the claims.
+
+---
 Patent Title: ${title}
-Description: ${descInput}
+
+Specification:
+${specInput || descInput || '(no specification provided)'}
 
 Current Claims:
 ${claimsInput}`
 
   try {
-    const res = await fetch(GEMINI_FLASH, {
+    const res = await fetch(GEMINI_PRO, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 4096, temperature: 0.3 },
+        generationConfig: {
+          maxOutputTokens: 8192,  // Pro can output more
+          temperature: 0.2,       // Lower temp for more precise legal language
+        },
       }),
     })
     const data = await res.json()
 
     if (!res.ok) {
-      console.error('[deep-research] Gemini API error:', data?.error?.message ?? JSON.stringify(data).slice(0, 200))
+      const errMsg = data?.error?.message ?? JSON.stringify(data).slice(0, 300)
+      console.error('[deep-research] Gemini Pro API error:', errMsg)
       await supabaseService.from('patents')
         .update({ claims_status: 'failed', updated_at: new Date().toISOString() })
         .eq('id', patentId)
@@ -176,59 +196,68 @@ ${claimsInput}`
     }
 
     const parts: Array<{ text?: string; thought?: boolean }> = data?.candidates?.[0]?.content?.parts ?? []
-    const newClaims = parts.filter(p => !p.thought).map(p => p.text ?? '').join('').trim()
+    const fullOutput = parts.filter(p => !p.thought).map(p => p.text ?? '').join('').trim()
 
-    if (newClaims) {
-      // ⚠️ NEVER overwrite claims_draft directly — save to staging field.
-      // User must explicitly "Apply" the result to promote it to claims_draft.
-      await supabaseService
-        .from('patents')
-        .update({
-          claims_draft_research_pending: newClaims,
-          research_completed_at: new Date().toISOString(),
-          claims_status: 'complete', // back to complete so user can view/edit
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', patentId)
-
-      // Update usage log
-      const inputTok = data?.usageMetadata?.promptTokenCount ?? 0
-      const outputTok = data?.usageMetadata?.candidatesTokenCount ?? 0
-      const cost = inputTok * 1.25 / 1_000_000 + outputTok * 10.0 / 1_000_000
-      console.log(`[deep-research] ✅ staged patent=${patentId} tokens=${inputTok}+${outputTok} cost=$${cost.toFixed(4)}`)
-
-      await supabaseService.from('ai_usage_log')
-        .update({ input_tokens: inputTok, output_tokens: outputTok, cost_usd: cost })
-        .eq('action', 'deep_research_pass')
-        .eq('patent_id', patentId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-
-      // Email with explicit "Review & Apply" CTA — not "view updated"
-      if (userEmail) {
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
-        const firstName = userName?.split(' ')[0] ?? 'there'
-        await sendEmail(buildEmail({
-          to: userEmail,
-          from: FROM_DEFAULT,
-          subject: `Deep Research ready for review — ${title}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
-  <h2 style="color:#d97706">Deep Research Pass ready 🔬</h2>
-  <p>Hi ${firstName},</p>
-  <p>Gemini has completed the Deep Research Pass for <strong>${title}</strong>.</p>
-  <p>The strengthened claims are staged for your review. Your original claims are untouched — you choose whether to apply the new version.</p>
-  <p><a href="${appUrl}/dashboard/patents/${patentId}?tab=claims" style="display:inline-block;background:#d97706;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Review &amp; Apply →</a></p>
-</div>`,
-        })).catch(e => console.error('[deep-research] email failed:', e))
-      }
-    } else {
-      console.error('[deep-research] Empty output from Gemini')
+    if (!fullOutput) {
+      console.error('[deep-research] Empty output from Gemini Pro')
       await supabaseService.from('patents')
         .update({ claims_status: 'failed', updated_at: new Date().toISOString() })
         .eq('id', patentId)
+      return
+    }
+
+    // Extract improved claims after delimiter
+    const delimiterIdx = fullOutput.indexOf('---IMPROVED CLAIMS---')
+    const analysisSection = delimiterIdx >= 0 ? fullOutput.slice(0, delimiterIdx).trim() : ''
+    const claimsSection   = delimiterIdx >= 0
+      ? fullOutput.slice(delimiterIdx + '---IMPROVED CLAIMS---'.length).trim()
+      : fullOutput // fallback: if no delimiter, treat whole output as claims
+
+    // Stage both analysis and claims — user reviews before applying
+    const stagedContent = delimiterIdx >= 0
+      ? `${analysisSection}\n\n---IMPROVED CLAIMS---\n\n${claimsSection}`
+      : claimsSection
+
+    const inputTok  = data?.usageMetadata?.promptTokenCount ?? 0
+    const outputTok = data?.usageMetadata?.candidatesTokenCount ?? 0
+    const cost      = (inputTok * COST_PER_M_INPUT + outputTok * COST_PER_M_OUTPUT) / 1_000_000
+    console.log(`[deep-research] ✅ staged patent=${patentId} tokens=${inputTok}+${outputTok} cost=$${cost.toFixed(4)} analysis=${analysisSection.length}chars claims=${claimsSection.length}chars`)
+
+    await supabaseService
+      .from('patents')
+      .update({
+        claims_draft_research_pending: stagedContent,
+        research_completed_at: new Date().toISOString(),
+        claims_status: 'complete',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', patentId)
+
+    await supabaseService.from('ai_usage_log')
+      .update({ input_tokens: inputTok, output_tokens: outputTok, cost_usd: cost })
+      .eq('action', 'deep_research_pass')
+      .eq('patent_id', patentId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (userEmail) {
+      const appUrl  = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
+      const firstName = userName?.split(' ')[0] ?? 'there'
+      await sendEmail(buildEmail({
+        to: userEmail,
+        from: FROM_DEFAULT,
+        subject: `Deep Research ready for review — ${title}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
+  <h2 style="color:#d97706">Deep Research Pass ready 🔬</h2>
+  <p>Hi ${firstName},</p>
+  <p>Gemini Pro has completed adversarial claim analysis for <strong>${title}</strong>.</p>
+  <p>The analysis identifies weaknesses, competitor workarounds, and prior art risks — then proposes stronger claims. Your original claims are untouched until you choose to apply.</p>
+  <p><a href="${appUrl}/dashboard/patents/${patentId}?tab=claims" style="display:inline-block;background:#d97706;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Review Analysis &amp; Apply →</a></p>
+</div>`,
+      })).catch(e => console.error('[deep-research] email failed:', e))
     }
   } catch (err) {
-    console.error('[deep-research] error:', err)
+    console.error('[deep-research] unexpected error:', err)
     await supabaseService.from('patents')
       .update({ claims_status: 'failed', updated_at: new Date().toISOString() })
       .eq('id', patentId)

@@ -46,15 +46,23 @@ export async function POST(
     return NextResponse.json({ error: 'No staged research result to apply' }, { status: 400 })
   }
 
+  // Extract only the claims section if the staged content has an analysis prefix
+  const staged = patent.claims_draft_research_pending
+  const delimIdx = staged.indexOf('---IMPROVED CLAIMS---')
+  const claimsToApply = delimIdx >= 0
+    ? staged.slice(delimIdx + '---IMPROVED CLAIMS---'.length).trim()
+    : staged.trim()
+
+  if (!claimsToApply) {
+    return NextResponse.json({ error: 'No claims found in staged result' }, { status: 400 })
+  }
+
   const { error } = await supabaseService
     .from('patents')
     .update({
-      // Backup original
-      claims_draft_pre_refine: patent.claims_draft,
-      // Promote staged result
-      claims_draft: patent.claims_draft_research_pending,
-      // Clear staging
-      claims_draft_research_pending: null,
+      claims_draft_pre_refine: patent.claims_draft,    // backup original
+      claims_draft: claimsToApply,                      // promote claims only
+      claims_draft_research_pending: null,              // clear staging
       research_completed_at: null,
       claims_status: 'complete',
       updated_at: new Date().toISOString(),
