@@ -7,17 +7,22 @@ import { supabase, Patent, PatentDeadline, getDaysUntil, getUrgencyBadge } from 
 import PatentPhaseWidget from "@/components/dashboard/PatentPhaseWidget"
 import ReviewQueue from "@/components/dashboard/ReviewQueue"
 import PatentIntakeCard from "@/components/dashboard/PatentIntakeCard"
+import NewPatentModal from "@/components/NewPatentModal"
 
 export default function Dashboard() {
   const [patents, setPatents] = useState<Patent[]>([])
   const [deadlines, setDeadlines] = useState<(PatentDeadline & { patents: { title: string } })[]>([])
   const [loading, setLoading] = useState(true)
+  const [showNewModal, setShowNewModal] = useState(false)
+  const [authToken, setAuthToken] = useState('')
   const router = useRouter()
 
   useEffect(() => {
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session } } = await supabase.auth.getSession()
+      const user = session?.user
       if (!user) { router.push('/login'); return }
+      if (session?.access_token) setAuthToken(session.access_token)
 
       const [{ data: p }, { data: d }] = await Promise.all([
         supabase.from('patents').select('*').order('provisional_deadline', { ascending: true }),
@@ -146,9 +151,9 @@ export default function Dashboard() {
           <PatentPhaseWidget patents={patents ?? []} />
         </div>
 
-                <Link href="/dashboard/patents/new" className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium min-h-[44px]">
-                  Register First Patent
-                </Link>
+                <button onClick={() => setShowNewModal(true)} className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium min-h-[44px] hover:bg-[#2d3561] transition-colors">
+                  + Add First Patent
+                </button>
               </div>
             ) : (
               <div className="space-y-3">
@@ -178,19 +183,34 @@ export default function Dashboard() {
         {/* Quick Actions */}
         <div className="mt-4 sm:mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { href: '/dashboard/patents/new', icon: '➕', label: 'Register Patent' },
+            { href: '#new-patent', icon: '➕', label: 'Add Patent' },
             { href: '/dashboard/deadlines', icon: '📅', label: 'View Deadlines' },
             { href: '/dashboard/correspondence', icon: '📬', label: 'Correspondence' },
             { href: '/dashboard/patents', icon: '📋', label: 'All Patents' },
           ].map((a) => (
-            <Link key={a.label} href={a.href}
-              className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-xl hover:border-[#1a1f36]/30 transition-colors text-center min-h-[80px] justify-center">
-              <span className="text-2xl">{a.icon}</span>
-              <span className="text-xs font-medium text-[#1a1f36]">{a.label}</span>
-            </Link>
+            a.href === '#new-patent' ? (
+              <button key={a.label} onClick={() => setShowNewModal(true)}
+                className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-xl hover:border-[#1a1f36]/30 transition-colors text-center min-h-[80px] justify-center w-full">
+                <span className="text-2xl">{a.icon}</span>
+                <span className="text-xs font-medium text-[#1a1f36]">{a.label}</span>
+              </button>
+            ) : (
+              <Link key={a.label} href={a.href}
+                className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-xl hover:border-[#1a1f36]/30 transition-colors text-center min-h-[80px] justify-center">
+                <span className="text-2xl">{a.icon}</span>
+                <span className="text-xs font-medium text-[#1a1f36]">{a.label}</span>
+              </Link>
+            )
           ))}
         </div>
       </div>
+
+      {showNewModal && (
+        <NewPatentModal
+          onClose={() => setShowNewModal(false)}
+          authToken={authToken}
+        />
+      )}
     </div>
   )
 }
