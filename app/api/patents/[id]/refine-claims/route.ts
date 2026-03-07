@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+export const maxDuration = 300 // 5 min — keeps function alive for Claude async completion
 import { createClient } from '@supabase/supabase-js'
 import { getUserTier } from '@/lib/subscription'
 
