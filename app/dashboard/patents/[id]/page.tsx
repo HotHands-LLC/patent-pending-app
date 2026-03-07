@@ -224,6 +224,8 @@ export default function PatentDetail() {
   // Inline title editing
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
+  const [draftingSpec, setDraftingSpec] = useState(false)
+  const [showSpecDraft, setShowSpecDraft] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
 
   const router = useRouter()
@@ -928,120 +930,110 @@ export default function PatentDetail() {
             })()}
 
             {/* Step 5: Specification — AI draft or manual upload */}
-            {(() => {
-              const statuses = computeStepStatus(patent)
-              const claimsApproved = statuses[3] // step 4
-              const [draftingSpec, setDraftingSpec] = useState(false)
-              const [showSpecDraft, setShowSpecDraft] = useState(false)
-
-              return (
-                <div className="space-y-3">
-                  {/* AI Spec Drafting card */}
-                  {claimsApproved && !patent.spec_uploaded && (
-                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                      <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
-                        <span>✨</span>
-                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">AI Spec Drafting Assistant</span>
-                        {patent.spec_draft && <span className="ml-auto text-xs text-green-600 font-semibold">Draft ready</span>}
-                      </div>
-                      <div className="p-5">
-                        {!patent.spec_draft ? (
-                          <>
-                            <p className="text-sm text-gray-600 mb-4">
-                              Don&apos;t have a specification yet? Let AI draft one from your claims. It&apos;ll generate Background, Summary, and Detailed Description sections — you review and refine.
-                            </p>
+            {/* draftingSpec + showSpecDraft live at component level — no hooks inside IIFEs */}
+            <div className="space-y-3">
+              {computeStepStatus(patent)[3] && !patent.spec_uploaded && (
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+                    <span>✨</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-gray-500">AI Spec Drafting Assistant</span>
+                    {patent.spec_draft && <span className="ml-auto text-xs text-green-600 font-semibold">Draft ready</span>}
+                  </div>
+                  <div className="p-5">
+                    {!patent.spec_draft ? (
+                      <>
+                        <p className="text-sm text-gray-600 mb-4">
+                          Don&apos;t have a specification yet? Let AI draft one from your claims. It&apos;ll generate Background, Summary, and Detailed Description sections — you review and refine.
+                        </p>
+                        <button
+                          onClick={async () => {
+                            setDraftingSpec(true)
+                            try {
+                              const res = await fetch(`/api/patents/${patent.id}/draft-spec`, {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${authToken}` },
+                              })
+                              const json = await res.json()
+                              if (!res.ok) { showToast(`❌ ${json.error}`); return }
+                              setPatent(prev => prev ? { ...prev, spec_draft: json.spec_draft } : null)
+                              setShowSpecDraft(true)
+                              showToast('✅ Spec draft generated — review below')
+                            } catch { showToast('❌ Network error') }
+                            finally { setDraftingSpec(false) }
+                          }}
+                          disabled={draftingSpec}
+                          className="px-5 py-2.5 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-50 transition-colors"
+                        >
+                          {draftingSpec ? '⏳ Drafting specification…' : '✨ Draft Specification with AI →'}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-sm text-gray-600">Your AI-drafted specification is ready. Review, copy to a document, or use it as your upload file.</p>
+                          <button
+                            onClick={() => setShowSpecDraft(s => !s)}
+                            className="ml-4 text-xs text-blue-600 hover:underline flex-shrink-0"
+                          >
+                            {showSpecDraft ? 'Hide ▲' : 'Show ▼'}
+                          </button>
+                        </div>
+                        {showSpecDraft && (
+                          <div className="relative">
+                            <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs font-mono text-gray-700 max-h-80 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                              {patent.spec_draft}
+                            </pre>
                             <button
-                              onClick={async () => {
-                                setDraftingSpec(true)
-                                try {
-                                  const res = await fetch(`/api/patents/${patent.id}/draft-spec`, {
-                                    method: 'POST',
-                                    headers: { Authorization: `Bearer ${authToken}` },
-                                  })
-                                  const json = await res.json()
-                                  if (!res.ok) { showToast(`❌ ${json.error}`); return }
-                                  setPatent(prev => prev ? { ...prev, spec_draft: json.spec_draft } : null)
-                                  setShowSpecDraft(true)
-                                  showToast('✅ Spec draft generated — review below')
-                                } catch { showToast('❌ Network error') }
-                                finally { setDraftingSpec(false) }
+                              onClick={() => {
+                                if (patent.spec_draft) {
+                                  navigator.clipboard.writeText(patent.spec_draft)
+                                  showToast('📋 Spec draft copied to clipboard')
+                                }
                               }}
-                              disabled={draftingSpec}
-                              className="px-5 py-2.5 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-50 transition-colors"
+                              className="absolute top-2 right-2 px-2 py-1 bg-white border border-gray-200 rounded text-xs hover:bg-gray-50"
                             >
-                              {draftingSpec ? '⏳ Drafting specification…' : '✨ Draft Specification with AI →'}
+                              Copy
                             </button>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex items-center justify-between mb-3">
-                              <p className="text-sm text-gray-600">Your AI-drafted specification is ready. Review, copy to a document, or use it as your upload file.</p>
-                              <button
-                                onClick={() => setShowSpecDraft(s => !s)}
-                                className="ml-4 text-xs text-blue-600 hover:underline flex-shrink-0"
-                              >
-                                {showSpecDraft ? 'Hide ▲' : 'Show ▼'}
-                              </button>
-                            </div>
-                            {showSpecDraft && (
-                              <div className="relative">
-                                <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs font-mono text-gray-700 max-h-80 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-                                  {patent.spec_draft}
-                                </pre>
-                                <button
-                                  onClick={() => {
-                                    if (patent.spec_draft) {
-                                      navigator.clipboard.writeText(patent.spec_draft)
-                                      showToast('📋 Spec draft copied to clipboard')
-                                    }
-                                  }}
-                                  className="absolute top-2 right-2 px-2 py-1 bg-white border border-gray-200 rounded text-xs hover:bg-gray-50"
-                                >
-                                  Copy
-                                </button>
-                              </div>
-                            )}
-                            <button
-                              onClick={async () => {
-                                setDraftingSpec(true)
-                                try {
-                                  const res = await fetch(`/api/patents/${patent.id}/draft-spec`, {
-                                    method: 'POST',
-                                    headers: { Authorization: `Bearer ${authToken}` },
-                                  })
-                                  const json = await res.json()
-                                  if (!res.ok) { showToast(`❌ ${json.error}`); return }
-                                  setPatent(prev => prev ? { ...prev, spec_draft: json.spec_draft } : null)
-                                  showToast('✅ Spec draft regenerated')
-                                } catch { showToast('❌ Network error') }
-                                finally { setDraftingSpec(false) }
-                              }}
-                              disabled={draftingSpec}
-                              className="mt-3 text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50"
-                            >
-                              {draftingSpec ? 'Regenerating…' : '🔄 Regenerate'}
-                            </button>
-                          </>
+                          </div>
                         )}
-                      </div>
-                    </div>
-                  )}
-
-                  <DocumentUploadZone
-                    type="spec"
-                    patentId={patent.id}
-                    authToken={authToken}
-                    disabled={!claimsApproved}
-                    disabledReason={!claimsApproved ? 'Approve claims first (Step 4)' : undefined}
-                    onSuccess={() => {
-                      setPatent(prev => prev ? { ...prev, spec_uploaded: true } : null)
-                      showToast('✅ Specification uploaded — Step 5 complete!')
-                      loadAll()
-                    }}
-                  />
+                        <button
+                          onClick={async () => {
+                            setDraftingSpec(true)
+                            try {
+                              const res = await fetch(`/api/patents/${patent.id}/draft-spec`, {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${authToken}` },
+                              })
+                              const json = await res.json()
+                              if (!res.ok) { showToast(`❌ ${json.error}`); return }
+                              setPatent(prev => prev ? { ...prev, spec_draft: json.spec_draft } : null)
+                              showToast('✅ Spec draft regenerated')
+                            } catch { showToast('❌ Network error') }
+                            finally { setDraftingSpec(false) }
+                          }}
+                          disabled={draftingSpec}
+                          className="mt-3 text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50"
+                        >
+                          {draftingSpec ? 'Regenerating…' : '🔄 Regenerate'}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              )
-            })()}
+              )}
+              <DocumentUploadZone
+                type="spec"
+                patentId={patent.id}
+                authToken={authToken}
+                disabled={!computeStepStatus(patent)[3]}
+                disabledReason={!computeStepStatus(patent)[3] ? 'Approve claims first (Step 4)' : undefined}
+                onSuccess={() => {
+                  setPatent(prev => prev ? { ...prev, spec_uploaded: true } : null)
+                  showToast('✅ Specification uploaded — Step 5 complete!')
+                  loadAll()
+                }}
+              />
+            </div>
 
             {/* Step 6: Figures upload */}
             {(() => {
