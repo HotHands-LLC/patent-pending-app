@@ -2,23 +2,37 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
 
-const supabase = createClient(
+const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-function requireAdmin(req: NextRequest) {
-  const key = req.headers.get('x-admin-key')
-  return key === process.env.CRON_SECRET
+function getUserClient(token: string) {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${token}` } } }
+  )
+}
+
+async function requireAdmin(req: NextRequest) {
+  const auth = req.headers.get('authorization')
+  if (!auth?.startsWith('Bearer ')) return null
+  const token = auth.slice(7)
+  const { data: { user } } = await getUserClient(token).auth.getUser()
+  if (!user) return null
+  const { data: profile } = await supabaseService.from('patent_profiles').select('role').eq('id', user.id).single()
+  return profile?.role === 'admin' ? user : null
 }
 
 /** GET /api/admin/accounts — list all users with subscription info */
 export async function GET(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const user = await requireAdmin(req)
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseService
     .from('patent_profiles')
-    .select('id, email, full_name, company, role, subscription_status, subscription_period_end, comp_reason, comp_granted_by, comp_granted_at, created_at, updated_at')
+    .select('id, email, full_name, company, role, subscription_status, subscription_period_end, comp_reason, comp_granted_by, comp_granted_at, created_at')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -27,14 +41,14 @@ export async function GET(req: NextRequest) {
 
 /** PATCH /api/admin/accounts — update tier for a user */
 export async function PATCH(req: NextRequest) {
-  if (!requireAdmin(req)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const adminUser = await requireAdmin(req)
+  if (!adminUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { user_id, tier, reason, granted_by, send_notification } = body as {
+  const { user_id, tier, reason, send_notification } = body as {
     user_id: string
     tier: 'free' | 'pro' | 'complimentary'
     reason?: string
-    granted_by?: string
     send_notification?: boolean
   }
 
@@ -42,7 +56,7 @@ export async function PATCH(req: NextRequest) {
   if (!['free', 'pro', 'complimentary'].includes(tier)) {
     return NextResponse.json({ error: 'tier must be free | pro | complimentary' }, { status: 400 })
   }
-  if (tier === 'complimentary' && !reason) {
+  if (tier === 'complimentary' && !reason?.trim()) {
     return NextResponse.json({ error: 'reason required for complimentary tier' }, { status: 400 })
   }
 
@@ -52,8 +66,8 @@ export async function PATCH(req: NextRequest) {
     updated_at: now,
   }
   if (tier === 'complimentary') {
-    update.comp_reason = reason
-    update.comp_granted_by = granted_by ?? 'admin'
+    update.comp_reason = reason?.trim()
+    update.comp_granted_by = adminUser.email ?? 'admin'
     update.comp_granted_at = now
     update.subscription_period_end = null
   } else if (tier === 'free') {
@@ -63,7 +77,7 @@ export async function PATCH(req: NextRequest) {
     update.comp_granted_at = null
   }
 
-  const { data: profile, error } = await supabase
+  const { data: profile, error } = await supabaseService
     .from('patent_profiles')
     .update(update)
     .eq('id', user_id)
@@ -72,7 +86,7 @@ export async function PATCH(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Send notification email if requested
+  // Send notification email if requested and upgrading
   if (send_notification && profile?.email && tier !== 'free') {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
     const firstName = profile.full_name?.split(' ')[0] ?? 'there'
@@ -85,7 +99,6 @@ export async function PATCH(req: NextRequest) {
   <h2 style="color:#4f46e5">Your account has been upgraded 🎉</h2>
   <p>Hi ${firstName},</p>
   <p>Your PatentPending account has been upgraded to Pro — compliments of the PatentPending team.</p>
-  <p>You now have access to:</p>
   <ul>
     <li><strong>Deep Research Pass</strong> — prior art analysis to strengthen your claims</li>
     <li><strong>Claude Refinement Pass</strong> — USPTO-precision language polish</li>

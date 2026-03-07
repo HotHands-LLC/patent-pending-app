@@ -1084,7 +1084,7 @@ function AdminAccountsPanel({ authToken }: { authToken: string }) {
 
   React.useEffect(() => {
     fetch('/api/admin/accounts', {
-      headers: { 'x-admin-key': authToken },
+      headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(r => r.json())
       .then(d => { setAccounts(d.accounts ?? []); setLoading(false) })
@@ -1097,7 +1097,7 @@ function AdminAccountsPanel({ authToken }: { authToken: string }) {
     setSaving(true)
     const res = await fetch('/api/admin/accounts', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', 'x-admin-key': authToken },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({
         user_id: userId,
         tier: editTier,

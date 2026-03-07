@@ -990,6 +990,60 @@ export default function PatentDetail() {
                 {/* Pro badge — only shown to free users */}
                 {!isPro && <ProBadge patentId={patent.id} />}
 
+                {/* Deep Research staged result — review & apply banner */}
+                {!isCollaborator && patent.claims_draft_research_pending && (
+                  <div className="bg-amber-50 rounded-xl border border-amber-300 p-4 mb-1">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-amber-900 mb-1">🔬 Deep Research result ready for review</p>
+                        <p className="text-xs text-amber-700">Gemini strengthened your claims based on prior art analysis. Your original claims are safe until you apply.</p>
+                      </div>
+                      <div className="flex-shrink-0 flex flex-col gap-2 items-end">
+                        <button
+                          onClick={async () => {
+                            const res = await fetch(`/api/patents/${patent.id}/apply-research`, {
+                              method: 'POST',
+                              headers: { Authorization: `Bearer ${authToken}` },
+                            })
+                            const d = await res.json()
+                            if (res.ok) {
+                              showToast('✅ Research applied — original claims saved as backup')
+                              loadAll()
+                            } else {
+                              showToast(d.error ?? 'Failed to apply')
+                            }
+                          }}
+                          className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-semibold hover:bg-amber-700 transition-colors whitespace-nowrap"
+                        >
+                          Apply Research →
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('Dismiss the research result? It will be permanently discarded.')) return
+                            await fetch(`/api/patents/${patent.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                              body: JSON.stringify({ claims_draft_research_pending: null, research_completed_at: null }),
+                            })
+                            setPatent(prev => prev ? { ...prev, claims_draft_research_pending: null } : null)
+                          }}
+                          className="text-xs text-amber-600 hover:underline"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                    {/* Preview of staged claims */}
+                    <details className="mt-3">
+                      <summary className="text-xs text-amber-700 cursor-pointer hover:text-amber-900 font-medium">Preview researched claims ▾</summary>
+                      <pre className="mt-2 text-xs text-gray-700 bg-white border border-amber-100 rounded-lg p-3 overflow-auto max-h-48 whitespace-pre-wrap font-mono leading-relaxed">
+                        {patent.claims_draft_research_pending?.slice(0, 2000)}
+                        {(patent.claims_draft_research_pending?.length ?? 0) > 2000 ? '…' : ''}
+                      </pre>
+                    </details>
+                  </div>
+                )}
+
                 {/* Pro AI passes — shown for Pro users, clickable */}
                 {!isCollaborator && (
                   <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3">

@@ -179,11 +179,14 @@ ${claimsInput}`
     const newClaims = parts.filter(p => !p.thought).map(p => p.text ?? '').join('').trim()
 
     if (newClaims) {
+      // ⚠️ NEVER overwrite claims_draft directly — save to staging field.
+      // User must explicitly "Apply" the result to promote it to claims_draft.
       await supabaseService
         .from('patents')
         .update({
-          claims_draft: newClaims,
-          claims_status: 'complete',
+          claims_draft_research_pending: newClaims,
+          research_completed_at: new Date().toISOString(),
+          claims_status: 'complete', // back to complete so user can view/edit
           updated_at: new Date().toISOString(),
         })
         .eq('id', patentId)
@@ -192,7 +195,7 @@ ${claimsInput}`
       const inputTok = data?.usageMetadata?.promptTokenCount ?? 0
       const outputTok = data?.usageMetadata?.candidatesTokenCount ?? 0
       const cost = inputTok * 1.25 / 1_000_000 + outputTok * 10.0 / 1_000_000
-      console.log(`[deep-research] ✅ complete patent=${patentId} tokens=${inputTok}+${outputTok} cost=$${cost.toFixed(4)}`)
+      console.log(`[deep-research] ✅ staged patent=${patentId} tokens=${inputTok}+${outputTok} cost=$${cost.toFixed(4)}`)
 
       await supabaseService.from('ai_usage_log')
         .update({ input_tokens: inputTok, output_tokens: outputTok, cost_usd: cost })
@@ -201,20 +204,20 @@ ${claimsInput}`
         .order('created_at', { ascending: false })
         .limit(1)
 
-      // Email notification
+      // Email with explicit "Review & Apply" CTA — not "view updated"
       if (userEmail) {
         const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
         const firstName = userName?.split(' ')[0] ?? 'there'
         await sendEmail(buildEmail({
           to: userEmail,
           from: FROM_DEFAULT,
-          subject: `Deep Research complete — ${title}`,
+          subject: `Deep Research ready for review — ${title}`,
           html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
-  <h2 style="color:#d97706">Deep Research Pass complete 🔬</h2>
+  <h2 style="color:#d97706">Deep Research Pass ready 🔬</h2>
   <p>Hi ${firstName},</p>
-  <p>Gemini has finished the Deep Research Pass on <strong>${title}</strong>.</p>
-  <p>Your claims have been strengthened based on prior art analysis. Review the updated claims and compare with your original draft.</p>
-  <p><a href="${appUrl}/dashboard/patents/${patentId}?tab=claims" style="display:inline-block;background:#d97706;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">View Updated Claims →</a></p>
+  <p>Gemini has completed the Deep Research Pass for <strong>${title}</strong>.</p>
+  <p>The strengthened claims are staged for your review. Your original claims are untouched — you choose whether to apply the new version.</p>
+  <p><a href="${appUrl}/dashboard/patents/${patentId}?tab=claims" style="display:inline-block;background:#d97706;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Review &amp; Apply →</a></p>
 </div>`,
         })).catch(e => console.error('[deep-research] email failed:', e))
       }
