@@ -20,13 +20,19 @@ export default function PricingPage() {
         return
       }
 
+      // Recover patent context stored before upgrade redirect
+      const returnPatentId = typeof window !== 'undefined'
+        ? localStorage.getItem('pp_upgrade_return_patent')
+        : null
+      if (returnPatentId) localStorage.removeItem('pp_upgrade_return_patent')
+
       const res = await fetch('/api/billing/create-checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ plan, interval }),
+        body: JSON.stringify({ plan, interval, return_patent_id: returnPatentId ?? undefined }),
       })
       const data = await res.json()
       if (!res.ok) {

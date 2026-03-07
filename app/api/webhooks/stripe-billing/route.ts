@@ -20,7 +20,7 @@ async function updateSubscription(
   status: 'free' | 'pro' | 'cancelled',
   periodEnd: Date | null
 ) {
-  await supabase
+  const { error } = await supabase
     .from('patent_profiles')
     .update({
       subscription_status: status,
@@ -28,6 +28,7 @@ async function updateSubscription(
       updated_at: new Date().toISOString(),
     })
     .eq('id', userId)
+  if (error) throw new Error(`updateSubscription failed for ${userId}: ${error.message}`)
 }
 
 export async function POST(req: NextRequest) {

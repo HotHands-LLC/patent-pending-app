@@ -106,7 +106,13 @@ function ScoreCard({ score }: { score: ClaimsScore }) {
 }
 
 // ── Pro badge ──────────────────────────────────────────────────────────────────
-function ProBadge() {
+function ProBadge({ patentId }: { patentId: string }) {
+  function handleUpgradeClick() {
+    // Store origin patent so we can redirect back after upgrade
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pp_upgrade_return_patent', patentId)
+    }
+  }
   return (
     <div className="bg-white rounded-xl border border-amber-200 overflow-hidden mb-5">
       <div className="px-5 py-3 border-b border-amber-100 bg-amber-50 flex items-center gap-2">
@@ -127,6 +133,7 @@ function ProBadge() {
         </ul>
         <Link
           href="/pricing"
+          onClick={handleUpgradeClick}
           className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold hover:bg-amber-600 transition-colors"
         >
           Upgrade to Pro →
@@ -222,6 +229,7 @@ export default function PatentDetail() {
   const [expandedCorr, setExpandedCorr] = useState<string | null>(null)
   const [ownerId, setOwnerId] = useState('')
   const [authToken, setAuthToken] = useState('')
+  const [isPro, setIsPro] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [isCollaborator, setIsCollaborator] = useState(false)
   const [collaboratorRole, setCollaboratorRole] = useState<string | null>(null)
@@ -251,12 +259,19 @@ export default function PatentDetail() {
     if (authSession?.access_token) setAuthToken(authSession.access_token)
     const token = authSession?.access_token ?? ''
 
-    const [{ data: p }, { data: d }, { data: c }, { data: ap }] = await Promise.all([
+    const [{ data: p }, { data: d }, { data: c }, { data: ap }, { data: profileData }] = await Promise.all([
       supabase.from('patents').select('*').eq('id', id).single(),
       supabase.from('patent_deadlines').select('*').eq('patent_id', id).order('due_date', { ascending: true }),
       supabase.from('patent_correspondence').select('*').eq('patent_id', id).order('correspondence_date', { ascending: false }),
       supabase.from('patents').select('*').order('title'),
+      supabase.from('patent_profiles').select('subscription_status,subscription_period_end').eq('id', user.id).single(),
     ])
+
+    // Determine Pro status from fresh DB read (not stale session token)
+    const periodEnd = profileData?.subscription_period_end
+    const proActive = profileData?.subscription_status === 'pro' &&
+      (!periodEnd || new Date(periodEnd) > new Date())
+    setIsPro(proActive)
 
     if (!p) { router.push('/dashboard/patents'); return }
 
@@ -344,6 +359,21 @@ export default function PatentDetail() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, authToken, patent?.id])
+
+  // Handle post-upgrade return from Stripe — show toast + refresh Pro state
+  useEffect(() => {
+    if (searchParams.get('upgrade') === 'success') {
+      showToast("🎉 You're now Pro! All features unlocked.")
+      setIsPro(true)
+      // Re-run full load to get fresh subscription state
+      loadAll()
+      // Clean URL without triggering navigation
+      const url = new URL(window.location.href)
+      url.searchParams.delete('upgrade')
+      window.history.replaceState({}, '', url.toString())
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   // Focus title input when entering edit mode
   useEffect(() => {
@@ -807,8 +837,8 @@ export default function PatentDetail() {
                 {/* Filing Readiness Score card — FEATURE 1B */}
                 {claimsScore && <ScoreCard score={claimsScore} />}
 
-                {/* Pro badge + Deep Research / Refinement actions — FEATURE 1D */}
-                <ProBadge />
+                {/* Pro badge — only shown to free users */}
+                {!isPro && <ProBadge patentId={patent.id} />}
 
                 {/* Pro AI passes — shown for Pro users, clickable */}
                 {!isCollaborator && (

@@ -75,6 +75,11 @@ export async function POST(req: NextRequest) {
 
     const priceId = getPriceId(interval)
 
+    const returnPatentId = body.return_patent_id as string | undefined
+    const successBase = returnPatentId
+      ? `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/patents/${returnPatentId}`
+      : `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
@@ -84,7 +89,7 @@ export async function POST(req: NextRequest) {
         metadata: { user_id: user.id },
       },
       metadata: { user_id: user.id, plan: `pro_${interval}` },
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?upgrade=success`,
+      success_url: `${successBase}?upgrade=success`,
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/pricing?upgrade=cancelled`,
     })
 
