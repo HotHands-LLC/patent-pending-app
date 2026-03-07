@@ -40,6 +40,14 @@ export type Patent = {
   cover_sheet_acknowledged?: boolean
   // Spec drafting (cont.11)
   spec_draft?: string | null
+  // Arc 3 (cont.17)
+  arc3_active?: boolean
+  slug?: string | null
+  licensing_exclusive?: boolean
+  licensing_nonexclusive?: boolean
+  licensing_field_of_use?: boolean
+  deal_page_summary?: string | null
+  deal_page_market?: string | null
 }
 
 export type PatentDeadline = {

@@ -13,6 +13,7 @@ import {
 } from '@/lib/supabase'
 import type { ClaimsScore } from '@/lib/claims-score'
 import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
+import Arc3Modal from '@/components/Arc3Modal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -225,6 +226,8 @@ export default function PatentDetail() {
   const [isCollaborator, setIsCollaborator] = useState(false)
   const [collaboratorRole, setCollaboratorRole] = useState<string | null>(null)
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
+  const [showArc3Modal, setShowArc3Modal] = useState(false)
+  const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   // Inline title editing
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -709,8 +712,63 @@ export default function PatentDetail() {
                   <div className="text-sm text-gray-400">No application number on file.</div>
                 )}
               </div>
+
+              {/* ── Arc 3: Deal Page ──────────────────────────────────────────── */}
+              {!isCollaborator && (
+                <div className={`rounded-xl border p-5 ${
+                  (patent as Patent & { arc3_active?: boolean }).arc3_active
+                    ? 'border-green-200 bg-green-50'
+                    : 'border-indigo-100 bg-indigo-50'
+                }`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-base">🏛️</span>
+                    <h2 className="font-semibold text-[#1a1f36] text-sm">Arc 3 — Deal Page</h2>
+                  </div>
+                  {(patent as Patent & { arc3_active?: boolean }).arc3_active ? (
+                    <div>
+                      <div className="text-xs text-green-700 font-semibold mb-2">✅ Deal page active</div>
+                      <a
+                        href={`/patents/${arc3Slug ?? (patent as Patent & { slug?: string }).slug ?? patent.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-indigo-600 underline block mb-2"
+                      >
+                        View public deal page →
+                      </a>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-indigo-700 mb-3">
+                        List this patent for licensing. HHLLC represents you for 20% commission. No upfront cost.
+                      </p>
+                      <button
+                        onClick={() => setShowArc3Modal(true)}
+                        className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors"
+                      >
+                        Activate Deal Page →
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+        )}
+
+        {/* Arc 3 activation modal */}
+        {showArc3Modal && patent && (
+          <Arc3Modal
+            patentId={patent.id}
+            patentTitle={patent.title}
+            authToken={authToken}
+            onSuccess={(slug, _url) => {
+              setArc3Slug(slug)
+              setShowArc3Modal(false)
+              setPatent(prev => prev ? { ...prev, arc3_active: true } as typeof prev : null)
+              showToast('🏛️ Arc 3 activated! Deal page is live.')
+            }}
+            onClose={() => setShowArc3Modal(false)}
+          />
         )}
 
         {/* ── CLAIMS TAB ──────────────────────────────────────────────────────── */}
@@ -749,8 +807,43 @@ export default function PatentDetail() {
                 {/* Filing Readiness Score card — FEATURE 1B */}
                 {claimsScore && <ScoreCard score={claimsScore} />}
 
-                {/* Pro badge — FEATURE 1D */}
+                {/* Pro badge + Deep Research / Refinement actions — FEATURE 1D */}
                 <ProBadge />
+
+                {/* Pro AI passes — shown for Pro users, clickable */}
+                {!isCollaborator && (
+                  <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3">
+                    <button
+                      onClick={async () => {
+                        if (!confirm('Run Deep Research Pass? This will strengthen claims using prior art analysis (~2 min).')) return
+                        const res = await fetch(`/api/patents/${patent.id}/deep-research`, {
+                          method: 'POST',
+                          headers: { Authorization: `Bearer ${authToken}` },
+                        })
+                        const d = await res.json()
+                        if (!res.ok) {
+                          if (res.status === 403 && d.upgrade_url) { window.location.href = d.upgrade_url; return }
+                          showToast(d.error ?? 'Failed')
+                        } else {
+                          showToast('🔬 Deep Research Pass started — claims will update in ~2 min')
+                          setPatent(prev => prev ? { ...prev, claims_status: 'generating' } : null)
+                        }
+                      }}
+                      disabled={patent.claims_status === ('generating' as string)}
+                      className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors"
+                    >
+                      🔬 Deep Research Pass
+                      <span className="text-xs bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
+                    </button>
+                    <button
+                      onClick={() => showToast('Claude Refinement Pass coming soon — add ANTHROPIC_API_KEY to Vercel to enable')}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors"
+                    >
+                      ✨ Claude Refinement Pass
+                      <span className="text-xs bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Claims viewer — FEATURE 1A: copy buttons */}
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

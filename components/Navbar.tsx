@@ -43,7 +43,7 @@ export default function Navbar() {
     { href: '/dashboard/patents', label: 'Patents' },
     { href: '/dashboard/correspondence', label: 'Correspondence' },
     { href: '/dashboard/deadlines', label: 'Deadlines' },
-    { href: '/intake/new', label: '+ New Invention' },
+    { href: '/pricing', label: 'Pricing' },
   ]
 
   return (

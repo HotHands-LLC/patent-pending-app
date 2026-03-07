@@ -74,7 +74,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'content'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'content' | 'agency'>('overview')
   const [authToken, setAuthToken] = useState('')
 
   // Inbox state
@@ -146,6 +146,42 @@ export default function AdminPage() {
       </div>
     </div>
   )
+
+  // ── Agency state ──────────────────────────────────────────────────────────
+  const [agencyAgreements, setAgencyAgreements] = useState<AgencyAgreement[]>([])
+  const [agencyLeads, setAgencyLeads] = useState<AgencyLead[]>([])
+  const [agencyLeadSummary, setAgencyLeadSummary] = useState<Record<string, { total: number; new: number; closed: number; total_deal_value: number }>>({})
+  const [agencyLoading, setAgencyLoading] = useState(false)
+  const [updatingLead, setUpdatingLead] = useState<string | null>(null)
+
+  const loadAgency = useCallback(async () => {
+    if (!authToken) return
+    setAgencyLoading(true)
+    try {
+      const res = await fetch('/api/admin/agency', { headers: { Authorization: `Bearer ${authToken}` } })
+      if (res.ok) {
+        const d = await res.json()
+        setAgencyAgreements(d.agreements ?? [])
+        setAgencyLeads(d.allLeads ?? [])
+        setAgencyLeadSummary(d.leadSummary ?? {})
+      }
+    } finally { setAgencyLoading(false) }
+  }, [authToken])
+
+  useEffect(() => {
+    if (activeSection === 'agency' && authToken) loadAgency()
+  }, [activeSection, authToken, loadAgency])
+
+  async function updateLead(leadId: string, updates: Partial<AgencyLead>) {
+    setUpdatingLead(leadId)
+    await fetch('/api/admin/agency', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ lead_id: leadId, ...updates }),
+    })
+    setAgencyLeads(prev => prev.map(l => l.id === leadId ? { ...l, ...updates } : l))
+    setUpdatingLead(null)
+  }
 
   // ── Inbox loader ────────────────────────────────────────────────────────────
   const loadInbox = useCallback(async () => {
@@ -249,11 +285,23 @@ export default function AdminPage() {
     { key: 'overview', label: 'Overview', icon: '📊' },
     { key: 'inbox', label: 'Inbox', icon: '📧', badge: actionCount || undefined },
     { key: 'content', label: 'Content', icon: '✍️' },
+    { key: 'agency', label: 'Agency', icon: '🤝' },
     { key: 'patents', label: `Patents (${summary.total_patents})`, icon: '📋' },
     { key: 'users', label: `Users (${summary.total_users})`, icon: '👤' },
     { key: 'ai-costs', label: 'AI Costs', icon: '🤖' },
     { key: 'activity', label: 'Activity', icon: '📡' },
   ]
+
+  // Agency state (loaded on demand)
+  interface AgencyAgreement {
+    id: string; commission_pct: number; terms_version: string; agreed_at: string;
+    patents: { id: string; title: string; slug: string | null; status: string }
+  }
+  interface AgencyLead {
+    id: string; patent_id: string; name: string; email: string; company: string;
+    message: string; status: string; deal_type: string | null; deal_amount: number | null;
+    notes: string | null; created_at: string;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -777,6 +825,134 @@ export default function AdminPage() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── AGENCY SECTION ────────────────────────────────────────────────── */}
+          {activeSection === 'agency' && (
+            <div>
+              <div className="flex items-center justify-between mb-5">
+                <h1 className="text-xl font-bold text-gray-900">🤝 Agency Pipeline</h1>
+                <button onClick={loadAgency} className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50">↻ Refresh</button>
+              </div>
+
+              {agencyLoading ? (
+                <div className="text-gray-400 text-sm py-8 text-center">Loading agency data…</div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Active Agreements */}
+                  <div>
+                    <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Active Agreements ({agencyAgreements.length})</h2>
+                    {agencyAgreements.length === 0 ? (
+                      <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-400 text-sm">No active agency agreements yet.</div>
+                    ) : (
+                      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-50 border-b border-gray-100">
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Patent</th>
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Status</th>
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Commission</th>
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Leads</th>
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Deals Closed</th>
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Deal Page</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {agencyAgreements.map(ag => {
+                              const s = agencyLeadSummary[ag.patents?.id] ?? { total: 0, new: 0, closed: 0, total_deal_value: 0 }
+                              return (
+                                <tr key={ag.id} className="hover:bg-gray-50">
+                                  <td className="px-4 py-3 font-medium text-gray-900">{ag.patents?.title ?? '—'}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                                      ag.patents?.status === 'granted' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                                    }`}>{ag.patents?.status ?? '—'}</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600">{ag.commission_pct}%</td>
+                                  <td className="px-4 py-3">
+                                    <span className="text-gray-900 font-semibold">{s.total}</span>
+                                    {s.new > 0 && <span className="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">{s.new} new</span>}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {s.closed > 0
+                                      ? <span className="text-green-700 font-semibold">{s.closed} · ${s.total_deal_value.toLocaleString()}</span>
+                                      : <span className="text-gray-400">—</span>
+                                    }
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {ag.patents?.slug
+                                      ? <a href={`/patents/${ag.patents.slug}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 text-xs hover:underline">View →</a>
+                                      : <span className="text-gray-300 text-xs">no slug</span>
+                                    }
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Leads */}
+                  <div>
+                    <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Licensing Inquiries ({agencyLeads.length})</h2>
+                    {agencyLeads.length === 0 ? (
+                      <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-400 text-sm">No inquiries yet.</div>
+                    ) : (
+                      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-50 border-b border-gray-100">
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Name / Company</th>
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Email</th>
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Status</th>
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Deal Amount</th>
+                              <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Received</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {agencyLeads.map(lead => (
+                              <tr key={lead.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3">
+                                  <div className="font-medium text-gray-900">{lead.name}</div>
+                                  <div className="text-xs text-gray-400">{lead.company || '—'}</div>
+                                </td>
+                                <td className="px-4 py-3 text-gray-500 text-xs">{lead.email}</td>
+                                <td className="px-4 py-3">
+                                  <select
+                                    value={lead.status}
+                                    disabled={updatingLead === lead.id}
+                                    onChange={e => updateLead(lead.id, { status: e.target.value })}
+                                    className="text-xs border border-gray-200 rounded px-2 py-1 bg-white"
+                                  >
+                                    {['new', 'contacted', 'negotiating', 'closed', 'declined'].map(s => (
+                                      <option key={s} value={s}>{s}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="px-4 py-3">
+                                  {lead.status === 'closed' ? (
+                                    <input
+                                      type="number"
+                                      defaultValue={lead.deal_amount ?? ''}
+                                      onBlur={e => updateLead(lead.id, { deal_amount: parseFloat(e.target.value) || 0 })}
+                                      placeholder="$0"
+                                      className="w-24 text-xs border border-gray-200 rounded px-2 py-1"
+                                    />
+                                  ) : <span className="text-gray-300">—</span>}
+                                </td>
+                                <td className="px-4 py-3 text-gray-400 text-xs">{formatDate(lead.created_at)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
