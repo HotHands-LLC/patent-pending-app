@@ -836,8 +836,23 @@ export default function PatentDetail() {
                       <span className="text-xs bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
                     </button>
                     <button
-                      onClick={() => showToast('Claude Refinement Pass coming soon — add ANTHROPIC_API_KEY to Vercel to enable')}
-                      className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors"
+                      onClick={async () => {
+                        if (!confirm('Run Claude Refinement Pass? This polishes claim language for USPTO precision (~60 sec).')) return
+                        const res = await fetch(`/api/patents/${patent.id}/refine-claims`, {
+                          method: 'POST',
+                          headers: { Authorization: `Bearer ${authToken}` },
+                        })
+                        const d = await res.json()
+                        if (!res.ok) {
+                          if (res.status === 403 && d.upgrade_url) { window.location.href = d.upgrade_url; return }
+                          showToast(d.error ?? 'Failed')
+                        } else {
+                          showToast('✨ Claude Refinement Pass started — claims will update in ~60 sec')
+                          setPatent(prev => prev ? { ...prev, claims_status: 'generating' } : null)
+                        }
+                      }}
+                      disabled={patent.claims_status === ('generating' as string)}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-lg text-sm font-semibold hover:bg-indigo-100 disabled:opacity-50 transition-colors"
                     >
                       ✨ Claude Refinement Pass
                       <span className="text-xs bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
