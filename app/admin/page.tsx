@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -74,7 +74,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'content' | 'agency'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'content' | 'agency' | 'partners'>('overview')
   const [authToken, setAuthToken] = useState('')
 
   // Inbox state
@@ -286,6 +286,7 @@ export default function AdminPage() {
     { key: 'inbox', label: 'Inbox', icon: '📧', badge: actionCount || undefined },
     { key: 'content', label: 'Content', icon: '✍️' },
     { key: 'agency', label: 'Agency', icon: '🤝' },
+    { key: 'partners', label: 'Partners', icon: '⚖️' },
     { key: 'patents', label: `Patents (${summary.total_patents})`, icon: '📋' },
     { key: 'users', label: `Users (${summary.total_users})`, icon: '👤' },
     { key: 'ai-costs', label: 'AI Costs', icon: '🤖' },
@@ -958,7 +959,109 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* ── Partners ────────────────────────────────────────────── */}
+          {activeSection === 'partners' && (
+            <AdminPartnersPanel authToken={authToken} />
+          )}
+
         </main>
+      </div>
+    </div>
+  )
+}
+
+// ─── Admin Partners Panel ────────────────────────────────────────────────────
+
+function AdminPartnersPanel({ authToken }: { authToken: string }) {
+  const [partners, setPartners] = React.useState<any[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [filter, setFilter] = React.useState('pending')
+
+  const load = React.useCallback(async () => {
+    setLoading(true)
+    const res = await fetch(`/api/admin/partners?status=${filter}`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    })
+    const d = await res.json()
+    setPartners(d.partners ?? [])
+    setLoading(false)
+  }, [authToken, filter])
+
+  React.useEffect(() => { if (authToken) load() }, [load])
+
+  async function action(id: string, act: string) {
+    const res = await fetch('/api/admin/partners', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action: act }),
+    })
+    if (res.ok) load()
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-bold text-gray-900">⚖️ Counsel Partner Applications</h2>
+        <div className="flex gap-2">
+          {['pending', 'approved', 'rejected'].map(s => (
+            <button key={s} onClick={() => setFilter(s)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold capitalize transition-colors ${filter === s ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && <p className="text-gray-500 text-sm">Loading...</p>}
+      {!loading && partners.length === 0 && (
+        <p className="text-gray-500 text-sm">No {filter} applications.</p>
+      )}
+
+      <div className="space-y-4">
+        {partners.map(p => (
+          <div key={p.id} className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-bold text-gray-900">{p.full_name}</p>
+                <p className="text-indigo-600 text-sm">{p.firm_name} · {p.state}</p>
+                <p className="text-gray-500 text-sm">{p.email} · Bar: {p.bar_number}</p>
+                {p.specialty && <p className="text-gray-500 text-sm mt-1">Specialty: {p.specialty}</p>}
+                <p className="text-gray-400 text-xs mt-2">Applied: {new Date(p.created_at).toLocaleDateString()}</p>
+                {p.referral_code && (
+                  <p className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded mt-1 inline-block">Code: {p.referral_code}</p>
+                )}
+                {p.pro_expiry && (
+                  <p className="text-xs text-green-700 mt-1">Pro until: {new Date(p.pro_expiry).toLocaleDateString()}</p>
+                )}
+              </div>
+              <div className="flex flex-col gap-2 flex-shrink-0">
+                {p.status === 'pending' && (
+                  <>
+                    <button onClick={() => action(p.id, 'approve')}
+                      className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700">
+                      Approve ✓
+                    </button>
+                    <button onClick={() => action(p.id, 'reject')}
+                      className="px-4 py-1.5 bg-red-100 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-200">
+                      Reject
+                    </button>
+                  </>
+                )}
+                {p.status === 'approved' && (
+                  <button onClick={() => action(p.id, 'extend_pro')}
+                    className="px-4 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold hover:bg-indigo-200">
+                    +1 Mo Pro
+                  </button>
+                )}
+                <span className={`text-center text-xs font-semibold px-2 py-1 rounded-full ${
+                  p.status === 'approved' ? 'bg-green-100 text-green-700' :
+                  p.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                  'bg-amber-100 text-amber-700'
+                }`}>{p.status}</span>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )

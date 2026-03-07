@@ -835,61 +835,112 @@ export default function PatentDetail() {
                       🔬 Deep Research Pass
                       <span className="text-xs bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
                     </button>
-                    <button
-                      onClick={async () => {
-                        if (!confirm('Run Claude Refinement Pass? This polishes claim language for USPTO precision (~60 sec).')) return
-                        const res = await fetch(`/api/patents/${patent.id}/refine-claims`, {
-                          method: 'POST',
-                          headers: { Authorization: `Bearer ${authToken}` },
-                        })
-                        const d = await res.json()
-                        if (!res.ok) {
-                          if (res.status === 403 && d.upgrade_url) { window.location.href = d.upgrade_url; return }
-                          showToast(d.error ?? 'Failed')
-                        } else {
-                          showToast('✨ Claude Refinement Pass started — claims will update in ~60 sec')
-                          setPatent(prev => prev ? { ...prev, claims_status: 'generating' } : null)
-                        }
-                      }}
-                      disabled={patent.claims_status === ('generating' as string)}
-                      className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-lg text-sm font-semibold hover:bg-indigo-100 disabled:opacity-50 transition-colors"
-                    >
-                      ✨ Claude Refinement Pass
-                      <span className="text-xs bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
-                    </button>
+                    {patent.claims_status === 'refining' ? (
+                      <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-sm font-semibold">
+                        <span className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                        Refinement in progress — check email when done
+                      </div>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Run Claude Refinement Pass? Claude will polish your claim language for USPTO precision. You\'ll get an email when done (~2-3 min).')) return
+                          const res = await fetch(`/api/patents/${patent.id}/refine-claims`, {
+                            method: 'POST',
+                            headers: { Authorization: `Bearer ${authToken}` },
+                          })
+                          const d = await res.json()
+                          if (!res.ok) {
+                            if (res.status === 403 && d.upgrade_url) { window.location.href = d.upgrade_url; return }
+                            showToast(d.error ?? 'Failed')
+                          } else {
+                            showToast("✨ Refinement started — we'll email you when done (~2-3 min)")
+                            setPatent(prev => prev ? { ...prev, claims_status: 'refining' } : null)
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors"
+                      >
+                        ✨ Claude Refinement Pass
+                        <span className="text-xs bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
+                      </button>
+                    )}
                   </div>
                 )}
 
-                {/* Claims viewer — FEATURE 1A: copy buttons */}
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-bold uppercase tracking-wider text-gray-500">AI-Generated Claims Draft</span>
-                      {patent.filing_status && (
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          patent.filing_status === 'approved' ? 'bg-green-100 text-green-700' :
-                          patent.filing_status === 'filed' ? 'bg-blue-100 text-blue-700' :
-                          'bg-amber-100 text-amber-700'
-                        }`}>
-                          {patent.filing_status}
-                        </span>
+                {/* Claims viewer — with refined badge + before/after diff */}
+                {(() => {
+                  const [showOriginal, setShowOriginal] = (patent as any).claims_draft_pre_refine
+                    ? [false, () => {}]
+                    : [false, () => {}]
+                  return null
+                })()}
+                {(() => {
+                  const hasRefined = patent.claims_status === 'refined' && (patent as any).claims_draft_pre_refine
+                  const [showOrig, setShowOrig] = [false, (_: boolean) => {}]
+                  return (
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50 flex-wrap gap-2">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Claims Draft</span>
+                          {patent.claims_status === 'refined' && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                              ✨ Claude Refined
+                            </span>
+                          )}
+                          {patent.filing_status && (
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              patent.filing_status === 'approved' ? 'bg-green-100 text-green-700' :
+                              patent.filing_status === 'filed' ? 'bg-blue-100 text-blue-700' :
+                              'bg-amber-100 text-amber-700'
+                            }`}>
+                              {patent.filing_status}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {hasRefined && (
+                            <button
+                              onClick={() => {
+                                const el = document.getElementById('claims-orig-panel')
+                                if (el) el.classList.toggle('hidden')
+                              }}
+                              className="flex items-center gap-1 px-3 py-1.5 border border-indigo-200 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-50 transition-colors"
+                            >
+                              ↕ Before / After
+                            </button>
+                          )}
+                          <span className="text-xs text-gray-400">{patent.claims_draft.length.toLocaleString()} chars</span>
+                          <button
+                            onClick={() => copyToClipboard(patent.claims_draft!, '📋 All claims copied!')}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] transition-colors"
+                          >
+                            📋 Copy All
+                          </button>
+                        </div>
+                      </div>
+                      <ClaimsText
+                        text={patent.claims_draft}
+                        onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
+                      />
+                      {hasRefined && (
+                        <div id="claims-orig-panel" className="hidden border-t border-indigo-100">
+                          <div className="px-5 py-2 bg-indigo-50 flex items-center gap-2">
+                            <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Original (pre-refinement)</span>
+                            <button
+                              onClick={() => copyToClipboard((patent as any).claims_draft_pre_refine, '📋 Original claims copied!')}
+                              className="ml-auto text-xs px-2 py-1 border border-indigo-200 text-indigo-600 rounded hover:bg-indigo-100"
+                            >
+                              📋 Copy
+                            </button>
+                          </div>
+                          <ClaimsText
+                            text={(patent as any).claims_draft_pre_refine}
+                            onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
+                          />
+                        </div>
                       )}
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-gray-400">{patent.claims_draft.length.toLocaleString()} chars</span>
-                      <button
-                        onClick={() => copyToClipboard(patent.claims_draft!, '📋 All claims copied!')}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] transition-colors"
-                      >
-                        📋 Copy All
-                      </button>
-                    </div>
-                  </div>
-                  <ClaimsText
-                    text={patent.claims_draft}
-                    onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
-                  />
-                </div>
+                  )
+                })()}
 
                 {/* Action bar */}
                 {patent.filing_status === 'draft' && (

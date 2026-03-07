@@ -27,7 +27,8 @@ export type Patent = {
   // Phase 2+ fields (optional — only present after payment/intake)
   current_phase?: number | null         // 1–7 filing phases
   filing_status?: string | null         // 'draft' | 'approved' | 'filed'
-  claims_status?: 'pending' | 'generating' | 'complete' | 'failed' | null
+  claims_status?: 'pending' | 'generating' | 'complete' | 'failed' | 'refining' | 'refined' | null
+  claims_draft_pre_refine?: string | null
   claims_draft?: string | null
   claims_score?: Record<string, unknown> | null  // jsonb — see lib/claims-score.ts ClaimsScore
   abstract_draft?: string | null

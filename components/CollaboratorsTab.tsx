@@ -4,7 +4,7 @@ import { useState } from 'react'
 export interface Collaborator {
   id: string
   invited_email: string
-  role: 'co_inventor' | 'attorney' | 'viewer'
+  role: 'co_inventor' | 'counsel' | 'attorney' | 'viewer'
   ownership_pct: number
   accepted_at: string | null
   created_at: string
@@ -19,12 +19,14 @@ interface CollaboratorsTabProps {
 
 const ROLE_LABELS: Record<string, string> = {
   co_inventor: 'Co-Inventor',
+  counsel: 'Legal Counsel',
   attorney: 'Attorney',
   viewer: 'Viewer',
 }
 
 const ROLE_COLORS: Record<string, string> = {
   co_inventor: 'bg-purple-100 text-purple-800 border border-purple-200',
+  counsel: 'bg-amber-100 text-amber-800 border border-amber-200',
   attorney: 'bg-blue-100 text-blue-800 border border-blue-200',
   viewer: 'bg-gray-100 text-gray-700 border border-gray-200',
 }
@@ -36,7 +38,7 @@ export default function CollaboratorsTab({
   onRefresh,
 }: CollaboratorsTabProps) {
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<'co_inventor' | 'attorney' | 'viewer'>('co_inventor')
+  const [inviteRole, setInviteRole] = useState<'co_inventor' | 'counsel' | 'attorney' | 'viewer'>('co_inventor')
   const [ownershipPct, setOwnershipPct] = useState<string>('')
   const [sending, setSending] = useState(false)
   const [inviteMsg, setInviteMsg] = useState('')
@@ -172,6 +174,7 @@ export default function CollaboratorsTab({
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
               >
                 <option value="co_inventor">Co-Inventor</option>
+                <option value="counsel">Legal Counsel</option>
                 <option value="attorney">Attorney</option>
                 <option value="viewer">Viewer</option>
               </select>

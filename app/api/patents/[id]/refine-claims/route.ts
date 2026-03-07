@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-export const maxDuration = 300 // 5 min — keeps function alive for Claude async completion
 import { createClient } from '@supabase/supabase-js'
 import { getUserTier } from '@/lib/subscription'
+
+export const maxDuration = 300
 
 const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,9 +19,8 @@ function getUserClient(token: string) {
 
 /**
  * POST /api/patents/[id]/refine-claims
- * Pro-only. Runs Claude Sonnet for a precision language + USPTO-style refinement pass.
- * Async — fires immediately, returns 200 while Anthropic completes in background.
- * Requires ANTHROPIC_API_KEY in Vercel env.
+ * Pro-only. Async Claude Sonnet refinement pass.
+ * Returns 202 immediately. Email sent on completion.
  */
 export async function POST(
   req: NextRequest,
@@ -44,7 +43,6 @@ export async function POST(
   const { data: { user } } = await getUserClient(token).auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Pro gate
   const tier = await getUserTier(user.id)
   if (tier !== 'pro') {
     return NextResponse.json({
@@ -62,14 +60,25 @@ export async function POST(
   if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
   if (patent.owner_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   if (!patent.claims_draft) return NextResponse.json({ error: 'No claims draft to refine' }, { status: 400 })
-  if (patent.claims_status === 'generating') {
-    return NextResponse.json({ error: 'A generation pass is already in progress' }, { status: 409 })
+  if (patent.claims_status === 'refining') {
+    return NextResponse.json({ error: 'A refinement pass is already in progress' }, { status: 409 })
   }
 
-  // Mark generating immediately
+  // Get owner email
+  const { data: profile } = await supabaseService
+    .from('patent_profiles')
+    .select('email, full_name')
+    .eq('id', user.id)
+    .single()
+
+  // Snapshot original claims before overwriting
   await supabaseService
     .from('patents')
-    .update({ claims_status: 'generating', updated_at: new Date().toISOString() })
+    .update({
+      claims_status: 'refining',
+      claims_draft_pre_refine: patent.claims_draft,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', patentId)
 
   // Log usage start
@@ -83,13 +92,22 @@ export async function POST(
     cost_usd: 0,
   })
 
-  // Fire async — don't await
-  runRefinementPass(patentId, patent.title, patent.claims_draft, patent.description ?? '', user.id).catch(console.error)
+  // Fire async
+  runRefinementPass(
+    patentId,
+    patent.title,
+    patent.claims_draft,
+    patent.description ?? '',
+    user.id,
+    profile?.email ?? '',
+    profile?.full_name ?? 'Inventor'
+  ).catch(console.error)
 
   return NextResponse.json({
     ok: true,
-    message: 'Claude Refinement Pass started. Claims will update in ~60 seconds.',
-  })
+    status: 'refining',
+    message: "Refinement in progress — we'll email you when done (usually 2–3 min).",
+  }, { status: 202 })
 }
 
 async function runRefinementPass(
@@ -97,7 +115,9 @@ async function runRefinementPass(
   title: string,
   claimsDraft: string,
   description: string,
-  userId: string
+  userId: string,
+  ownerEmail: string,
+  ownerName: string
 ) {
   const systemPrompt = `You are a senior patent attorney with 25 years of USPTO prosecution experience. Your specialty is claim language precision — removing ambiguity, tightening scope without losing coverage, and ensuring every claim would survive an examiner's § 112 written description rejection.
 
@@ -107,7 +127,7 @@ You write in precise, formal patent English. You do not use marketing language. 
 
 Your objectives:
 1. Fix any § 112 written description or enablement vulnerabilities
-2. Remove functional language where a structural limitation would be stronger  
+2. Remove functional language where a structural limitation would be stronger
 3. Ensure antecedent basis is present for every element used in dependent claims
 4. Remove unnecessary limitations from independent claims that could limit scope
 5. Tighten dependent claims to add clear, defensible distinctions
@@ -162,15 +182,14 @@ ${claimsDraft.slice(0, 5000)}`
     await supabaseService.from('patents')
       .update({
         claims_draft: refinedClaims,
-        claims_status: 'complete',
+        claims_status: 'refined',
         updated_at: new Date().toISOString(),
       })
       .eq('id', patentId)
 
-    // Update usage log with actuals
+    // Update usage log
     const inputTok = data?.usage?.input_tokens ?? 0
     const outputTok = data?.usage?.output_tokens ?? 0
-    // Claude Sonnet pricing: $3/1M input, $15/1M output
     const cost = inputTok * 3.0 / 1_000_000 + outputTok * 15.0 / 1_000_000
 
     await supabaseService.from('ai_usage_log')
@@ -180,7 +199,48 @@ ${claimsDraft.slice(0, 5000)}`
       .order('created_at', { ascending: false })
       .limit(1)
 
-    console.log(`[refine-claims] Complete for patent ${patentId} — ${inputTok}+${outputTok} tokens, $${cost.toFixed(4)}`)
+    // Send completion email via Resend
+    if (ownerEmail && process.env.RESEND_API_KEY) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
+      const patentUrl = `${appUrl}/dashboard/patents/${patentId}?tab=claims`
+
+      const emailBody = {
+        from: 'PatentPending <notifications@patentpending.app>',
+        to: [ownerEmail],
+        subject: `Claims refined: ${title}`,
+        html: `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
+  <h2 style="color:#4f46e5">Your claims have been refined ✨</h2>
+  <p>Hi ${ownerName},</p>
+  <p>Claude has completed a precision language refinement pass on the claims for <strong>${title}</strong>.</p>
+  <p>What was improved:</p>
+  <ul>
+    <li>Antecedent basis verified for all dependent claim elements</li>
+    <li>Unnecessary limitations removed from independent claims</li>
+    <li>§ 112 written description vulnerabilities addressed</li>
+    <li>Non-standard terminology corrected</li>
+  </ul>
+  <p>Your original claims are saved and you can compare them side-by-side in the Claims tab.</p>
+  <p>
+    <a href="${patentUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">
+      View Refined Claims →
+    </a>
+  </p>
+  <p style="color:#666;font-size:13px">PatentPending · <a href="${appUrl}" style="color:#4f46e5">patentpending.app</a></p>
+</div>`,
+      }
+
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(emailBody),
+      })
+    }
+
+    console.log(`[refine-claims] Complete for ${patentId} — ${inputTok}+${outputTok} tokens, $${cost.toFixed(4)}`)
   } catch (err) {
     console.error('[refine-claims] Error:', err)
     await supabaseService.from('patents')

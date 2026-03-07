@@ -47,7 +47,7 @@ export async function POST(
     if (!invited_email || !invited_email.includes('@')) {
       return NextResponse.json({ error: 'Valid invited_email required' }, { status: 400 })
     }
-    if (!['co_inventor', 'attorney', 'viewer'].includes(role)) {
+    if (!['co_inventor', 'counsel', 'attorney', 'viewer'].includes(role)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
     }
 
@@ -224,9 +224,17 @@ async function sendInviteEmail(
 
   const roleLabel = {
     co_inventor: 'Co-Inventor',
+    counsel: 'Legal Counsel',
     attorney: 'Attorney',
     viewer: 'Viewer',
   }[role] ?? role
+
+  const counselNote = role === 'counsel'
+    ? `<p style="color:#374151;background:#f3f4f6;padding:12px;border-radius:8px;font-size:14px;">
+        You have legal counsel view access to this patent. You can view and download all documents
+        including the specification, claims, and figures.
+       </p>`
+    : ''
 
   const ownershipLine = ownershipPct > 0
     ? `<p style="color:#374151;">Your ownership stake: <strong>${ownershipPct}%</strong></p>`
@@ -235,19 +243,22 @@ async function sendInviteEmail(
   await resend.emails.send({
     from: 'PatentPending <notifications@patentpending.app>',
     to: toEmail,
-    subject: `You've been invited to collaborate on a patent — ${patentTitle}`,
+    subject: role === 'counsel'
+      ? `Legal counsel access granted — ${patentTitle}`
+      : `You've been invited to collaborate on a patent — ${patentTitle}`,
     html: `
       <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;">
-        <h1 style="font-size:22px;color:#111827;">Patent Collaboration Invite</h1>
-        <p style="color:#374151;">You've been invited as a <strong>${roleLabel}</strong> on:</p>
+        <h1 style="font-size:22px;color:#111827;">${role === 'counsel' ? 'Patent Legal Counsel Access' : 'Patent Collaboration Invite'}</h1>
+        <p style="color:#374151;">You've been granted <strong>${roleLabel}</strong> access to:</p>
         <blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:16px 0;color:#1f2937;font-weight:600;">
           ${patentTitle}
         </blockquote>
         ${ownershipLine}
-        <p style="color:#374151;">Click below to accept and view your patent details:</p>
+        ${counselNote}
+        <p style="color:#374151;">Click below to accept and access the patent:</p>
         <a href="${inviteUrl}"
            style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0;">
-          Accept Invite →
+          ${role === 'counsel' ? 'Access Patent Documents →' : 'Accept Invite →'}
         </a>
         <p style="color:#9ca3af;font-size:13px;margin-top:24px;">
           This link expires after use. If you have questions, reply to this email.
