@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -74,12 +74,42 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'content'>('overview')
+  const [authToken, setAuthToken] = useState('')
+
+  // Inbox state
+  interface InboxItem {
+    id: string; uid: string; subject: string; from_email: string; from_name: string | null;
+    body: string | null; analysis: string | null; category: string | null;
+    is_action_required: boolean; is_reviewed: boolean; sent_to_telegram_at: string | null;
+    actioned_at: string | null; sent_reply: boolean; created_at: string;
+  }
+  const [inboxItems, setInboxItems] = useState<InboxItem[]>([])
+  const [inboxLoading, setInboxLoading] = useState(false)
+  const [inboxFilter, setInboxFilter] = useState<'all' | 'action' | 'unreviewed'>('all')
+  const [expandedInbox, setExpandedInbox] = useState<string | null>(null)
+  const [replyTarget, setReplyTarget] = useState<InboxItem | null>(null)
+  const [replyBody, setReplyBody] = useState('')
+  const [sendingReply, setSendingReply] = useState(false)
+  const [sendingTelegram, setSendingTelegram] = useState<string | null>(null)
+
+  // Content state
+  interface ContentItem {
+    id: number; title: string; status: string; author: string | null;
+    content_type: string | null; created_at: string; updated_at: string;
+    published_at: string | null; read_time: number | null; tags: string[] | null;
+    is_bos_pick: boolean;
+  }
+  const [contentItems, setContentItems] = useState<ContentItem[]>([])
+  const [contentSummary, setContentSummary] = useState<Record<string, number>>({})
+  const [contentLoading, setContentLoading] = useState(false)
+  const [contentFilter, setContentFilter] = useState<'all' | 'draft' | 'published'>('all')
 
   useEffect(() => {
     async function load() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/login'); return }
+      if (session.access_token) setAuthToken(session.access_token)
 
       const res = await fetch('/api/admin/stats', {
         headers: { Authorization: `Bearer ${session.access_token}` },
@@ -117,14 +147,108 @@ export default function AdminPage() {
     </div>
   )
 
+  // ── Inbox loader ────────────────────────────────────────────────────────────
+  const loadInbox = useCallback(async () => {
+    if (!authToken) return
+    setInboxLoading(true)
+    try {
+      const params = inboxFilter === 'action' ? '?action_only=true'
+        : inboxFilter === 'unreviewed' ? '?unreviewed=true' : '?limit=100'
+      const res = await fetch(`/api/admin/inbox${params}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setInboxItems(data.items ?? [])
+      }
+    } finally {
+      setInboxLoading(false)
+    }
+  }, [authToken, inboxFilter])
+
+  useEffect(() => {
+    if (activeSection === 'inbox' && authToken) loadInbox()
+  }, [activeSection, authToken, inboxFilter, loadInbox])
+
+  // ── Content loader ───────────────────────────────────────────────────────────
+  const loadContent = useCallback(async () => {
+    if (!authToken) return
+    setContentLoading(true)
+    try {
+      const res = await fetch(`/api/admin/content?status=${contentFilter}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setContentItems(data.content ?? [])
+        setContentSummary(data.summary ?? {})
+      }
+    } finally {
+      setContentLoading(false)
+    }
+  }, [authToken, contentFilter])
+
+  useEffect(() => {
+    if (activeSection === 'content' && authToken) loadContent()
+  }, [activeSection, authToken, contentFilter, loadContent])
+
+  // ── Inbox actions ────────────────────────────────────────────────────────────
+  async function markReviewed(id: string) {
+    await fetch('/api/admin/inbox', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ id, is_reviewed: true }),
+    })
+    setInboxItems(prev => prev.map(i => i.id === id ? { ...i, is_reviewed: true } : i))
+  }
+
+  async function sendTelegramAlert(item: InboxItem) {
+    setSendingTelegram(item.id)
+    const msg = `⚡ <b>Email Alert from Mission Control</b>\nFrom: ${item.from_email}\nSubject: ${item.subject}\n\n${item.analysis?.slice(0, 300) ?? ''}`
+    const res = await fetch('/api/admin/telegram-alert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ message: msg, inbox_item_id: item.id }),
+    })
+    if (res.ok) {
+      setInboxItems(prev => prev.map(i => i.id === item.id
+        ? { ...i, sent_to_telegram_at: new Date().toISOString(), is_reviewed: true } : i))
+    }
+    setSendingTelegram(null)
+  }
+
+  async function sendReply(item: InboxItem, body: string) {
+    setSendingReply(true)
+    const res = await fetch('/api/admin/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({
+        to: item.from_email,
+        subject: item.subject.startsWith('Re:') ? item.subject : `Re: ${item.subject}`,
+        body,
+        inbox_item_id: item.id,
+      }),
+    })
+    if (res.ok) {
+      setInboxItems(prev => prev.map(i => i.id === item.id ? { ...i, sent_reply: true, is_reviewed: true } : i))
+      setReplyTarget(null)
+      setReplyBody('')
+    }
+    setSendingReply(false)
+  }
+
   if (!stats) return null
   const { summary } = stats
   const margin = summary.revenue_usd > 0
     ? ((summary.revenue_usd - summary.total_ai_cost_usd) / summary.revenue_usd * 100).toFixed(1)
     : '—'
 
-  const navItems: { key: typeof activeSection; label: string; icon: string }[] = [
+  const actionCount = inboxItems.filter(i => i.is_action_required && !i.is_reviewed).length
+
+  const navItems: { key: typeof activeSection; label: string; icon: string; badge?: number }[] = [
     { key: 'overview', label: 'Overview', icon: '📊' },
+    { key: 'inbox', label: 'Inbox', icon: '📧', badge: actionCount || undefined },
+    { key: 'content', label: 'Content', icon: '✍️' },
     { key: 'patents', label: `Patents (${summary.total_patents})`, icon: '📋' },
     { key: 'users', label: `Users (${summary.total_users})`, icon: '👤' },
     { key: 'ai-costs', label: 'AI Costs', icon: '🤖' },
@@ -149,21 +273,18 @@ export default function AdminPage() {
             <button
               key={item.key}
               onClick={() => setActiveSection(item.key)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors ${
+              className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center justify-between ${
                 activeSection === item.key ? 'bg-[#1a1f36] text-white' : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              <span className="mr-2">{item.icon}</span>{item.label}
+              <span><span className="mr-2">{item.icon}</span>{item.label}</span>
+              {item.badge && (
+                <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold min-w-[18px] text-center">
+                  {item.badge}
+                </span>
+              )}
             </button>
           ))}
-          <div className="mt-6 pt-4 border-t border-gray-100">
-            <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">Coming Soon</div>
-            <div className="text-xs text-gray-300 px-3 py-2">
-              <div>📧 Email analytics</div>
-              <div className="mt-1">💰 Stripe live</div>
-              <div className="mt-1">📢 AI Marketer</div>
-            </div>
-          </div>
         </nav>
 
         {/* Main content */}
@@ -452,6 +573,212 @@ export default function AdminPage() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ── INBOX SECTION ─────────────────────────────────────────────────── */}
+          {activeSection === 'inbox' && (
+            <div>
+              <div className="flex items-center justify-between mb-5">
+                <h1 className="text-xl font-bold text-gray-900">Inbox</h1>
+                <div className="flex gap-2">
+                  {(['all', 'action', 'unreviewed'] as const).map(f => (
+                    <button key={f} onClick={() => setInboxFilter(f)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        inboxFilter === f ? 'bg-[#1a1f36] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}>
+                      {f === 'action' ? '⚡ Action' : f === 'unreviewed' ? '🔵 Unreviewed' : 'All'}
+                    </button>
+                  ))}
+                  <button onClick={loadInbox} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:bg-gray-50">
+                    ↻ Refresh
+                  </button>
+                </div>
+              </div>
+
+              {inboxLoading ? (
+                <div className="text-gray-400 text-sm py-8 text-center">Loading inbox…</div>
+              ) : inboxItems.length === 0 ? (
+                <div className="text-gray-400 text-sm py-8 text-center">No items found.</div>
+              ) : (
+                <div className="space-y-2">
+                  {inboxItems.map(item => (
+                    <div key={item.id} className={`bg-white rounded-xl border transition-all ${
+                      item.is_action_required && !item.is_reviewed
+                        ? 'border-amber-300 shadow-sm' : 'border-gray-200'
+                    }`}>
+                      <div
+                        className="px-4 py-3 flex items-center gap-3 cursor-pointer"
+                        onClick={() => setExpandedInbox(expandedInbox === item.id ? null : item.id)}
+                      >
+                        <div className="flex-shrink-0 w-2 h-2 rounded-full mt-0.5" style={{
+                          background: item.is_reviewed ? '#d1d5db' : item.is_action_required ? '#f59e0b' : '#3b82f6'
+                        }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-sm text-gray-900 truncate">{item.subject}</span>
+                            {item.is_action_required && (
+                              <span className="text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">⚡ ACTION</span>
+                            )}
+                            {item.sent_reply && (
+                              <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">↩ Replied</span>
+                            )}
+                            {item.sent_to_telegram_at && (
+                              <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">📱 Sent</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-0.5">
+                            {item.from_email} · {item.category ?? 'general'} · {formatDate(item.created_at)}
+                          </div>
+                        </div>
+                        <span className="text-gray-300 text-xs flex-shrink-0">{expandedInbox === item.id ? '▲' : '▼'}</span>
+                      </div>
+
+                      {expandedInbox === item.id && (
+                        <div className="border-t border-gray-100 px-4 py-4 space-y-4">
+                          {item.analysis && (
+                            <div>
+                              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">BoClaw Analysis</div>
+                              <div className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{item.analysis}</div>
+                            </div>
+                          )}
+                          {item.body && (
+                            <details>
+                              <summary className="text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer">Original Message</summary>
+                              <div className="text-sm text-gray-600 whitespace-pre-wrap mt-2 bg-gray-50 rounded-lg p-3 max-h-60 overflow-y-auto">
+                                {item.body.slice(0, 2000)}{item.body.length > 2000 ? '…' : ''}
+                              </div>
+                            </details>
+                          )}
+
+                          {/* Reply compose */}
+                          {replyTarget?.id === item.id ? (
+                            <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+                              <div className="text-xs font-semibold text-blue-700 mb-2">Reply to {item.from_email}</div>
+                              <textarea
+                                value={replyBody}
+                                onChange={e => setReplyBody(e.target.value)}
+                                rows={4}
+                                placeholder="Type your reply…"
+                                className="w-full text-sm border border-blue-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                              />
+                              <div className="flex gap-2 mt-2">
+                                <button
+                                  onClick={() => sendReply(item, replyBody)}
+                                  disabled={sendingReply || !replyBody.trim()}
+                                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                  {sendingReply ? 'Sending…' : 'Send Reply →'}
+                                </button>
+                                <button onClick={() => { setReplyTarget(null); setReplyBody('') }}
+                                  className="px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg text-xs font-semibold">
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-2 flex-wrap">
+                              {!item.is_reviewed && (
+                                <button onClick={() => markReviewed(item.id)}
+                                  className="px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-50">
+                                  ✓ Mark Reviewed
+                                </button>
+                              )}
+                              <button
+                                onClick={() => { setReplyTarget(item); setReplyBody('') }}
+                                className="px-3 py-1.5 bg-white border border-blue-200 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-50"
+                              >
+                                ↩ Reply
+                              </button>
+                              {!item.sent_to_telegram_at && (
+                                <button
+                                  onClick={() => sendTelegramAlert(item)}
+                                  disabled={sendingTelegram === item.id}
+                                  className="px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] disabled:opacity-50"
+                                >
+                                  {sendingTelegram === item.id ? 'Sending…' : '📱 Send to Hot-Claw'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── CONTENT SECTION ───────────────────────────────────────────────── */}
+          {activeSection === 'content' && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900">BoBozly Content Pipeline</h1>
+                  <div className="flex gap-3 mt-1">
+                    {Object.entries(contentSummary).map(([status, count]) => (
+                      <span key={status} className="text-xs text-gray-400">
+                        {status}: <strong className="text-gray-600">{count}</strong>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {(['all', 'draft', 'published'] as const).map(f => (
+                    <button key={f} onClick={() => setContentFilter(f)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        contentFilter === f ? 'bg-[#1a1f36] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}>
+                      {f === 'all' ? 'All' : f === 'draft' ? '✏️ Drafts' : '✅ Published'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {contentLoading ? (
+                <div className="text-gray-400 text-sm py-8 text-center">Loading content…</div>
+              ) : contentItems.length === 0 ? (
+                <div className="text-gray-400 text-sm py-8 text-center">No content found.</div>
+              ) : (
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100">
+                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Title</th>
+                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Status</th>
+                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Type</th>
+                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Author</th>
+                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Created</th>
+                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Published</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {contentItems.map(item => (
+                        <tr key={item.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium text-gray-900 max-w-xs truncate">
+                            {item.is_bos_pick && <span className="mr-1.5">⭐</span>}
+                            {item.title}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                              item.status === 'published'
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {item.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 text-xs">{item.content_type ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-500">{item.author ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-400">{formatDate(item.created_at)}</td>
+                          <td className="px-4 py-3 text-gray-400">{formatDate(item.published_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
