@@ -36,6 +36,8 @@ export async function GET(req: NextRequest) {
   const [
     { data: patents, count: patentCount },
     { data: users },
+    { data: authUsers },
+    { data: pendingCollabs },
     { data: recentPayments },
     { data: claimsJobs },
     { data: revisionJobs },
@@ -43,7 +45,14 @@ export async function GET(req: NextRequest) {
     { data: correspondence },
   ] = await Promise.all([
     serviceClient.from('patents').select('*', { count: 'exact' }),
-    serviceClient.from('profiles').select('id, display_name, email, is_admin, created_at'),
+    serviceClient.from('profiles').select('id, display_name, email, is_admin, created_at, require_2fa, subscription_status'),
+    // Auth users — email_confirmed_at tells us confirmed vs pending
+    serviceClient.auth.admin.listUsers({ perPage: 1000 })
+      .then(r => ({ data: r.data?.users ?? [] })),
+    // Pending invites not yet accepted
+    serviceClient.from('patent_collaborators')
+      .select('invited_email, invite_token, created_at, patent_id')
+      .is('accepted_at', null),
     serviceClient.from('patents')
       .select('id, title, payment_confirmed_at, owner_id')
       .not('payment_confirmed_at', 'is', null)
@@ -90,15 +99,59 @@ export async function GET(req: NextRequest) {
     return acc
   }, {})
 
-  const userTable = (users ?? []).map(u => ({
-    id: u.id,
-    name: u.display_name || u.email || 'Unknown',
-    email: u.email,
-    is_admin: u.is_admin,
-    patent_count: patentsByUser[u.id] ?? 0,
-    paid: paidPatents.some(p => p.owner_id === u.id),
-    joined: u.created_at,
-  }))
+  // Auth user map (for email_confirmed_at + status)
+  type AuthUserRecord = { id: string; email?: string; email_confirmed_at?: string | null }
+  const authUserMap = new Map<string, AuthUserRecord>(
+    (authUsers as AuthUserRecord[] ?? []).map((u: AuthUserRecord) => [u.id, u])
+  )
+  const authEmailMap = new Map<string, AuthUserRecord>(
+    (authUsers as AuthUserRecord[] ?? []).map((u: AuthUserRecord) => [u.email ?? '', u])
+  )
+
+  // Pending collabs indexed by email
+  const pendingInviteEmails = new Set<string>(
+    (pendingCollabs ?? []).map((c: { invited_email: string }) => c.invited_email)
+  )
+
+  const userTable = (users ?? []).map(u => {
+    const authRecord = authUserMap.get(u.id)
+    const isConfirmed = !!authRecord?.email_confirmed_at
+    const isPending = authRecord && !isConfirmed
+    const authStatus: 'confirmed' | 'pending' = isPending ? 'pending' : 'confirmed'
+    return {
+      id: u.id,
+      name: u.display_name || u.email || 'Unknown',
+      email: u.email,
+      is_admin: u.is_admin,
+      patent_count: patentsByUser[u.id] ?? 0,
+      paid: paidPatents.some(p => p.owner_id === u.id),
+      joined: u.created_at,
+      auth_status: authStatus,
+      email_confirmed: isConfirmed,
+      require_2fa: u.require_2fa ?? false,
+      subscription_status: u.subscription_status,
+    }
+  })
+
+  // Add invite-only users (patent_collaborators with no auth account)
+  const profileEmails = new Set((users ?? []).map((u: { email: string }) => u.email))
+  const inviteOnlyUsers = (pendingCollabs ?? [])
+    .filter((c: { invited_email: string }) => !profileEmails.has(c.invited_email) && !authEmailMap.has(c.invited_email))
+    .map((c: { invited_email: string; created_at: string }) => ({
+      id: 'no-account',
+      name: c.invited_email,
+      email: c.invited_email,
+      is_admin: false,
+      patent_count: 0,
+      paid: false,
+      joined: c.created_at,
+      auth_status: 'no_account' as const,
+      email_confirmed: false,
+      require_2fa: false,
+      subscription_status: 'free',
+    }))
+
+  const fullUserTable = [...userTable, ...inviteOnlyUsers]
 
   // Patent table with per-patent activity
   const corrByPatent = (correspondence ?? []).reduce((acc: Record<string, number>, c) => {
@@ -139,7 +192,7 @@ export async function GET(req: NextRequest) {
     recent_payments: recentPayments ?? [],
     claims_jobs: claimsJobs ?? [],
     patent_table: patentTable,
-    user_table: userTable,
+    user_table: fullUserTable,
     recent_usage: (usageLogs ?? []).slice(0, 30),
   })
 }

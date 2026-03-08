@@ -30,6 +30,10 @@ interface AdminStats {
   user_table: Array<{
     id: string; name: string; email: string; is_admin: boolean;
     patent_count: number; paid: boolean; joined: string;
+    auth_status: 'confirmed' | 'pending' | 'no_account';
+    email_confirmed: boolean;
+    require_2fa: boolean;
+    subscription_status: string;
   }>
   recent_usage: Array<{
     id: string; user_id: string; patent_id: string; action: string;
@@ -76,6 +80,7 @@ export default function AdminPage() {
   const [error, setError] = useState('')
   const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'content' | 'agency' | 'partners' | 'accounts'>('overview')
   const [authToken, setAuthToken] = useState('')
+  const [mfaWarning, setMfaWarning] = useState<'setup' | 'verify' | null>(null)
 
   // Inbox state
   interface InboxItem {
@@ -113,22 +118,17 @@ export default function AdminPage() {
         if (!session) { router.push('/login'); return }
         if (session.access_token) setAuthToken(session.access_token)
 
-        // ── MFA gate — admin requires aal2 (TOTP verified) ─────────────────────
+        // ── MFA gate — show non-blocking banner; hard enforcement re-enabled once confirmed working ──
+        // NOTE: previously used router.push() on non-aal2, which caused an infinite redirect loop:
+        //   admin → setup-2fa (enrolls pending factor) → back → admin → nextLevel=aal2 → verify-2fa
+        //   → no verified factor found → setup-2fa → ... loop → React navigation stack overflow
+        // Fix: check assurance level, set a warning banner, but DO NOT redirect — let admin load.
         try {
           const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-          if (aalData) {
-            const { currentLevel, nextLevel } = aalData
-            if (currentLevel !== 'aal2') {
-              if (nextLevel === 'aal2') {
-                router.push('/admin/security/verify-2fa?next=/admin')
-              } else {
-                router.push('/admin/security/setup-2fa')
-              }
-              return
-            }
+          if (aalData && aalData.currentLevel !== 'aal2') {
+            setMfaWarning(aalData.nextLevel === 'aal2' ? 'verify' : 'setup')
           }
         } catch (mfaErr) {
-          // MFA check failed — log and continue (don't block admin on MFA API errors)
           console.error('[AdminPage] MFA check error:', mfaErr)
         }
 
@@ -333,6 +333,26 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* MFA warning banner */}
+      {mfaWarning && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-amber-800">
+            <span>🔐</span>
+            <span>
+              {mfaWarning === 'setup'
+                ? 'Two-factor authentication is not set up. Secure your admin account.'
+                : 'Your session is not 2FA-verified. Re-authenticate to reach full security.'}
+            </span>
+          </div>
+          <Link
+            href={mfaWarning === 'verify' ? '/admin/security/verify-2fa?next=/admin' : '/admin/security/setup-2fa'}
+            className="text-xs font-semibold text-amber-800 underline hover:text-amber-900 ml-4 whitespace-nowrap"
+          >
+            {mfaWarning === 'verify' ? 'Verify now →' : 'Set up 2FA →'}
+          </Link>
+        </div>
+      )}
+
       {/* Top nav */}
       <div className="bg-[#1a1f36] text-white px-6 py-3 flex items-center justify-between sticky top-0 z-20">
         <div className="flex items-center gap-3">
@@ -531,38 +551,10 @@ export default function AdminPage() {
 
           {/* ── USERS ────────────────────────────────────────────────────── */}
           {activeSection === 'users' && (
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 mb-5">Users ({stats.user_table.length})</h1>
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Name / Email</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Patents</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Paid</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {stats.user_table.map(u => (
-                      <tr key={u.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-800">{u.name}</div>
-                          <div className="text-gray-400 text-xs">{u.email}</div>
-                        </td>
-                        <td className="px-4 py-3 font-semibold">{u.patent_count}</td>
-                        <td className="px-4 py-3">{u.paid ? '✅' : '—'}</td>
-                        <td className="px-4 py-3">
-                          {u.is_admin ? <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-bold">Admin</span> : <span className="text-gray-400">User</span>}
-                        </td>
-                        <td className="px-4 py-3 text-gray-400">{formatDate(u.joined)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <AdminUsersPanel
+              users={stats.user_table}
+              authToken={authToken}
+            />
           )}
 
           {/* ── AI COSTS ─────────────────────────────────────────────────── */}
@@ -1166,6 +1158,162 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
         ))}
       </div>
     </div>
+  )
+}
+
+// ── Admin Users Panel ─────────────────────────────────────────────────────────
+
+type UserRow = AdminStats['user_table'][number]
+
+const AUTH_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  confirmed:  { label: '✓ Confirmed',  cls: 'bg-green-100 text-green-700' },
+  pending:    { label: '⏳ Pending',    cls: 'bg-amber-100 text-amber-700' },
+  no_account: { label: '∅ No Account', cls: 'bg-red-100 text-red-600' },
+}
+
+function AdminUsersPanel({ users, authToken }: { users: UserRow[]; authToken: string }) {
+  const [actionMsg, setActionMsg] = React.useState<Record<string, string>>({})
+  const [running, setRunning] = React.useState<string | null>(null)
+
+  async function doAction(userId: string, email: string, action: string) {
+    const key = `${userId}-${action}`
+    setRunning(key)
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ action, email }),
+    })
+    const d = await res.json()
+    setActionMsg(prev => ({ ...prev, [userId]: res.ok ? `✅ ${d.message}` : `❌ ${d.error}` }))
+    setTimeout(() => setActionMsg(prev => { const copy = { ...prev }; delete copy[userId]; return copy }), 5000)
+    setRunning(null)
+  }
+
+  function formatDate(s: string | null) {
+    if (!s) return '—'
+    return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+  }
+
+  return (
+    <div>
+      <h1 className="text-xl font-bold text-gray-900 mb-5">Users ({users.length})</h1>
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Name / Email</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Patents</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Role</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {users.map(u => {
+                const badge = AUTH_STATUS_BADGE[u.auth_status] ?? { label: u.auth_status, cls: 'bg-gray-100 text-gray-600' }
+                const msgKey = u.id
+                return (
+                  <tr key={`${u.id}-${u.email}`} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-gray-800">{u.name}</div>
+                      <div className="text-gray-400">{u.email}</div>
+                      {actionMsg[msgKey] && (
+                        <div className={`mt-1 text-xs font-semibold ${actionMsg[msgKey].startsWith('✅') ? 'text-green-600' : 'text-red-600'}`}>
+                          {actionMsg[msgKey]}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${badge.cls}`}>
+                        {badge.label}
+                      </span>
+                      {u.require_2fa && (
+                        <span className="ml-1 px-1.5 py-0.5 rounded text-xs bg-indigo-100 text-indigo-700 font-semibold">2FA req</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 font-semibold">{u.patent_count}</td>
+                    <td className="px-4 py-3">
+                      {u.is_admin
+                        ? <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded font-bold">Admin</span>
+                        : <span className="text-gray-400">User</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-400">{formatDate(u.joined)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        {/* No Account — only action is resend invite */}
+                        {u.auth_status === 'no_account' && (
+                          <ActionButton
+                            label="Resend Invite"
+                            loading={running === `${u.id}-resend_invite`}
+                            onClick={() => doAction(u.id, u.email, 'resend_invite')}
+                            color="amber"
+                          />
+                        )}
+                        {/* Pending — resend confirm or manual confirm */}
+                        {u.auth_status === 'pending' && (
+                          <>
+                            <ActionButton
+                              label="Resend Confirm"
+                              loading={running === `${u.id}-resend_confirmation`}
+                              onClick={() => doAction(u.id, u.email, 'resend_confirmation')}
+                              color="blue"
+                            />
+                            <ActionButton
+                              label="Manual Confirm"
+                              loading={running === `${u.id}-manual_confirm`}
+                              onClick={() => doAction(u.id, u.email, 'manual_confirm')}
+                              color="green"
+                            />
+                            <ActionButton
+                              label="Resend Invite"
+                              loading={running === `${u.id}-resend_invite`}
+                              onClick={() => doAction(u.id, u.email, 'resend_invite')}
+                              color="amber"
+                            />
+                          </>
+                        )}
+                        {/* Confirmed — reset password */}
+                        {u.auth_status === 'confirmed' && (
+                          <ActionButton
+                            label="Reset Password"
+                            loading={running === `${u.id}-reset_password`}
+                            onClick={() => doAction(u.id, u.email, 'reset_password')}
+                            color="gray"
+                          />
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ActionButton({
+  label, onClick, loading, color = 'gray'
+}: { label: string; onClick: () => void; loading: boolean; color?: string }) {
+  const colorMap: Record<string, string> = {
+    amber: 'bg-amber-100 text-amber-800 hover:bg-amber-200',
+    blue:  'bg-blue-100 text-blue-700 hover:bg-blue-200',
+    green: 'bg-green-100 text-green-700 hover:bg-green-200',
+    gray:  'bg-gray-100 text-gray-700 hover:bg-gray-200',
+    red:   'bg-red-100 text-red-700 hover:bg-red-200',
+  }
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors disabled:opacity-50 ${colorMap[color] ?? colorMap.gray}`}
+    >
+      {loading ? '…' : label}
+    </button>
   )
 }
 

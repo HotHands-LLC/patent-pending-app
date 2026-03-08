@@ -15,6 +15,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [showNewModal, setShowNewModal] = useState(false)
   const [authToken, setAuthToken] = useState('')
+  const [show2FABanner, setShow2FABanner] = useState(false)
+  const [require2FA, setRequire2FA] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -23,6 +25,37 @@ export default function Dashboard() {
       const user = session?.user
       if (!user) { router.push('/login'); return }
       if (session?.access_token) setAuthToken(session.access_token)
+
+      // ── 2FA tier checks ───────────────────────────────────────────────────
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('require_2fa, two_fa_prompt_dismissed, subscription_status')
+          .eq('id', user.id)
+          .single()
+
+        if (profile) {
+          const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+          const isaal2 = aalData?.currentLevel === 'aal2'
+
+          if (profile.require_2fa && !isaal2) {
+            // Hard redirect — agency account requires 2FA
+            router.push('/dashboard/security/setup-2fa?required=true&next=/dashboard')
+            return
+          }
+
+          // Pro prompt: show dismissible banner on first Pro login
+          if (
+            !isaal2 &&
+            !profile.two_fa_prompt_dismissed &&
+            (profile.subscription_status === 'pro' || profile.subscription_status === 'complimentary')
+          ) {
+            setShow2FABanner(true)
+          }
+        }
+      } catch {
+        // 2FA check non-blocking — don't fail dashboard load
+      }
 
       const [{ data: p }, { data: d }] = await Promise.all([
         supabase.from('patents').select('*').order('provisional_deadline', { ascending: true }),
@@ -54,9 +87,43 @@ export default function Dashboard() {
   const urgentCount = deadlines.filter(d => getDaysUntil(d.due_date) <= 30).length
   const warningCount = deadlines.filter(d => { const days = getDaysUntil(d.due_date); return days > 30 && days <= 90 }).length
 
+  async function dismiss2FABanner() {
+    setShow2FABanner(false)
+    await supabase.from('profiles').update({ two_fa_prompt_dismissed: true }).eq('id', (await supabase.auth.getUser()).data.user?.id ?? '')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
+
+      {/* Pro 2FA prompt banner */}
+      {show2FABanner && (
+        <div className="bg-indigo-50 border-b border-indigo-200 px-4 py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2 text-sm text-indigo-800">
+              <span>🔐</span>
+              <span>
+                <strong>Secure your Pro account</strong> — we recommend enabling two-factor authentication.
+              </span>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <Link
+                href="/dashboard/security/setup-2fa?next=/dashboard"
+                className="text-xs font-semibold text-indigo-700 bg-indigo-100 hover:bg-indigo-200 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Set up 2FA →
+              </Link>
+              <button
+                onClick={dismiss2FABanner}
+                className="text-xs text-indigo-500 hover:text-indigo-700"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Header */}
         <div className="mb-6 sm:mb-8">

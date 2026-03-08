@@ -200,6 +200,16 @@ export async function PATCH(req: NextRequest) {
       })
     }
 
+    // Set require_2fa on the partner's profile (agency accounts must use 2FA)
+    if (partner.user_id || partner.email) {
+      const lookupField = partner.user_id ? 'id' : 'email'
+      const lookupVal = partner.user_id ?? partner.email
+      await supabaseService.from('profiles')
+        .update({ require_2fa: true })
+        .eq(lookupField, lookupVal)
+        .then(() => {}) // non-blocking, fire-and-forget
+    }
+
     // Send welcome email if not yet sent
     const alreadySent = (partner.partner_profile as any)?.welcome_email_sent
     if ((!alreadySent || send_welcome) && partner.email) {

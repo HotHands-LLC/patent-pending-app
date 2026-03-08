@@ -196,12 +196,13 @@ function buildFindingsEmail(
 
 export async function POST(req: NextRequest) {
   // ── Auth ───────────────────────────────────────────────────────────────────
-  const secret = req.headers.get('x-cron-secret')
-  const authHeader = req.headers.get('authorization')
-
-  if (CRON_SECRET && secret !== CRON_SECRET) {
-    // Also allow service_role JWT
-    if (!authHeader?.startsWith('Bearer ')) {
+  // Vercel cron sends: Authorization: Bearer <CRON_SECRET>
+  // Manual triggers send: Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>
+  // If CRON_SECRET is not set, endpoint is open (dev / first deploy only).
+  if (CRON_SECRET) {
+    const bearer = req.headers.get('authorization')?.replace('Bearer ', '')
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (bearer !== CRON_SECRET && bearer !== serviceKey) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
   }

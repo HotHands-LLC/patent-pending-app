@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/qualify-referrals",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/patent-research",
+      "schedule": "0 14 * * 0"
     }
   ],
   "functions": {
