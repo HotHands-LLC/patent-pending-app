@@ -980,6 +980,11 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
   const [partners, setPartners] = React.useState<any[]>([])
   const [loading, setLoading] = React.useState(true)
   const [filter, setFilter] = React.useState('pending')
+  const [actionMsg, setActionMsg] = React.useState('')
+  const [editingId, setEditingId] = React.useState<string | null>(null)
+  const [editMonths, setEditMonths] = React.useState(3)
+  const [editNotes, setEditNotes] = React.useState('')
+  const [editBarVerified, setEditBarVerified] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -993,20 +998,28 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
 
   React.useEffect(() => { if (authToken) load() }, [load])
 
-  async function action(id: string, act: string) {
+  async function action(id: string, act: string, extra?: Record<string, unknown>) {
     const res = await fetch('/api/admin/partners', {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action: act }),
+      body: JSON.stringify({ id, action: act, ...extra }),
     })
-    if (res.ok) load()
+    const d = await res.json()
+    if (res.ok) {
+      setActionMsg(act === 'approve' ? '✅ Approved + welcome email sent' : `✅ ${act} done`)
+      setTimeout(() => setActionMsg(''), 3000)
+      load()
+    } else {
+      setActionMsg(`⚠️ ${d.error}`)
+    }
+    setEditingId(null)
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold text-gray-900">⚖️ Counsel Partner Applications</h2>
-        <div className="flex gap-2">
+        <h2 className="text-xl font-bold text-gray-900">⚖️ Partner Applications</h2>
+        <div className="flex gap-2 flex-wrap">
           {['pending', 'approved', 'rejected'].map(s => (
             <button key={s} onClick={() => setFilter(s)}
               className={`px-3 py-1.5 rounded-lg text-sm font-semibold capitalize transition-colors ${filter === s ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
@@ -1016,34 +1029,43 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
         </div>
       </div>
 
+      {actionMsg && <div className="mb-4 px-4 py-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">{actionMsg}</div>}
       {loading && <p className="text-gray-500 text-sm">Loading...</p>}
-      {!loading && partners.length === 0 && (
-        <p className="text-gray-500 text-sm">No {filter} applications.</p>
-      )}
+      {!loading && partners.length === 0 && <p className="text-gray-500 text-sm">No {filter} applications.</p>}
 
       <div className="space-y-4">
         {partners.map(p => (
           <div key={p.id} className="bg-white rounded-xl border border-gray-200 p-5">
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="font-bold text-gray-900">{p.full_name}</p>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <p className="font-bold text-gray-900">{p.full_name}</p>
+                  {p.bar_verified && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">✓ Bar Verified</span>}
+                  {p.welcome_email_sent && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Email Sent</span>}
+                </div>
                 <p className="text-indigo-600 text-sm">{p.firm_name} · {p.state}</p>
                 <p className="text-gray-500 text-sm">{p.email} · Bar: {p.bar_number}</p>
-                {p.specialty && <p className="text-gray-500 text-sm mt-1">Specialty: {p.specialty}</p>}
+                {p.specialty && <p className="text-gray-500 text-sm mt-0.5">Specialty: {p.specialty}</p>}
                 <p className="text-gray-400 text-xs mt-2">Applied: {new Date(p.created_at).toLocaleDateString()}</p>
-                {p.referral_code && (
-                  <p className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded mt-1 inline-block">Code: {p.referral_code}</p>
-                )}
-                {p.pro_expiry && (
-                  <p className="text-xs text-green-700 mt-1">Pro until: {new Date(p.pro_expiry).toLocaleDateString()}</p>
-                )}
+                <div className="flex flex-wrap gap-3 mt-2 items-center">
+                  {p.referral_code && (
+                    <span className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded">Code: {p.referral_code}</span>
+                  )}
+                  {(p.reward_months_lifetime ?? 0) > 0 && (
+                    <span className="text-xs text-indigo-700">
+                      {p.reward_months_lifetime} months earned · {p.reward_months_balance} balance
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-400">{p.pro_months_per_referral ?? 3} months/referral</span>
+                </div>
+                {p.notes && <p className="text-xs text-gray-500 italic mt-1 border-l-2 border-gray-200 pl-2">{p.notes}</p>}
               </div>
-              <div className="flex flex-col gap-2 flex-shrink-0">
+              <div className="flex flex-col gap-2 flex-shrink-0 items-end">
                 {p.status === 'pending' && (
                   <>
                     <button onClick={() => action(p.id, 'approve')}
                       className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700">
-                      Approve ✓
+                      Approve + Send Welcome ✓
                     </button>
                     <button onClick={() => action(p.id, 'reject')}
                       className="px-4 py-1.5 bg-red-100 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-200">
@@ -1057,13 +1079,45 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
                     +1 Mo Pro
                   </button>
                 )}
-                <span className={`text-center text-xs font-semibold px-2 py-1 rounded-full ${
+                <button onClick={() => { setEditingId(p.id); setEditMonths(p.pro_months_per_referral ?? 3); setEditNotes(p.notes ?? ''); setEditBarVerified(p.bar_verified ?? false) }}
+                  className="text-xs text-gray-500 hover:text-gray-700 underline">
+                  Edit
+                </button>
+                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
                   p.status === 'approved' ? 'bg-green-100 text-green-700' :
                   p.status === 'rejected' ? 'bg-red-100 text-red-700' :
                   'bg-amber-100 text-amber-700'
                 }`}>{p.status}</span>
               </div>
             </div>
+
+            {/* Inline edit panel */}
+            {editingId === p.id && (
+              <div className="mt-4 pt-4 border-t border-gray-100 bg-gray-50 rounded-lg p-4 space-y-3">
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Months per referral</label>
+                    <input type="number" value={editMonths} onChange={e => setEditMonths(Number(e.target.value))} min={1} max={12}
+                      className="w-20 text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:border-indigo-400" />
+                  </div>
+                  <div className="flex items-center gap-2 mt-4">
+                    <input type="checkbox" checked={editBarVerified} onChange={e => setEditBarVerified(e.target.checked)} id={`barv-${p.id}`} />
+                    <label htmlFor={`barv-${p.id}`} className="text-sm text-gray-700">Bar Verified</label>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Admin notes</label>
+                  <input value={editNotes} onChange={e => setEditNotes(e.target.value)}
+                    placeholder="Verification source, calls, anything relevant..."
+                    className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => action(p.id, 'edit', { pro_months_per_referral: editMonths, notes: editNotes, bar_verified: editBarVerified })}
+                    className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm font-semibold hover:bg-indigo-700">Save</button>
+                  <button onClick={() => setEditingId(null)} className="px-3 py-1.5 border border-gray-300 text-gray-600 rounded text-sm hover:bg-gray-100">Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>

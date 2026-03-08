@@ -99,5 +99,145 @@ export async function PATCH(
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // ── Task 3: Referral qualifying event ──────────────────────────────────────
+  // Fire when filing_status transitions to 'filed' (Step 8/9 — USPTO confirmation)
+  if (body.filing_status === 'filed' && patent) {
+    waitUntil(checkAndQualifyReferral(id, user.id))
+  }
+
   return NextResponse.json(updated)
+}
+
+// ── Referral qualifying event (async, non-blocking) ────────────────────────
+import { waitUntil } from '@vercel/functions'
+import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
+
+async function checkAndQualifyReferral(patentId: string, ownerId: string) {
+  // Check if the patent owner was referred by a partner
+  const { data: ownerProfile } = await supabaseService
+    .from('patent_profiles')
+    .select('id, email, name_first, name_last, referred_by_partner_id, referred_by_code')
+    .eq('id', ownerId)
+    .single()
+
+  if (!ownerProfile?.referred_by_partner_id) return  // not a referred user
+
+  // Apply 48-hour refund window buffer (prevent premature qualification)
+  const filingBuffer = new Date()
+  filingBuffer.setHours(filingBuffer.getHours() - 48)
+
+  // Check for existing referral record
+  const { data: existing } = await supabaseService
+    .from('partner_referrals')
+    .select('id, status')
+    .eq('partner_id', ownerProfile.referred_by_partner_id)
+    .eq('referred_user_id', ownerId)
+    .single()
+
+  if (existing && existing.status !== 'pending') return  // already qualified
+
+  const now = new Date().toISOString()
+
+  // Upsert referral record to 'qualified'
+  const referralUpdate = {
+    partner_id: ownerProfile.referred_by_partner_id,
+    referred_user_id: ownerId,
+    referral_code: ownerProfile.referred_by_code,
+    status: 'qualified',
+    patent_id: patentId,
+    filing_completed_at: now,
+    reward_type: 'pro_months',
+    updated_at: now,
+  }
+
+  let referralId: string
+  if (existing) {
+    await supabaseService.from('partner_referrals').update(referralUpdate).eq('id', existing.id)
+    referralId = existing.id
+  } else {
+    const { data: newRef } = await supabaseService.from('partner_referrals')
+      .insert({ ...referralUpdate, created_at: now })
+      .select('id').single()
+    referralId = newRef?.id
+  }
+
+  // ── Reward grant ──────────────────────────────────────────────────────────
+  const { data: partner } = await supabaseService
+    .from('patent_counsel_partners')
+    .select('*')
+    .eq('id', ownerProfile.referred_by_partner_id)
+    .single()
+
+  if (!partner) return
+
+  const rewardMonths = partner.pro_months_per_referral ?? 3
+
+  // Update partner balance + lifetime
+  const newBalance  = (partner.reward_months_balance ?? 0) + rewardMonths
+  const newLifetime = (partner.reward_months_lifetime ?? 0) + rewardMonths
+
+  // Calculate new Pro expiry
+  let newExpiry: string | null = null
+  if (partner.user_id) {
+    const { data: partnerUser } = await supabaseService
+      .from('patent_profiles')
+      .select('subscription_status, subscription_period_end')
+      .eq('id', partner.user_id)
+      .single()
+
+    if (partnerUser && partnerUser.subscription_status !== 'complimentary') {
+      const base = partnerUser.subscription_period_end
+        ? new Date(partnerUser.subscription_period_end)
+        : new Date()
+      if (base < new Date()) base.setTime(new Date().getTime())
+      base.setMonth(base.getMonth() + rewardMonths)
+      newExpiry = base.toISOString()
+
+      await supabaseService.from('patent_profiles').update({
+        subscription_status: 'pro',
+        subscription_period_end: newExpiry,
+        updated_at: now,
+      }).eq('id', partner.user_id)
+    }
+  }
+
+  await supabaseService.from('patent_counsel_partners').update({
+    reward_months_balance: newBalance,
+    reward_months_lifetime: newLifetime,
+    updated_at: now,
+  }).eq('id', partner.id)
+
+  // Mark referral as rewarded
+  if (referralId) {
+    await supabaseService.from('partner_referrals').update({
+      status: 'rewarded',
+      reward_months: rewardMonths,
+      reward_granted_at: now,
+    }).eq('id', referralId)
+  }
+
+  // Email partner
+  if (partner.email) {
+    const clientName = [ownerProfile.name_first, ownerProfile.name_last].filter(Boolean).join(' ') || 'Your client'
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
+    await sendEmail(buildEmail({
+      to: partner.email,
+      from: FROM_DEFAULT,
+      subject: `You earned ${rewardMonths} months Pro — ${clientName} completed a filing`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1f36">
+  <h2 style="color:#4f46e5">Referral qualified 🎉</h2>
+  <p>Hi ${partner.full_name?.split(' ')[0] ?? 'there'},</p>
+  <p><strong>${clientName}</strong> just completed a patent filing through your referral link. Your Pro credit has been applied.</p>
+  <ul>
+    <li><strong>Reward:</strong> ${rewardMonths} months Pro</li>
+    <li><strong>New balance:</strong> ${newBalance} months remaining</li>
+    <li><strong>Lifetime earned:</strong> ${newLifetime} months</li>
+  </ul>
+  <p><a href="${appUrl}/dashboard/partners" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">View Partner Dashboard →</a></p>
+  <p style="font-size:12px;color:#666">Questions? Reply directly to this email or contact <a href="mailto:support@hotdeck.com">support@hotdeck.com</a></p>
+</div>`,
+    })).catch(console.error)
+  }
+
+  console.log(`[partner-reward] partner=${partner.id} client=${ownerId} months=${rewardMonths} balance=${newBalance}`)
 }

@@ -16,8 +16,8 @@ function getUserClient(token: string) {
 const ALLOWED = [
   'name_first', 'name_middle', 'name_last', 'full_name',
   'phone', 'address_line_1', 'address_line_2', 'city', 'state', 'zip', 'country',
-  'company',
-  'uspto_customer_number',
+  'company', 'uspto_customer_number',
+  'referred_by_code', 'referred_by_partner_id',
 ] as const
 
 /** GET /api/users/profile — returns current user's profile */

@@ -5,12 +5,14 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
 const PENDING_INVITE_KEY = 'pp_pending_invite'
+const REFERRAL_CODE_KEY  = 'pp_referral_code'
 
 function SignupForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const inviteToken = searchParams.get('invite')
+  const inviteToken    = searchParams.get('invite')
   const prefilledEmail = searchParams.get('email') ?? ''
+  const refCode        = searchParams.get('ref')?.toUpperCase().trim() ?? null
 
   const [email, setEmail] = useState(prefilledEmail)
   const [password, setPassword] = useState('')
@@ -18,11 +20,37 @@ function SignupForm() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
+  const [referralBadge, setReferralBadge] = useState<string | null>(null)
+  const [referralPartnerId, setReferralPartnerId] = useState<string | null>(null)
 
-  // Store invite token before auth flow
+  // Store invite token + validate referral code
   useEffect(() => {
     if (inviteToken) localStorage.setItem(PENDING_INVITE_KEY, inviteToken)
-  }, [inviteToken])
+    if (refCode) {
+      localStorage.setItem(REFERRAL_CODE_KEY, refCode)
+      // Validate code and get display name for trust badge
+      fetch(`/api/partner/validate-code?code=${encodeURIComponent(refCode)}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.valid) {
+            setReferralBadge(d.display_name)
+            setReferralPartnerId(d.partner_id)
+          }
+        })
+        .catch(() => {})
+    } else {
+      // Check localStorage for a previously stored code (e.g. from landing page visit)
+      const stored = localStorage.getItem(REFERRAL_CODE_KEY)
+      if (stored) {
+        fetch(`/api/partner/validate-code?code=${encodeURIComponent(stored)}`)
+          .then(r => r.json())
+          .then(d => {
+            if (d.valid) { setReferralBadge(d.display_name); setReferralPartnerId(d.partner_id) }
+          })
+          .catch(() => {})
+      }
+    }
+  }, [inviteToken, refCode])
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
@@ -51,13 +79,32 @@ function SignupForm() {
       return
     }
 
-    // Immediate session (e.g. confirmation disabled) — check pending invite
-    if (data.session) {
+    // Immediate session (e.g. confirmation disabled) — record referral + check pending invite
+    if (data.session && data.user) {
+      await recordReferral(data.session.access_token, data.user.id)
       await handlePendingInvite(data.session.access_token)
       return
     }
 
     setLoading(false)
+  }
+
+  async function recordReferral(accessToken: string, _userId: string) {
+    const code = refCode ?? localStorage.getItem(REFERRAL_CODE_KEY)
+    const partnerId = referralPartnerId
+    if (!code) return
+    try {
+      // Write referred_by_code + referred_by_partner_id to user's patent_profile
+      await fetch('/api/users/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          referred_by_code: code,
+          ...(partnerId ? { referred_by_partner_id: partnerId } : {}),
+        }),
+      })
+      localStorage.removeItem(REFERRAL_CODE_KEY)
+    } catch { /* non-fatal */ }
   }
 
   async function handlePendingInvite(accessToken: string) {
@@ -98,6 +145,12 @@ function SignupForm() {
 
   return (
     <>
+      {referralBadge && !inviteToken && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-6 text-sm text-indigo-800 flex items-center gap-2">
+          <span className="text-lg">⚖️</span>
+          <span>You've been referred by <strong>{referralBadge}</strong></span>
+        </div>
+      )}
       {inviteToken && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-6 text-sm text-indigo-800">
           🎉 You have a pending patent invite. Create your account to accept it.
