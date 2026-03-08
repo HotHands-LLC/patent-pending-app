@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, Suspense } from 'react'
+import { trackEvent } from '@/components/GoogleAnalytics'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -28,6 +29,7 @@ function SignupForm() {
     if (inviteToken) localStorage.setItem(PENDING_INVITE_KEY, inviteToken)
     if (refCode) {
       localStorage.setItem(REFERRAL_CODE_KEY, refCode)
+      trackEvent('signup_started', { ref_code: refCode, source: 'partner_referral' })
       // Validate code and get display name for trust badge
       fetch(`/api/partner/validate-code?code=${encodeURIComponent(refCode)}`)
         .then(r => r.json())
@@ -81,6 +83,7 @@ function SignupForm() {
 
     // If email confirmation is required, show done state
     if (data.user && !data.session) {
+      trackEvent('signup_completed', { method: 'email_confirmation', has_referral: !!(refCode ?? localStorage.getItem(REFERRAL_CODE_KEY)) })
       setDone(true)
       setLoading(false)
       return
@@ -88,6 +91,7 @@ function SignupForm() {
 
     // Immediate session (e.g. confirmation disabled) — record referral + check pending invite
     if (data.session && data.user) {
+      trackEvent('signup_completed', { method: 'immediate', has_referral: !!(refCode ?? localStorage.getItem(REFERRAL_CODE_KEY)) })
       await recordReferral(data.session.access_token, data.user.id)
       await handlePendingInvite(data.session.access_token)
       return

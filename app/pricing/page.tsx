@@ -3,6 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { trackEvent } from '@/components/GoogleAnalytics'
 
 export default function PricingPage() {
   const [interval, setInterval] = useState<'monthly' | 'annual'>('monthly')
@@ -26,6 +27,7 @@ export default function PricingPage() {
         : null
       if (returnPatentId) localStorage.removeItem('pp_upgrade_return_patent')
 
+      trackEvent('checkout_initiated', { plan, interval })
       const res = await fetch('/api/billing/create-checkout', {
         method: 'POST',
         headers: {
@@ -141,8 +143,8 @@ export default function PricingPage() {
             <p style={{ fontSize: 13, color: '#71717a', marginBottom: 20 }}>Everything in Free, plus:</p>
             <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
-                'Deep Research Pass (12-min Gemini)',
-                'Claude Language Refinement Pass',
+                'Deep Research Pass (12 min)',
+                'AI Refinement Pass',
                 'Unlimited revision rounds',
                 'Prior art search report',
                 'Attorney-quality spec drafting',

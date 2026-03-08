@@ -130,7 +130,7 @@ Requirements:
   }
 
   if (!specDraft || specDraft.length < 500) {
-    return NextResponse.json({ error: 'Specification generation failed — Gemini returned empty response' }, { status: 500 })
+    return NextResponse.json({ error: 'Specification generation failed — please try again' }, { status: 500 })
   }
 
   // ── Save to DB ─────────────────────────────────────────────────────────────

@@ -122,8 +122,8 @@ function ProBadge({ patentId }: { patentId: string }) {
       <div className="px-5 py-4">
         <ul className="space-y-2 mb-4">
           {[
-            'Deep Research Pass (12-min Gemini)',
-            'Claude Language Refinement Pass',
+            'Deep Research Pass (12 min)',
+            'AI Refinement Pass',
             'Unlimited revision rounds',
           ].map(f => (
             <li key={f} className="text-xs text-gray-600 flex items-center gap-2">
@@ -1244,7 +1244,7 @@ export default function PatentDetail() {
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <p className="text-sm font-semibold text-amber-900 mb-1">🔬 Deep Research result ready for review</p>
-                        <p className="text-xs text-amber-700">Gemini strengthened your claims based on prior art analysis. Your original claims are safe until you apply.</p>
+                        <p className="text-xs text-amber-700">AI analysis strengthened your claims based on prior art research. Your original claims are safe until you apply.</p>
                       </div>
                       <div className="flex-shrink-0 flex flex-col gap-2 items-end">
                         <button
@@ -1297,7 +1297,7 @@ export default function PatentDetail() {
                   <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3">
                     <button
                       onClick={async () => {
-                        if (!confirm('Run Deep Research Pass? Gemini will analyze prior art and strengthen your claims. This takes 8–12 minutes — we\'ll email you when done.')) return
+                        if (!confirm('Run Deep Research Pass? Our AI will analyze prior art and strengthen your claims. This takes 8–12 minutes — we\'ll email you when done.')) return
                         const res = await fetch(`/api/patents/${patent.id}/deep-research`, {
                           method: 'POST',
                           headers: { Authorization: `Bearer ${authToken}` },
@@ -1325,7 +1325,7 @@ export default function PatentDetail() {
                     ) : (
                       <button
                         onClick={async () => {
-                          if (!confirm('Run AI Refinement Pass? Claude will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
+                          if (!confirm('Run AI Refinement Pass? Our AI will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
                           const res = await fetch(`/api/patents/${patent.id}/refine-claims`, {
                             method: 'POST',
                             headers: { Authorization: `Bearer ${authToken}` },

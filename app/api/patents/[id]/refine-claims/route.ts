@@ -213,7 +213,7 @@ ${claimsDraft.slice(0, 5000)}`
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
   <h2 style="color:#4f46e5">Your claims have been refined ✨</h2>
   <p>Hi ${ownerName},</p>
-  <p>Claude has completed a precision language refinement pass on the claims for <strong>${title}</strong>.</p>
+  <p>AI has completed a precision language refinement pass on the claims for <strong>${title}</strong>.</p>
   <p>What was improved:</p>
   <ul>
     <li>Antecedent basis verified for all dependent claim elements</li>

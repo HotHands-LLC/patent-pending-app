@@ -52,7 +52,7 @@ async function maybeSendWelcomeEmail(userId: string) {
   <p>Hi ${profile.full_name?.split(' ')[0] ?? 'there'},</p>
   <p>Your Pro subscription is active. Here's what you now have access to:</p>
   <ul>
-    <li><strong>Deep Research Pass</strong> — 12-minute Gemini analysis strengthens claims with prior art</li>
+    <li><strong>Deep Research Pass</strong> — 12-minute AI analysis strengthens claims with prior art</li>
     <li><strong>AI Refinement Pass</strong> — USPTO-precision language polish on your claims</li>
     <li><strong>Unlimited revision rounds</strong> — iterate as many times as you need</li>
     <li><strong>AI Figure Generation</strong> — USPTO-style technical drawings from your spec</li>

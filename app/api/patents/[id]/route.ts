@@ -103,6 +103,8 @@ export async function PATCH(
   // Fire when filing_status transitions to 'filed' (Step 8/9 — USPTO confirmation)
   if (body.filing_status === 'filed' && patent) {
     waitUntil(checkAndQualifyReferral(id, user.id))
+    // GA4 Measurement Protocol — server-side filing_completed event
+    waitUntil(trackFilingCompleted(user.id, id))
   }
 
   return NextResponse.json(updated)
@@ -111,6 +113,22 @@ export async function PATCH(
 // ── Referral qualifying event (async, non-blocking) ────────────────────────
 import { waitUntil } from '@vercel/functions'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
+
+/** GA4 Measurement Protocol — server-side filing_completed event */
+async function trackFilingCompleted(userId: string, patentId: string) {
+  const gaId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID
+  const apiSecret = process.env.GA_API_SECRET
+  if (!gaId || !apiSecret) return
+  try {
+    await fetch(`https://www.google-analytics.com/mp/collect?measurement_id=${gaId}&api_secret=${apiSecret}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        client_id: userId,
+        events: [{ name: 'filing_completed', params: { patent_id: patentId, engagement_time_msec: 1 } }],
+      }),
+    })
+  } catch { /* non-fatal */ }
+}
 
 async function checkAndQualifyReferral(patentId: string, ownerId: string) {
   const ownerProfile = await supabaseService

@@ -107,7 +107,7 @@ export async function POST(
 
   return NextResponse.json({
     ok: true,
-    message: "Deep Research Pass started — Gemini Pro is conducting adversarial claim analysis. This usually takes 8–12 minutes. We'll email you when it's ready to review.",
+    message: "Deep Research Pass started — AI is analyzing prior art and strengthening your claims. This usually takes 8–12 minutes. We'll email you when it's ready to review.",
   })
 }
 
@@ -250,7 +250,7 @@ ${claimsInput}`
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
   <h2 style="color:#d97706">Deep Research Pass ready 🔬</h2>
   <p>Hi ${firstName},</p>
-  <p>Gemini Pro has completed adversarial claim analysis for <strong>${title}</strong>.</p>
+  <p>Deep Research has completed for <strong>${title}</strong>.</p>
   <p>The analysis identifies weaknesses, competitor workarounds, and prior art risks — then proposes stronger claims. Your original claims are untouched until you choose to apply.</p>
   <p><a href="${appUrl}/dashboard/patents/${patentId}?tab=claims" style="display:inline-block;background:#d97706;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">Review Analysis &amp; Apply →</a></p>
 </div>`,

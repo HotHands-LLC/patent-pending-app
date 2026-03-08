@@ -111,6 +111,22 @@ export default function AdminPage() {
       if (!session) { router.push('/login'); return }
       if (session.access_token) setAuthToken(session.access_token)
 
+      // ── MFA gate — admin requires aal2 (TOTP verified) ─────────────────────
+      const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (aalData) {
+        const { currentLevel, nextLevel } = aalData
+        if (currentLevel !== 'aal2') {
+          // Enrolled but not yet verified this session → go verify
+          if (nextLevel === 'aal2') {
+            router.push('/admin/security/verify-2fa?next=/admin')
+          } else {
+            // Not enrolled yet → set up
+            router.push('/admin/security/setup-2fa')
+          }
+          return
+        }
+      }
+
       const res = await fetch('/api/admin/stats', {
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
