@@ -1,99 +1,225 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import { supabase } from '@/lib/supabase'
+import { computeStepStatus, currentStep, FILING_STEPS } from '@/components/FilingProgressTracker'
 
-type Tab = 'overview' | 'clients' | 'earnings' | 'profile'
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Stats { total_referrals: number; qualified_referrals: number; pro_months_earned: number; pro_months_balance: number }
+interface PartnerProfile {
+  id: string; partner_code: string; firm_name: string | null; bar_id: string | null
+  bar_state: string | null; bar_verified: boolean; practice_areas: string[] | null
+  status: 'pending' | 'active' | 'suspended'
+  reward_months_balance: number; reward_months_lifetime: number
+  pro_months_per_referral: number
+  counsel_partner: { id: string; email: string; full_name: string; referral_code: string; firm_name: string | null } | null
+}
+
 interface Referral {
-  id: string; status: 'pending' | 'qualified' | 'rewarded' | 'refunded'
-  referral_code: string | null; patent_id: string | null
-  filing_completed_at: string | null; reward_months: number | null
-  reward_granted_at: string | null; created_at: string
-  client: { name_first: string | null; name_last: string | null; email: string; created_at: string } | null
-  client_patent_count: number
-  qualifying_patent_title: string | null
-}
-interface Partner {
-  id: string; full_name: string; firm_name: string | null; bar_number: string | null
-  state: string | null; email: string; referral_code: string; status: string
-  reward_months_balance: number; reward_months_lifetime: number; pro_months_per_referral: number
-  bar_verified: boolean; welcome_email_sent: boolean; practice_areas: string[] | null
-  notes: string | null
+  id: string; referral_code: string; status: 'pending' | 'qualified' | 'rewarded' | 'refunded'
+  patent_id: string | null; filing_completed_at: string | null
+  reward_months: number | null; reward_granted_at: string | null; created_at: string
+  referred_user: { id: string; email: string; full_name: string | null; name_first: string | null; name_last: string | null; created_at: string } | null
+  patent_count: number
+  user_patents: Array<{ id: string; title: string; filing_status: string | null; status: string; cover_sheet_acknowledged: boolean; figures_uploaded: boolean; claims_draft: string | null }>
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-700',
-  qualified: 'bg-blue-100 text-blue-700',
-  rewarded: 'bg-green-100 text-green-700',
-  refunded: 'bg-red-100 text-red-700',
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  pending:   { label: 'Pending',   cls: 'bg-amber-100 text-amber-700'  },
+  qualified: { label: 'Qualified', cls: 'bg-blue-100 text-blue-700'    },
+  rewarded:  { label: 'Rewarded',  cls: 'bg-green-100 text-green-700'  },
+  refunded:  { label: 'Refunded',  cls: 'bg-red-100 text-red-700'      },
 }
 
-export default function PartnerDashboardPage() {
+function clientName(r: Referral): string {
+  if (!r.referred_user) return 'Referred User'
+  return [r.referred_user.name_first, r.referred_user.name_last].filter(Boolean).join(' ')
+    || r.referred_user.full_name || r.referred_user.email || 'Client'
+}
+
+function stepFor(pat: { filing_status: string | null; status: string; cover_sheet_acknowledged: boolean; figures_uploaded: boolean; claims_draft: string | null }): number {
+  // Quick step approximation for partner read-only view
+  if (pat.status === 'non_provisional' || pat.filing_status === 'filed') return 9
+  if (pat.cover_sheet_acknowledged) return 8
+  if (pat.figures_uploaded) return 7
+  if (pat.filing_status === 'approved') return 5
+  if (pat.claims_draft) return 4
+  return 2
+}
+
+// ── QR code (client-side, no external lib) ────────────────────────────────────
+function QRPlaceholder({ url }: { url: string }) {
+  return (
+    <div className="text-center">
+      <div className="w-32 h-32 mx-auto border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center mb-1 bg-gray-50">
+        <span className="text-xs text-gray-400 text-center px-2">QR code<br/>(print to generate)</span>
+      </div>
+      <div className="text-xs text-gray-400 break-all max-w-[200px] mx-auto">{url}</div>
+    </div>
+  )
+}
+
+// ── Stats Card ────────────────────────────────────────────────────────────────
+function Stat({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="text-2xl font-bold text-[#1a1f36]">{value}</div>
+      <div className="text-sm text-gray-500 mt-0.5">{label}</div>
+      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+    </div>
+  )
+}
+
+// ── Client Drill-down Modal ───────────────────────────────────────────────────
+function ClientModal({ referral, onClose }: { referral: Referral; onClose: () => void }) {
+  const name = clientName(referral)
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 my-4">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-bold text-[#1a1f36] text-lg">{name}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+        </div>
+        {/* Client info */}
+        <div className="text-sm text-gray-600 space-y-1 mb-5">
+          <div><span className="text-gray-400">Email:</span> {referral.referred_user?.email ?? '—'}</div>
+          <div><span className="text-gray-400">Member since:</span> {referral.referred_user ? new Date(referral.referred_user.created_at).toLocaleDateString() : '—'}</div>
+          <div><span className="text-gray-400">Referral status:</span>{' '}
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGE[referral.status]?.cls ?? ''}`}>
+              {STATUS_BADGE[referral.status]?.label ?? referral.status}
+            </span>
+          </div>
+          {referral.reward_granted_at && (
+            <div><span className="text-gray-400">Reward granted:</span> {new Date(referral.reward_granted_at).toLocaleDateString()} ({referral.reward_months}mo Pro)</div>
+          )}
+        </div>
+        {/* Patent list */}
+        <div className="mb-4">
+          <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Patents</div>
+          {referral.user_patents.length === 0 ? (
+            <p className="text-sm text-gray-400">No patents started yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {referral.user_patents.map(p => (
+                <div key={p.id} className="border border-gray-100 rounded-lg p-3">
+                  <div className="text-sm font-medium text-[#1a1f36] truncate">{p.title || 'Untitled'}</div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-gray-500">Step {stepFor(p)} / 9</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                      <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(stepFor(p) / 9) * 100}%` }} />
+                    </div>
+                    {p.filing_status === 'filed' && <span className="text-xs text-green-600 font-semibold">Filed ✓</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* Timeline */}
+        <div>
+          <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Timeline</div>
+          <div className="space-y-1 text-sm">
+            <div className="text-gray-500">Signed up · {referral.referred_user ? new Date(referral.referred_user.created_at).toLocaleDateString() : '—'}</div>
+            {referral.filing_completed_at && (
+              <div className="text-gray-500">Filed · {new Date(referral.filing_completed_at).toLocaleDateString()}</div>
+            )}
+            {referral.reward_granted_at && (
+              <div className="text-green-600">Reward granted · {new Date(referral.reward_granted_at).toLocaleDateString()}</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
+export default function PartnerDashboard() {
   const router = useRouter()
-  const [tab, setTab] = useState<Tab>('overview')
-  const [loading, setLoading] = useState(true)
-  const [partner, setPartner] = useState<Partner | null>(null)
+  const [tab, setTab] = useState<'overview' | 'clients' | 'earnings' | 'profile'>('overview')
+  const [partnerProfile, setPartnerProfile] = useState<PartnerProfile | null>(null)
   const [referrals, setReferrals] = useState<Referral[]>([])
-  const [stats, setStats] = useState<Stats>({ total_referrals: 0, qualified_referrals: 0, pro_months_earned: 0, pro_months_balance: 0 })
-  const [earningsHistory, setEarningsHistory] = useState<{ date: string; event: string; reward: string }[]>([])
+  const [loading, setLoading] = useState(true)
   const [authToken, setAuthToken] = useState<string | null>(null)
-  const [selectedClient, setSelectedClient] = useState<Referral | null>(null)
-  const [arc3Dismissed, setArc3Dismissed] = useState(false)
+  const [selectedReferral, setSelectedReferral] = useState<Referral | null>(null)
   const [toast, setToast] = useState('')
+  const [arc3Dismissed, setArc3Dismissed] = useState(false)
+  // Profile edit state
+  const [editFirm, setEditFirm] = useState('')
+  const [editBar, setEditBar] = useState('')
+  const [editState, setEditState] = useState('')
+  const [saving, setSaving] = useState(false)
+  const refLinkRef = useRef<HTMLInputElement>(null)
 
-  function showToast(m: string) { setToast(m); setTimeout(() => setToast(''), 3000) }
+  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   useEffect(() => {
     async function load() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/login'); return }
       setAuthToken(session.access_token)
-      const res = await fetch('/api/partner/me', { headers: { Authorization: `Bearer ${session.access_token}` } })
-      const d = await res.json()
-      if (!d.partner) {
-        // Not a partner — redirect to apply page
+
+      const [ppRes, refRes] = await Promise.all([
+        fetch('/api/partner/profile', { headers: { Authorization: `Bearer ${session.access_token}` } }),
+        fetch('/api/partner/referrals', { headers: { Authorization: `Bearer ${session.access_token}` } }),
+      ])
+      const { profile } = await ppRes.json()
+      const { referrals: refs } = await refRes.json()
+
+      if (!profile) {
+        // Not a partner — redirect to partner signup landing
         router.push('/partners')
         return
       }
-      setPartner(d.partner)
-      setReferrals(d.referrals ?? [])
-      setStats(d.stats ?? {})
-      setEarningsHistory(d.earnings_history ?? [])
+
+      setPartnerProfile(profile)
+      setReferrals(refs ?? [])
+      setEditFirm(profile.firm_name ?? '')
+      setEditBar(profile.bar_id ?? '')
+      setEditState(profile.bar_state ?? '')
       setLoading(false)
     }
     load()
   }, [router])
 
-  async function saveProfile(fields: Record<string, unknown>) {
+  async function saveProfile() {
     if (!authToken) return
-    const res = await fetch('/api/partner/me', {
+    setSaving(true)
+    const res = await fetch('/api/partner/profile', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify(fields),
+      body: JSON.stringify({ firm_name: editFirm, bar_id: editBar, bar_state: editState }),
     })
-    const d = await res.json()
-    if (res.ok) { setPartner(d.partner); showToast('✅ Profile saved') }
-    else showToast(`⚠️ ${d.error}`)
+    setSaving(false)
+    if (res.ok) {
+      const { profile } = await res.json()
+      setPartnerProfile(profile)
+      showToast('✅ Profile saved')
+    } else {
+      showToast('⚠️ Save failed')
+    }
   }
 
-  function exportEarnings() {
+  function exportEarningsCSV() {
+    const rewarded = referrals.filter(r => r.status === 'rewarded' || r.status === 'qualified')
     const rows = [
-      ['Date', 'Event', 'Reward', 'Balance'],
-      ...earningsHistory.map((e, i) => [
-        new Date(e.date).toLocaleDateString(),
-        e.event,
-        e.reward,
-        `${stats.pro_months_earned - (i * (partner?.pro_months_per_referral ?? 3))} months`
-      ])
+      ['Date', 'Client', 'Status', 'Reward (months)', 'Patent'].join(','),
+      ...rewarded.map(r => [
+        r.reward_granted_at ? new Date(r.reward_granted_at).toLocaleDateString() : '',
+        clientName(r),
+        r.status,
+        r.reward_months ?? 0,
+        r.user_patents[0]?.title ?? '—',
+      ].join(',')),
     ]
-    const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n')
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
     const a = document.createElement('a')
-    a.href = `data:text/csv,${encodeURIComponent(csv)}`
-    a.download = 'partner-earnings.csv'
+    a.href = URL.createObjectURL(blob)
+    a.download = 'patentpending-earnings.csv'
     a.click()
   }
 
@@ -103,208 +229,186 @@ export default function PartnerDashboardPage() {
       <div className="flex items-center justify-center h-64 text-gray-400">Loading…</div>
     </div>
   )
-  if (!partner) return null
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
-  const referralLink = `${appUrl}/signup?ref=${partner.referral_code}`
+  if (!partnerProfile) return null
+
+  const refCode = partnerProfile.partner_code ?? partnerProfile.counsel_partner?.referral_code ?? ''
+  const refLink = `${typeof window !== 'undefined' ? window.location.origin : 'https://patentpending.app'}/signup?ref=${refCode}`
+  const appUrl  = typeof window !== 'undefined' ? window.location.origin : 'https://patentpending.app'
+
+  const totalRefs     = referrals.length
+  const qualifiedRefs = referrals.filter(r => r.status === 'qualified' || r.status === 'rewarded').length
+  const monthsEarned  = partnerProfile.reward_months_lifetime
+  const monthsBal     = partnerProfile.reward_months_balance
+
+  const statusPending = partnerProfile.status === 'pending'
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
 
-      {toast && <div className="fixed top-4 right-4 z-50 bg-[#1a1f36] text-white px-4 py-2 rounded-lg text-sm shadow-lg">{toast}</div>}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 bg-[#1a1f36] text-white px-4 py-2 rounded-lg text-sm shadow-lg">{toast}</div>
+      )}
+      {selectedReferral && (
+        <ClientModal referral={selectedReferral} onClose={() => setSelectedReferral(null)} />
+      )}
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {/* Header */}
-        <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
+        <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-[#1a1f36]">Partner Dashboard</h1>
-            <p className="text-gray-500 text-sm mt-1">{partner.firm_name || partner.full_name}</p>
+            <p className="text-gray-500 text-sm mt-1">
+              {partnerProfile.firm_name ?? partnerProfile.counsel_partner?.full_name ?? 'Partner'}
+            </p>
           </div>
-          <div className="flex items-center gap-3">
-            <span className={`text-xs font-semibold px-3 py-1.5 rounded-full border ${
-              partner.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' :
-              partner.status === 'suspended' ? 'bg-red-50 text-red-700 border-red-200' :
-              'bg-amber-50 text-amber-700 border-amber-200'
+          <div className="flex items-center gap-2">
+            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+              partnerProfile.status === 'active' ? 'bg-green-100 text-green-700 border-green-300' :
+              partnerProfile.status === 'suspended' ? 'bg-red-100 text-red-700 border-red-200' :
+              'bg-amber-100 text-amber-700 border-amber-300'
             }`}>
-              {partner.status === 'approved' ? '● Active' : partner.status.charAt(0).toUpperCase() + partner.status.slice(1)}
+              {partnerProfile.status.charAt(0).toUpperCase() + partnerProfile.status.slice(1)}
             </span>
-            {partner.bar_verified && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">✓ Bar Verified</span>}
           </div>
         </div>
 
-        {/* Tab nav */}
-        <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
-          {(['overview', 'clients', 'earnings', 'profile'] as Tab[]).map(t => (
+        {/* Pending notice */}
+        {statusPending && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+            <strong>Application pending review.</strong> You'll receive a welcome email once approved. Your referral link is already active — any signups before approval will be credited retroactively.
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 border-b border-gray-200">
+          {(['overview', 'clients', 'earnings', 'profile'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold capitalize transition-colors ${tab === t ? 'bg-white shadow-sm text-[#1a1f36]' : 'text-gray-500 hover:text-gray-700'}`}>
-              {t} {t === 'clients' && referrals.length > 0 && <span className="ml-1 text-xs bg-indigo-100 text-indigo-700 px-1.5 rounded-full">{referrals.length}</span>}
+              className={`px-4 py-2.5 text-sm font-medium capitalize transition-colors -mb-px border-b-2 ${
+                tab === t ? 'border-[#1a1f36] text-[#1a1f36]' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              {t}
             </button>
           ))}
         </div>
 
         {/* ── Tab: Overview ─────────────────────────────────────────────────── */}
         {tab === 'overview' && (
-          <div className="space-y-5">
+          <div className="space-y-6">
             {/* Arc 3 banner */}
             {!arc3Dismissed && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-amber-900">⚡ Arc 3 Revenue Share — Coming Soon</p>
-                  <p className="text-xs text-amber-700 mt-0.5">Every patent filed through your referral link participates in our licensing marketplace. Revenue share for partners is on the way — you'll be first in line.</p>
+              <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-3">
+                <span className="text-xl">🚀</span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-amber-900">Arc 3 Revenue Share — Coming Soon</p>
+                  <p className="text-xs text-amber-700 mt-0.5">Every patent filed through your referral link participates in the PatentPending licensing marketplace. Partner revenue share on licensing deals is on the way.</p>
                 </div>
-                <button onClick={() => setArc3Dismissed(true)} className="text-amber-400 hover:text-amber-700 text-lg leading-none flex-shrink-0">×</button>
+                <button onClick={() => setArc3Dismissed(true)} className="text-amber-400 hover:text-amber-600 text-xs">✕</button>
               </div>
             )}
 
             {/* Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              {[
-                { label: 'Total Referrals', value: stats.total_referrals, color: 'text-[#1a1f36]' },
-                { label: 'Qualified', value: stats.qualified_referrals, color: 'text-green-600' },
-                { label: 'Months Earned', value: stats.pro_months_earned, color: 'text-indigo-600', suffix: ' mo' },
-                { label: 'Balance Remaining', value: stats.pro_months_balance, color: 'text-amber-600', suffix: ' mo' },
-              ].map(s => (
-                <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
-                  <div className={`text-3xl font-bold ${s.color}`}>{s.value}{s.suffix ?? ''}</div>
-                  <div className="text-xs text-gray-500 mt-1">{s.label}</div>
-                </div>
-              ))}
+              <Stat label="Total Referrals" value={totalRefs} />
+              <Stat label="Qualified Filings" value={qualifiedRefs} />
+              <Stat label="Pro Months Earned" value={monthsEarned} sub="lifetime" />
+              <Stat label="Pro Months Balance" value={monthsBal} sub="remaining" />
             </div>
 
-            {/* Referral link quick-share */}
-            <div className="bg-white rounded-xl border border-indigo-100 p-5">
-              <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Your Referral Link</p>
-              <div className="flex items-center gap-2 flex-wrap">
-                <code className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 font-mono text-indigo-700 break-all">{referralLink}</code>
-                <button onClick={() => { navigator.clipboard.writeText(referralLink); showToast('📋 Copied!') }}
-                  className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex-shrink-0">
+            {/* Referral link quick copy */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Your Referral Link</div>
+              <div className="flex gap-2">
+                <input readOnly ref={refLinkRef} value={refLink}
+                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 font-mono text-gray-700" />
+                <button onClick={() => { navigator.clipboard.writeText(refLink); showToast('📋 Link copied!') }}
+                  className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors whitespace-nowrap">
                   Copy
                 </button>
               </div>
             </div>
 
             {/* Recent activity */}
-            {referrals.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
-                  <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Recent Activity</span>
-                </div>
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Recent Activity</span>
+              </div>
+              {referrals.length === 0 ? (
+                <div className="p-6 text-center text-gray-400 text-sm">No referrals yet. Share your link to get started.</div>
+              ) : (
                 <div className="divide-y divide-gray-50">
                   {referrals.slice(0, 10).map(r => (
-                    <div key={r.id} className="px-5 py-3 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">
-                          {r.client ? [r.client.name_first, r.client.name_last].filter(Boolean).join(' ') || r.client.email : 'Unknown client'}
-                        </p>
-                        <p className="text-xs text-gray-400">{new Date(r.created_at).toLocaleDateString()}</p>
+                    <div key={r.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 cursor-pointer"
+                      onClick={() => setSelectedReferral(r)}>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-[#1a1f36] truncate">{clientName(r)}</div>
+                        <div className="text-xs text-gray-400">{new Date(r.created_at).toLocaleDateString()}</div>
                       </div>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status]}`}>{r.status}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGE[r.status]?.cls}`}>
+                        {STATUS_BADGE[r.status]?.label}
+                      </span>
+                      {r.reward_months && <span className="text-xs text-green-600 font-semibold">+{r.reward_months}mo</span>}
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {referrals.length === 0 && (
-              <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                <div className="text-4xl mb-3">⚖️</div>
-                <p className="text-gray-600 font-semibold mb-1">No referrals yet</p>
-                <p className="text-sm text-gray-400">Share your referral link to get started. A referral qualifies when a client completes a paid filing.</p>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 
         {/* ── Tab: Clients ──────────────────────────────────────────────────── */}
         {tab === 'clients' && (
-          <div>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {referrals.length === 0 ? (
-              <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                <p className="text-gray-500">No referred clients yet. Share your referral link to start tracking.</p>
+              <div className="p-10 text-center text-gray-400">
+                <div className="text-4xl mb-3">👥</div>
+                <p className="text-sm font-medium">No referred clients yet</p>
+                <p className="text-xs text-gray-300 mt-1">Share your referral link to bring in clients</p>
               </div>
             ) : (
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      {['Client', 'Signed Up', 'Patents', 'Status', 'Qualifying Patent', 'Earnings'].map(h => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {referrals.map(r => (
-                      <tr key={r.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedClient(r)}>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-800">
-                            {r.client ? [r.client.name_first, r.client.name_last].filter(Boolean).join(' ') || '(unnamed)' : '—'}
-                          </div>
-                          <div className="text-xs text-gray-400">{r.client?.email}</div>
-                        </td>
-                        <td className="px-4 py-3 text-gray-500">
-                          {r.client ? new Date(r.client.created_at).toLocaleDateString() : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">{r.client_patent_count}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[r.status]}`}>{r.status}</span>
-                        </td>
-                        <td className="px-4 py-3 text-gray-600 max-w-[160px] truncate">
-                          {r.qualifying_patent_title ?? '—'}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">
-                          {r.reward_months ? `${r.reward_months} mo Pro` : '—'}
-                        </td>
-                      </tr>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    {['Client', 'Signed Up', 'Patents', 'Step', 'Status', 'Earnings'].map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">{h}</th>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* Client drill-down modal */}
-            {selectedClient && (
-              <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setSelectedClient(null)}>
-                <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
-                  <div className="flex items-start justify-between mb-4">
-                    <h3 className="text-base font-bold text-[#1a1f36]">
-                      {selectedClient.client ? [selectedClient.client.name_first, selectedClient.client.name_last].filter(Boolean).join(' ') || selectedClient.client.email : 'Client Details'}
-                    </h3>
-                    <button onClick={() => setSelectedClient(null)} className="text-gray-400 hover:text-gray-700 text-xl">×</button>
-                  </div>
-                  <div className="space-y-4 text-sm">
-                    {selectedClient.client && (
-                      <div className="bg-gray-50 rounded-lg p-3 space-y-1">
-                        <div><span className="font-medium">Email:</span> {selectedClient.client.email}</div>
-                        <div><span className="font-medium">Member since:</span> {new Date(selectedClient.client.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
-                        <div><span className="font-medium">Patents started:</span> {selectedClient.client_patent_count}</div>
-                      </div>
-                    )}
-                    <div>
-                      <p className="font-semibold text-gray-700 mb-2">Referral Timeline</p>
-                      <div className="space-y-2">
-                        {[
-                          { date: selectedClient.created_at, label: 'Signed up via referral link' },
-                          selectedClient.filing_completed_at ? { date: selectedClient.filing_completed_at, label: `Filing completed — ${selectedClient.qualifying_patent_title ?? 'patent'}` } : null,
-                          selectedClient.reward_granted_at ? { date: selectedClient.reward_granted_at, label: `Reward granted: ${selectedClient.reward_months ?? 3} months Pro` } : null,
-                        ].filter(Boolean).map((evt, i) => evt && (
-                          <div key={i} className="flex items-start gap-3">
-                            <div className="w-2 h-2 rounded-full bg-indigo-400 mt-1.5 flex-shrink-0" />
-                            <div>
-                              <div className="text-xs text-gray-500">{new Date(evt.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                              <div className="text-sm text-gray-700">{evt.label}</div>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {referrals.map(r => (
+                    <tr key={r.id} className="hover:bg-gray-50 cursor-pointer"
+                      onClick={() => setSelectedReferral(r)}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-[#1a1f36]">{clientName(r)}</div>
+                        <div className="text-xs text-gray-400">{r.referred_user?.email ?? '—'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                        {r.referred_user ? new Date(r.referred_user.created_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-center text-gray-700">{r.patent_count}</td>
+                      <td className="px-4 py-3">
+                        {r.user_patents[0] ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500">{stepFor(r.user_patents[0])}/9</span>
+                            <div className="w-16 bg-gray-100 rounded-full h-1.5">
+                              <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${(stepFor(r.user_patents[0]) / 9) * 100}%` }} />
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 pt-2">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[selectedClient.status]}`}>{selectedClient.status}</span>
-                      {selectedClient.reward_months && <span className="text-xs text-gray-500">Earnings: {selectedClient.reward_months} months Pro</span>}
-                    </div>
-                  </div>
-                </div>
-              </div>
+                        ) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGE[r.status]?.cls}`}>
+                          {STATUS_BADGE[r.status]?.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-green-600 font-semibold text-sm">
+                        {r.reward_months ? `${r.reward_months} mo Pro` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         )}
@@ -312,50 +416,46 @@ export default function PartnerDashboardPage() {
         {/* ── Tab: Earnings ─────────────────────────────────────────────────── */}
         {tab === 'earnings' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="bg-white rounded-xl border border-gray-200 px-5 py-3">
-                  <div className="text-2xl font-bold text-indigo-600">{stats.pro_months_earned} mo</div>
-                  <div className="text-xs text-gray-500">Lifetime earned</div>
-                </div>
-                <div className="bg-white rounded-xl border border-gray-200 px-5 py-3">
-                  <div className="text-2xl font-bold text-amber-600">{stats.pro_months_balance} mo</div>
-                  <div className="text-xs text-gray-500">Balance</div>
-                </div>
-              </div>
-              {earningsHistory.length > 0 && (
-                <button onClick={exportEarnings}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50">
-                  📥 Export CSV
-                </button>
-              )}
+            <div className="flex justify-end">
+              <button onClick={exportEarningsCSV}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors">
+                ↓ Export CSV
+              </button>
             </div>
-
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    {['Date', 'Event', 'Reward'].map(h => (
+                    {['Date', 'Event', 'Client', 'Reward', 'Balance'].map(h => (
                       <th key={h} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {earningsHistory.length === 0 ? (
-                    <tr><td colSpan={3} className="px-4 py-8 text-center text-gray-400">No earnings yet — referrals qualify on completed filings.</td></tr>
-                  ) : (
-                    earningsHistory.map((e, i) => (
-                      <tr key={i}>
-                        <td className="px-4 py-3 text-gray-500">{new Date(e.date).toLocaleDateString()}</td>
-                        <td className="px-4 py-3 text-gray-800">{e.event}</td>
-                        <td className="px-4 py-3 text-green-700 font-semibold">{e.reward}</td>
-                      </tr>
-                    ))
+                <tbody className="divide-y divide-gray-100">
+                  {referrals.filter(r => r.reward_granted_at).map((r, i) => (
+                    <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                        {r.reward_granted_at ? new Date(r.reward_granted_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-[#1a1f36]">Filing completed</td>
+                      <td className="px-4 py-3 text-gray-700">{clientName(r)}</td>
+                      <td className="px-4 py-3 text-green-600 font-semibold">+{r.reward_months ?? 0} mo Pro</td>
+                      <td className="px-4 py-3 text-gray-500">
+                        {(() => {
+                          const prev = referrals.filter(x => x.reward_granted_at && x.reward_granted_at <= r.reward_granted_at!).reduce((s, x) => s + (x.reward_months ?? 0), 0)
+                          return `${prev} mo`
+                        })()}
+                      </td>
+                    </tr>
+                  ))}
+                  {referrals.filter(r => r.reward_granted_at).length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">No earnings yet — earnings appear when a referred client files</td>
+                    </tr>
                   )}
-                  <tr className="bg-gray-50">
-                    <td colSpan={3} className="px-4 py-3 text-xs text-gray-400 italic">
-                      💡 Cash payouts — coming soon. Pro months are credited automatically.
-                    </td>
+                  <tr className="bg-gray-50 border-t-2 border-gray-200">
+                    <td colSpan={3} className="px-4 py-3 text-xs text-gray-500 italic">Cash payouts — coming soon</td>
+                    <td colSpan={2} className="px-4 py-3 text-sm font-bold text-[#1a1f36]">Total: {monthsEarned} mo</td>
                   </tr>
                 </tbody>
               </table>
@@ -365,89 +465,67 @@ export default function PartnerDashboardPage() {
 
         {/* ── Tab: Profile ──────────────────────────────────────────────────── */}
         {tab === 'profile' && (
-          <PartnerProfileTab partner={partner} referralLink={referralLink} onSave={saveProfile} />
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Partner Profile Tab ────────────────────────────────────────────────────
-function PartnerProfileTab({ partner, referralLink, onSave }: {
-  partner: Partner
-  referralLink: string
-  onSave: (fields: Record<string, unknown>) => void
-}) {
-  const [firmName, setFirmName] = useState(partner.firm_name ?? '')
-  const [barNumber, setBarNumber] = useState(partner.bar_number ?? '')
-  const [barState, setBarState] = useState(partner.state ?? '')
-  const [specialty, setSpecialty] = useState(
-    partner.practice_areas?.join(', ') ?? ''
-  )
-  const [saved, setSaved] = useState(false)
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(referralLink)}`
-
-  async function handleSave() {
-    await onSave({ firm_name: firmName, bar_number: barNumber, state: barState, specialty })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-4">Practice Information</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[
-            { label: 'Firm Name', value: firmName, set: setFirmName },
-            { label: 'Bar Number', value: barNumber, set: setBarNumber },
-            { label: 'State', value: barState, set: setBarState },
-            { label: 'Practice Areas', value: specialty, set: setSpecialty },
-          ].map(({ label, value, set }) => (
-            <div key={label}>
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">{label}</label>
-              <input value={value} onChange={e => set(e.target.value)}
-                className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400" />
-            </div>
-          ))}
-        </div>
-        <button onClick={handleSave}
-          className={`mt-4 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${saved ? 'bg-green-600 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
-          {saved ? '✓ Saved' : 'Save Changes'}
-        </button>
-      </div>
-
-      {/* Referral code + QR */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500 mb-4">Referral Tools</h3>
-        <div className="flex flex-col sm:flex-row gap-6 items-start">
-          <div className="flex-1 space-y-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Partner Code</label>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Edit form */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+              <h2 className="font-semibold text-[#1a1f36]">Partner Profile</h2>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Firm Name</label>
+                <input value={editFirm} onChange={e => setEditFirm(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Bar ID</label>
+                  <input value={editBar} onChange={e => setEditBar(e.target.value)}
+                    className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">State</label>
+                  <input value={editState} onChange={e => setEditState(e.target.value)}
+                    className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400" />
+                </div>
+              </div>
               <div className="flex items-center gap-2">
-                <code className="text-sm font-mono bg-gray-50 border border-gray-200 rounded px-3 py-1.5">{partner.referral_code}</code>
-                <span className="text-xs text-gray-400">(read-only)</span>
+                {partnerProfile.bar_verified
+                  ? <span className="text-xs text-green-600 font-semibold">✅ Bar verified by admin</span>
+                  : <span className="text-xs text-amber-600">Bar verification pending admin review</span>}
               </div>
+              <button onClick={saveProfile} disabled={saving}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Referral Link</label>
-              <div className="flex items-center gap-2 flex-wrap">
-                <code className="text-xs bg-gray-50 border border-gray-200 rounded px-3 py-1.5 flex-1 break-all text-indigo-700">{referralLink}</code>
-                <button
-                  onClick={() => navigator.clipboard.writeText(referralLink)}
-                  className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 flex-shrink-0">
-                  Copy
-                </button>
+
+            {/* Referral link + QR */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+              <h2 className="font-semibold text-[#1a1f36]">Referral Link</h2>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Partner Code</label>
+                <div className="flex items-center gap-2">
+                  <code className="text-sm font-mono bg-[#1a1f36] text-[#f5a623] px-3 py-1.5 rounded-lg">{refCode}</code>
+                  <button onClick={() => { navigator.clipboard.writeText(refCode); showToast('📋 Code copied!') }}
+                    className="text-xs text-indigo-500 hover:text-indigo-700">Copy</button>
+                </div>
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Referral URL</label>
+                <div className="flex gap-2">
+                  <input readOnly value={refLink}
+                    className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 font-mono text-gray-600" />
+                  <button onClick={() => { navigator.clipboard.writeText(refLink); showToast('📋 Link copied!') }}
+                    className="px-3 py-2 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] whitespace-nowrap">
+                    Copy
+                  </button>
+                </div>
+              </div>
+              <div className="text-xs text-gray-400">
+                Earning {partnerProfile.pro_months_per_referral} month{partnerProfile.pro_months_per_referral !== 1 ? 's' : ''} Pro per completed filing
+              </div>
+              <QRPlaceholder url={refLink} />
             </div>
           </div>
-          {/* QR code */}
-          <div className="flex flex-col items-center gap-2">
-            <img src={qrUrl} alt="Referral QR code" className="w-40 h-40 border border-gray-200 rounded-xl" />
-            <a href={qrUrl} download="referral-qr.png"
-              className="text-xs text-indigo-600 hover:underline">Download QR →</a>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   )

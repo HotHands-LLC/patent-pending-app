@@ -1051,12 +1051,17 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
                   {p.referral_code && (
                     <span className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded">Code: {p.referral_code}</span>
                   )}
-                  {(p.reward_months_lifetime ?? 0) > 0 && (
-                    <span className="text-xs text-indigo-700">
-                      {p.reward_months_lifetime} months earned · {p.reward_months_balance} balance
+                  {p.referral_counts && (
+                    <span className="text-xs text-gray-600">
+                      {p.referral_counts.total} referrals · {p.referral_counts.rewarded} rewarded
                     </span>
                   )}
-                  <span className="text-xs text-gray-400">{p.pro_months_per_referral ?? 3} months/referral</span>
+                  {(p.partner_profile?.reward_months_lifetime ?? 0) > 0 && (
+                    <span className="text-xs text-indigo-700">
+                      {p.partner_profile.reward_months_lifetime} mo earned · {p.partner_profile.reward_months_balance} bal
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-400">{p.partner_profile?.pro_months_per_referral ?? p.pro_months_per_referral ?? 3} months/referral</span>
                 </div>
                 {p.notes && <p className="text-xs text-gray-500 italic mt-1 border-l-2 border-gray-200 pl-2">{p.notes}</p>}
               </div>
@@ -1074,10 +1079,16 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
                   </>
                 )}
                 {p.status === 'approved' && (
-                  <button onClick={() => action(p.id, 'extend_pro')}
-                    className="px-4 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold hover:bg-indigo-200">
-                    +1 Mo Pro
-                  </button>
+                  <>
+                    <button onClick={() => action(p.id, 'approve', { send_welcome: true })}
+                      className="px-4 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm font-semibold hover:bg-blue-200">
+                      Resend Welcome
+                    </button>
+                    <button onClick={() => action(p.id, 'suspend')}
+                      className="px-4 py-1.5 bg-red-100 text-red-700 rounded-lg text-sm font-semibold hover:bg-red-200">
+                      Suspend
+                    </button>
+                  </>
                 )}
                 <button onClick={() => { setEditingId(p.id); setEditMonths(p.pro_months_per_referral ?? 3); setEditNotes(p.notes ?? ''); setEditBarVerified(p.bar_verified ?? false) }}
                   className="text-xs text-gray-500 hover:text-gray-700 underline">
@@ -1112,7 +1123,7 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
                     className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => action(p.id, 'edit', { pro_months_per_referral: editMonths, notes: editNotes, bar_verified: editBarVerified })}
+                  <button onClick={() => action(p.id, 'update', { pro_months_per_referral: editMonths, notes: editNotes, bar_verified: editBarVerified })}
                     className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm font-semibold hover:bg-indigo-700">Save</button>
                   <button onClick={() => setEditingId(null)} className="px-3 py-1.5 border border-gray-300 text-gray-600 rounded text-sm hover:bg-gray-100">Cancel</button>
                 </div>
