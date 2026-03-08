@@ -1773,8 +1773,8 @@ export default function PatentDetail() {
                   loadAll()
                 }}
               />
-              <p className="mt-1.5 text-xs text-amber-700">
-                ⚠️ USPTO requires PDF version 1.4–1.7. PDF 2.0 files will be rejected. Save from Chrome, Word, or Adobe Acrobat (Compatibility: Acrobat 8 or earlier).
+              <p className="mt-1.5 text-xs text-gray-400">
+                Accepts PDF, DOCX, TXT, MD. Max 25MB.
               </p>
             </div>
 
@@ -1866,8 +1866,8 @@ export default function PatentDetail() {
                       loadAll()
                     }}
                   />
-                  <p className="mt-1.5 text-xs text-amber-700">
-                    ⚠️ USPTO requires PDF version 1.4–1.7. PDF 2.0 files will be rejected. PNG and JPG figures are accepted without restrictions.
+                  <p className="mt-1.5 text-xs text-gray-400">
+                    Accepts PDF, PNG, JPG. Max 10MB per file. Up to 5 files.
                   </p>
                 </div>
               )
