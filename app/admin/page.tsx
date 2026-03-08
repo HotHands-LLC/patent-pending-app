@@ -131,22 +131,6 @@ export default function AdminPage() {
     load()
   }, [router])
 
-  if (loading) return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-gray-400 text-sm">Loading admin panel…</div>
-    </div>
-  )
-
-  if (error) return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
-        <div className="text-6xl mb-4">🔒</div>
-        <div className="text-lg font-bold text-gray-800">{error}</div>
-        <Link href="/dashboard" className="mt-4 inline-block text-sm text-blue-600 hover:underline">← Back to Dashboard</Link>
-      </div>
-    </div>
-  )
-
   // ── Agency state ──────────────────────────────────────────────────────────
   const [agencyAgreements, setAgencyAgreements] = useState<AgencyAgreement[]>([])
   const [agencyLeads, setAgencyLeads] = useState<AgencyLead[]>([])
@@ -272,6 +256,22 @@ export default function AdminPage() {
     }
     setSendingReply(false)
   }
+
+  if (loading) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-gray-400 text-sm">Loading admin panel…</div>
+    </div>
+  )
+
+  if (error) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-center">
+        <div className="text-6xl mb-4">🔒</div>
+        <div className="text-lg font-bold text-gray-800">{error}</div>
+        <Link href="/dashboard" className="mt-4 inline-block text-sm text-blue-600 hover:underline">← Back to Dashboard</Link>
+      </div>
+    </div>
+  )
 
   if (!stats) return null
   const { summary } = stats

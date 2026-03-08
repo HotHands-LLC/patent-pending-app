@@ -13,6 +13,9 @@ interface PartnerProfile {
   status: 'pending' | 'active' | 'suspended'
   reward_months_balance: number; reward_months_lifetime: number
   pro_months_per_referral: number
+  slug: string | null; bio: string | null
+  custom_domain: string | null; custom_domain_verified: boolean
+  custom_domain_cname_target: string | null
   counsel_partner: { id: string; email: string; full_name: string; referral_code: string; firm_name: string | null } | null
 }
 
@@ -152,8 +155,15 @@ export default function PartnerDashboard() {
   const [editFirm, setEditFirm] = useState('')
   const [editBar, setEditBar] = useState('')
   const [editState, setEditState] = useState('')
+  const [editBio, setEditBio] = useState('')
   const [saving, setSaving] = useState(false)
   const refLinkRef = useRef<HTMLInputElement>(null)
+  // Custom domain state
+  const [domainInput, setDomainInput] = useState('')
+  const [domainSaving, setDomainSaving] = useState(false)
+  const [domainVerifying, setDomainVerifying] = useState(false)
+  const [domainMsg, setDomainMsg] = useState('')
+  const [domainVerified, setDomainVerified] = useState(false)
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
@@ -181,6 +191,9 @@ export default function PartnerDashboard() {
       setEditFirm(profile.firm_name ?? '')
       setEditBar(profile.bar_id ?? '')
       setEditState(profile.bar_state ?? '')
+      setEditBio(profile.bio ?? '')
+      setDomainInput(profile.custom_domain ?? '')
+      setDomainVerified(profile.custom_domain_verified ?? false)
       setLoading(false)
     }
     load()
@@ -192,7 +205,7 @@ export default function PartnerDashboard() {
     const res = await fetch('/api/partner/profile', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ firm_name: editFirm, bar_id: editBar, bar_state: editState }),
+      body: JSON.stringify({ firm_name: editFirm, bar_id: editBar, bar_state: editState, bio: editBio }),
     })
     setSaving(false)
     if (res.ok) {
@@ -232,9 +245,41 @@ export default function PartnerDashboard() {
 
   if (!partnerProfile) return null
 
-  const refCode = partnerProfile.partner_code ?? partnerProfile.counsel_partner?.referral_code ?? ''
-  const refLink = `${typeof window !== 'undefined' ? window.location.origin : 'https://patentpending.app'}/signup?ref=${refCode}`
-  const appUrl  = typeof window !== 'undefined' ? window.location.origin : 'https://patentpending.app'
+  const refCode   = partnerProfile.partner_code ?? partnerProfile.counsel_partner?.referral_code ?? ''
+  const appUrl    = typeof window !== 'undefined' ? window.location.origin : 'https://patentpending.app'
+  const refLink   = `${appUrl}/signup?ref=${refCode}`
+  const vanityUrl = partnerProfile.slug ? `${appUrl}/p/${partnerProfile.slug}` : null
+  const primaryUrl = vanityUrl ?? refLink
+  const cnameTarget = partnerProfile.custom_domain_cname_target ?? 'partners.patentpending.app'
+
+  async function saveDomain() {
+    if (!authToken || !domainInput.trim()) return
+    setDomainSaving(true)
+    const res = await fetch('/api/partner/verify-domain', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ domain: domainInput.trim() }),
+    })
+    setDomainSaving(false)
+    if (res.ok) { showToast('✅ Domain saved — add the CNAME record and verify'); setDomainVerified(false) }
+    else { showToast('⚠️ Failed to save domain') }
+  }
+
+  async function verifyDomain() {
+    if (!authToken) return
+    setDomainVerifying(true)
+    setDomainMsg('')
+    const res = await fetch('/api/partner/verify-domain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({}),
+    })
+    const d = await res.json()
+    setDomainVerifying(false)
+    setDomainMsg(d.message ?? '')
+    setDomainVerified(d.verified ?? false)
+    if (d.verified) showToast('✅ Domain verified!')
+  }
 
   const totalRefs     = referrals.length
   const qualifiedRefs = referrals.filter(r => r.status === 'qualified' || r.status === 'rewarded').length
@@ -318,15 +363,22 @@ export default function PartnerDashboard() {
 
             {/* Referral link quick copy */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Your Referral Link</div>
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                {vanityUrl ? 'Your Profile Link' : 'Your Referral Link'}
+              </div>
               <div className="flex gap-2">
-                <input readOnly ref={refLinkRef} value={refLink}
+                <input readOnly ref={refLinkRef} value={primaryUrl}
                   className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 font-mono text-gray-700" />
-                <button onClick={() => { navigator.clipboard.writeText(refLink); showToast('📋 Link copied!') }}
+                <button onClick={() => { navigator.clipboard.writeText(primaryUrl); showToast('📋 Link copied!') }}
                   className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors whitespace-nowrap">
                   Copy
                 </button>
               </div>
+              {vanityUrl && (
+                <p className="text-xs text-gray-400 mt-2">
+                  Raw code link: <span className="font-mono">{refLink}</span>
+                </p>
+              )}
             </div>
 
             {/* Recent activity */}
@@ -465,64 +517,175 @@ export default function PartnerDashboard() {
 
         {/* ── Tab: Profile ──────────────────────────────────────────────────── */}
         {tab === 'profile' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Edit form */}
-            <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-              <h2 className="font-semibold text-[#1a1f36]">Partner Profile</h2>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Firm Name</label>
-                <input value={editFirm} onChange={e => setEditFirm(e.target.value)}
-                  className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Edit form */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+                <h2 className="font-semibold text-[#1a1f36]">Partner Profile</h2>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Bar ID</label>
-                  <input value={editBar} onChange={e => setEditBar(e.target.value)}
+                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Firm Name</label>
+                  <input value={editFirm} onChange={e => setEditFirm(e.target.value)}
                     className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400" />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">State</label>
-                  <input value={editState} onChange={e => setEditState(e.target.value)}
-                    className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Bar ID</label>
+                    <input value={editBar} onChange={e => setEditBar(e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">State</label>
+                    <input value={editState} onChange={e => setEditState(e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400" />
+                  </div>
                 </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Bio (shown on your public profile page)</label>
+                  <textarea value={editBio} onChange={e => setEditBio(e.target.value)} rows={3} placeholder="Brief description of your practice…"
+                    className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400 resize-none" />
+                </div>
+                <div className="flex items-center gap-2">
+                  {partnerProfile.bar_verified
+                    ? <span className="text-xs text-green-600 font-semibold">✅ Bar verified by admin</span>
+                    : <span className="text-xs text-amber-600">Bar verification pending admin review</span>}
+                </div>
+                <button onClick={saveProfile} disabled={saving}
+                  className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </button>
               </div>
-              <div className="flex items-center gap-2">
-                {partnerProfile.bar_verified
-                  ? <span className="text-xs text-green-600 font-semibold">✅ Bar verified by admin</span>
-                  : <span className="text-xs text-amber-600">Bar verification pending admin review</span>}
+
+              {/* Referral links + QR */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+                <h2 className="font-semibold text-[#1a1f36]">Referral Links</h2>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Partner Code</label>
+                  <div className="flex items-center gap-2">
+                    <code className="text-sm font-mono bg-[#1a1f36] text-[#f5a623] px-3 py-1.5 rounded-lg">{refCode}</code>
+                    <button onClick={() => { navigator.clipboard.writeText(refCode); showToast('📋 Code copied!') }}
+                      className="text-xs text-indigo-500 hover:text-indigo-700">Copy</button>
+                  </div>
+                </div>
+
+                {vanityUrl && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Profile Page (Primary)</label>
+                    <div className="flex gap-2">
+                      <input readOnly value={vanityUrl}
+                        className="flex-1 text-xs border border-indigo-200 rounded-lg px-3 py-2 bg-indigo-50 font-mono text-indigo-700" />
+                      <button onClick={() => { navigator.clipboard.writeText(vanityUrl); showToast('📋 Vanity link copied!') }}
+                        className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 whitespace-nowrap">
+                        Copy
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">Share this link — it auto-credits your referral</p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
+                    {vanityUrl ? 'Raw Code Link (fallback)' : 'Referral URL'}
+                  </label>
+                  <div className="flex gap-2">
+                    <input readOnly value={refLink}
+                      className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 font-mono text-gray-600" />
+                    <button onClick={() => { navigator.clipboard.writeText(refLink); showToast('📋 Link copied!') }}
+                      className="px-3 py-2 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] whitespace-nowrap">
+                      Copy
+                    </button>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-400">
+                  Earning {partnerProfile.pro_months_per_referral} month{partnerProfile.pro_months_per_referral !== 1 ? 's' : ''} Pro per completed filing
+                </div>
+                <QRPlaceholder url={primaryUrl} />
               </div>
-              <button onClick={saveProfile} disabled={saving}
-                className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors">
-                {saving ? 'Saving…' : 'Save Changes'}
-              </button>
             </div>
 
-            {/* Referral link + QR */}
-            <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-              <h2 className="font-semibold text-[#1a1f36]">Referral Link</h2>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Partner Code</label>
-                <div className="flex items-center gap-2">
-                  <code className="text-sm font-mono bg-[#1a1f36] text-[#f5a623] px-3 py-1.5 rounded-lg">{refCode}</code>
-                  <button onClick={() => { navigator.clipboard.writeText(refCode); showToast('📋 Code copied!') }}
-                    className="text-xs text-indigo-500 hover:text-indigo-700">Copy</button>
+            {/* Custom Domain Section */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h2 className="font-semibold text-[#1a1f36] mb-1">Custom Domain</h2>
+              <p className="text-xs text-gray-400 mb-5">
+                Point your own subdomain to your PatentPending profile page — e.g. <code className="font-mono bg-gray-100 px-1 rounded">patents.yourfirm.com</code>
+              </p>
+              <div className="max-w-xl space-y-4">
+                {/* Input */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Subdomain</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={domainInput}
+                      onChange={e => setDomainInput(e.target.value)}
+                      placeholder="patents.yourfirm.com"
+                      className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:border-indigo-400"
+                    />
+                    <button onClick={saveDomain} disabled={domainSaving || !domainInput.trim()}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
+                      {domainSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
                 </div>
+
+                {/* DNS Instructions (shown after domain is saved) */}
+                {(partnerProfile.custom_domain || domainInput) && !domainVerified && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Add this DNS record</p>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-gray-400">
+                          {['Type', 'Name', 'Value'].map(h => (
+                            <th key={h} className="text-left pb-1 font-semibold pr-4">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="font-mono">
+                        <tr>
+                          <td className="text-gray-700 pr-4">CNAME</td>
+                          <td className="text-gray-700 pr-4">{domainInput.split('.')[0] || '@'}</td>
+                          <td className="text-indigo-600 flex items-center gap-2">
+                            {cnameTarget}
+                            <button onClick={() => { navigator.clipboard.writeText(cnameTarget); showToast('📋 Copied!') }}
+                              className="text-xs text-gray-400 hover:text-gray-600 font-sans">
+                              copy
+                            </button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p className="text-xs text-gray-400 mt-3">DNS changes can take 5–30 minutes to propagate.</p>
+                  </div>
+                )}
+
+                {/* Verify button + status */}
+                {partnerProfile.custom_domain && (
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button onClick={verifyDomain} disabled={domainVerifying}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60">
+                      {domainVerifying ? 'Checking DNS…' : 'Verify Domain'}
+                    </button>
+                    {domainVerified && (
+                      <span className="text-xs font-semibold text-green-600">✅ Verified</span>
+                    )}
+                    {!domainVerified && partnerProfile.custom_domain && (
+                      <span className="text-xs text-amber-600">⏳ Pending DNS</span>
+                    )}
+                  </div>
+                )}
+
+                {domainMsg && (
+                  <p className={`text-sm ${domainVerified ? 'text-green-700' : 'text-amber-700'}`}>{domainMsg}</p>
+                )}
+
+                {domainVerified && partnerProfile.custom_domain && (
+                  <p className="text-sm text-green-700">
+                    Your profile is live at{' '}
+                    <a href={`https://${partnerProfile.custom_domain}`} target="_blank" rel="noopener noreferrer"
+                      className="underline font-medium">
+                      {partnerProfile.custom_domain}
+                    </a>
+                  </p>
+                )}
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Referral URL</label>
-                <div className="flex gap-2">
-                  <input readOnly value={refLink}
-                    className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 font-mono text-gray-600" />
-                  <button onClick={() => { navigator.clipboard.writeText(refLink); showToast('📋 Link copied!') }}
-                    className="px-3 py-2 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] whitespace-nowrap">
-                    Copy
-                  </button>
-                </div>
-              </div>
-              <div className="text-xs text-gray-400">
-                Earning {partnerProfile.pro_months_per_referral} month{partnerProfile.pro_months_per_referral !== 1 ? 's' : ''} Pro per completed filing
-              </div>
-              <QRPlaceholder url={refLink} />
             </div>
           </div>
         )}

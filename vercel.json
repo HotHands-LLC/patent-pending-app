@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/process-revisions",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/qualify-referrals",
+      "schedule": "0 */6 * * *"
     }
   ],
   "functions": {

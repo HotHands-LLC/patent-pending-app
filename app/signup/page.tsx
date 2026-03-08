@@ -57,11 +57,18 @@ function SignupForm() {
     setLoading(true)
     setError('')
 
+    const pendingRefCode = refCode ?? localStorage.getItem(REFERRAL_CODE_KEY)
+
     const { data, error: signupErr } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { full_name: name },
+        data: {
+          full_name: name,
+          // Store referral code in user metadata so auth/callback can read it
+          // even when email confirmation is required (localStorage unavailable server-side)
+          ...(pendingRefCode ? { referred_by_code: pendingRefCode } : {}),
+        },
         emailRedirectTo: `${window.location.origin}/auth/callback?invite=${inviteToken ?? ''}`,
       },
     })

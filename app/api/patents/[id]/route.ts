@@ -146,13 +146,16 @@ async function checkAndQualifyReferral(patentId: string, ownerId: string) {
 
   const rewardMonths = pp?.pro_months_per_referral ?? 3
 
-  // Upsert referral → rewarded
-  const ref = { partner_id: partnerId, referred_user_id: ownerId,
+  // Upsert referral → qualified (NOT rewarded yet — 48hr buffer enforced by cron)
+  const ref = {
+    partner_id: partnerId, referred_user_id: ownerId,
     referral_code: ownerProfile.referred_by_code ?? '',
-    status: 'rewarded' as const, patent_id: patentId,
+    status: 'qualified' as const, patent_id: patentId,
     filing_completed_at: now, reward_type: 'pro_months',
-    reward_months: rewardMonths, reward_granted_at: now,
-    ...(pp?.id && { partner_profile_id: pp.id }) }
+    reward_months: rewardMonths,
+    // reward_granted_at intentionally null — cron sets it after 48hr window
+    ...(pp?.id && { partner_profile_id: pp.id }),
+  }
 
   if (existing?.id) {
     await supabaseService.from('partner_referrals').update(ref).eq('id', existing.id)
@@ -160,39 +163,7 @@ async function checkAndQualifyReferral(patentId: string, ownerId: string) {
     await supabaseService.from('partner_referrals').insert(ref)
   }
 
-  // Update partner_profiles reward balance
-  if (pp?.id) {
-    await supabaseService.from('partner_profiles').update({
-      reward_months_balance: (pp.reward_months_balance ?? 0) + rewardMonths,
-      reward_months_lifetime: (pp.reward_months_lifetime ?? 0) + rewardMonths,
-      updated_at: now,
-    }).eq('id', pp.id)
-  }
-
-  // Extend partner's Pro subscription if they have a user account
-  if (pp?.user_id) {
-    const partnerUserProfile = await supabaseService
-      .from('patent_profiles')
-      .select('subscription_status, subscription_period_end')
-      .eq('id', pp.user_id)
-      .single()
-      .then(r => r.data)
-
-    if (partnerUserProfile?.subscription_status !== 'complimentary') {
-      const base = partnerUserProfile?.subscription_period_end
-        ? new Date(partnerUserProfile.subscription_period_end)
-        : new Date()
-      if (base < new Date()) base.setTime(Date.now())
-      base.setMonth(base.getMonth() + rewardMonths)
-      await supabaseService.from('patent_profiles').update({
-        subscription_status: 'pro',
-        subscription_period_end: base.toISOString(),
-        updated_at: now,
-      }).eq('id', pp.user_id)
-    }
-  }
-
-  // Email partner (via patent_counsel_partners which has the contact email)
+  // Email partner: "referral qualified — reward pending 48hr review window"
   const partnerCounsel = await supabaseService
     .from('patent_counsel_partners')
     .select('email, full_name, firm_name')
@@ -206,16 +177,17 @@ async function checkAndQualifyReferral(patentId: string, ownerId: string) {
     await sendEmail(buildEmail({
       to: partnerCounsel.email,
       from: FROM_DEFAULT,
-      subject: `You earned ${rewardMonths} months Pro — ${clientName} filed`,
+      subject: `Referral qualified — ${clientName} filed`,
       html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1f36">
-  <h2>Referral qualified 🎉</h2>
+  <h2>Referral qualified ✅</h2>
   <p>Hi ${partnerCounsel.full_name?.split(' ')[0] ?? 'there'},</p>
   <p><strong>${clientName}</strong> completed a patent filing through your referral link.</p>
-  <p><strong>${rewardMonths} months of Pro</strong> have been added to your account.</p>
+  <p>Your reward of <strong>${rewardMonths} months Pro</strong> will be credited to your account within 48 hours once the refund window closes.</p>
+  <p style="color:#6b7280;font-size:13px">You'll receive a second email confirming the credit once it's applied.</p>
   <p><a href="${appUrl}/dashboard/partners" style="display:inline-block;background:#1a1f36;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">View Partner Dashboard →</a></p>
 </div>`,
     })).catch(console.error)
   }
 
-  console.log(`[referral] ✅ rewarded: partner=\${partnerId} user=\${ownerId} months=\${rewardMonths}`)
+  console.log(`[referral] ✅ qualified (pending 48hr): partner=${partnerId} user=${ownerId} months=${rewardMonths}`)
 }
