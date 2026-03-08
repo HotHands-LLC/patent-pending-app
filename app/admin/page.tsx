@@ -78,7 +78,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'content' | 'agency' | 'partners' | 'accounts'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'accounts'>('overview')
   const [authToken, setAuthToken] = useState('')
   const [mfaWarning, setMfaWarning] = useState<'setup' | 'verify' | null>(null)
 
@@ -235,7 +235,8 @@ export default function AdminPage() {
   }, [authToken, contentFilter])
 
   useEffect(() => {
-    if (activeSection === 'content' && authToken) loadContent()
+    // Content tab removed — BoBozly content at bo.hotdeck.com/admin
+    void loadContent // suppress unused warning
   }, [activeSection, authToken, contentFilter, loadContent])
 
   // ── Inbox actions ────────────────────────────────────────────────────────────
@@ -310,7 +311,7 @@ export default function AdminPage() {
   const navItems: { key: typeof activeSection; label: string; icon: string; badge?: number }[] = [
     { key: 'overview', label: 'Overview', icon: '📊' },
     { key: 'inbox', label: 'Inbox', icon: '📧', badge: actionCount || undefined },
-    { key: 'content', label: 'Content', icon: '✍️' },
+    // 'content' tab removed — BoBozly content lives in bo.hotdeck.com/admin (shared Supabase project)
     { key: 'agency', label: 'Agency', icon: '🤝' },
     { key: 'partners', label: 'Partners', icon: '⚖️' },
     { key: 'accounts', label: 'Accounts', icon: '👥' },
@@ -778,77 +779,7 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* ── CONTENT SECTION ───────────────────────────────────────────────── */}
-          {activeSection === 'content' && (
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h1 className="text-xl font-bold text-gray-900">BoBozly Content Pipeline</h1>
-                  <div className="flex gap-3 mt-1">
-                    {Object.entries(contentSummary).map(([status, count]) => (
-                      <span key={status} className="text-xs text-gray-400">
-                        {status}: <strong className="text-gray-600">{count}</strong>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  {(['all', 'draft', 'published'] as const).map(f => (
-                    <button key={f} onClick={() => setContentFilter(f)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        contentFilter === f ? 'bg-[#1a1f36] text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
-                      }`}>
-                      {f === 'all' ? 'All' : f === 'draft' ? '✏️ Drafts' : '✅ Published'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {contentLoading ? (
-                <div className="text-gray-400 text-sm py-8 text-center">Loading content…</div>
-              ) : contentItems.length === 0 ? (
-                <div className="text-gray-400 text-sm py-8 text-center">No content found.</div>
-              ) : (
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-100">
-                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Title</th>
-                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Status</th>
-                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Type</th>
-                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Author</th>
-                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Created</th>
-                        <th className="text-left px-4 py-2.5 font-semibold text-gray-500">Published</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {contentItems.map(item => (
-                        <tr key={item.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium text-gray-900 max-w-xs truncate">
-                            {item.is_bos_pick && <span className="mr-1.5">⭐</span>}
-                            {item.title}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                              item.status === 'published'
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}>
-                              {item.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-gray-500 text-xs">{item.content_type ?? '—'}</td>
-                          <td className="px-4 py-3 text-gray-500">{item.author ?? '—'}</td>
-                          <td className="px-4 py-3 text-gray-400">{formatDate(item.created_at)}</td>
-                          <td className="px-4 py-3 text-gray-400">{formatDate(item.published_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
+          {/* Content tab removed — BoBozly content pipeline lives at bo.hotdeck.com/admin */}
 
           {/* ── AGENCY SECTION ────────────────────────────────────────────────── */}
           {activeSection === 'agency' && (
