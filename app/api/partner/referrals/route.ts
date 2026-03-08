@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
     .from('partner_referrals')
     .select(`
       id, referral_code, status, patent_id, filing_completed_at,
-      reward_type, reward_months, reward_granted_at, created_at,
+      reward_type, reward_months, reward_granted_at, created_at, utm_data,
       referred_user:referred_user_id (
         id, email, full_name, name_first, name_last, created_at
       ),

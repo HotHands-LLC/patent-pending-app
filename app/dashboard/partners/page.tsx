@@ -23,6 +23,7 @@ interface Referral {
   id: string; referral_code: string; status: 'pending' | 'qualified' | 'rewarded' | 'refunded'
   patent_id: string | null; filing_completed_at: string | null
   reward_months: number | null; reward_granted_at: string | null; created_at: string
+  utm_data: Record<string, string> | null
   referred_user: { id: string; email: string; full_name: string | null; name_first: string | null; name_last: string | null; created_at: string } | null
   patent_count: number
   user_patents: Array<{ id: string; title: string; filing_status: string | null; status: string; cover_sheet_acknowledged: boolean; figures_uploaded: boolean; claims_draft: string | null }>
@@ -90,6 +91,13 @@ function ClientModal({ referral, onClose }: { referral: Referral; onClose: () =>
         <div className="text-sm text-gray-600 space-y-1 mb-5">
           <div><span className="text-gray-400">Email:</span> {referral.referred_user?.email ?? '—'}</div>
           <div><span className="text-gray-400">Member since:</span> {referral.referred_user ? new Date(referral.referred_user.created_at).toLocaleDateString() : '—'}</div>
+          {referral.utm_data && Object.keys(referral.utm_data).length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap"><span className="text-gray-400">Source:</span>
+              {Object.entries(referral.utm_data).map(([k, v]) => (
+                <span key={k} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded text-xs font-mono">{k.replace('utm_', '')}={v}</span>
+              ))}
+            </div>
+          )}
           <div><span className="text-gray-400">Referral status:</span>{' '}
             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGE[referral.status]?.cls ?? ''}`}>
               {STATUS_BADGE[referral.status]?.label ?? referral.status}
@@ -245,10 +253,15 @@ export default function PartnerDashboard() {
 
   if (!partnerProfile) return null
 
-  const refCode   = partnerProfile.partner_code ?? partnerProfile.counsel_partner?.referral_code ?? ''
-  const appUrl    = typeof window !== 'undefined' ? window.location.origin : 'https://patentpending.app'
-  const refLink   = `${appUrl}/signup?ref=${refCode}`
-  const vanityUrl = partnerProfile.slug ? `${appUrl}/p/${partnerProfile.slug}` : null
+  const refCode    = partnerProfile.partner_code ?? partnerProfile.counsel_partner?.referral_code ?? ''
+  const appUrl     = typeof window !== 'undefined' ? window.location.origin : 'https://patentpending.app'
+  const slug       = partnerProfile.slug ?? refCode.toLowerCase()
+  const utmSuffix  = `utm_source=partner&utm_medium=referral&utm_campaign=${encodeURIComponent(slug)}`
+  // Primary share link: vanity URL with UTM appended
+  const vanityBase = partnerProfile.slug ? `${appUrl}/p/${partnerProfile.slug}` : null
+  const vanityUrl  = vanityBase ? `${vanityBase}?ref=${refCode}&${utmSuffix}` : null
+  // Raw code link: signup URL with UTM appended (shown as fallback)
+  const refLink    = `${appUrl}/signup?ref=${refCode}&${utmSuffix}`
   const primaryUrl = vanityUrl ?? refLink
   const cnameTarget = partnerProfile.custom_domain_cname_target ?? 'partners.patentpending.app'
 
@@ -422,7 +435,7 @@ export default function PartnerDashboard() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    {['Client', 'Signed Up', 'Patents', 'Step', 'Status', 'Earnings'].map(h => (
+                    {['Client', 'Signed Up', 'Source', 'Patents', 'Step', 'Status', 'Earnings'].map(h => (
                       <th key={h} className="text-left px-4 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
@@ -437,6 +450,11 @@ export default function PartnerDashboard() {
                       </td>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                         {r.referred_user ? new Date(r.referred_user.created_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {r.utm_data?.utm_source
+                          ? <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-xs font-medium">{r.utm_data.utm_source}</span>
+                          : <span className="text-gray-300 text-xs">—</span>}
                       </td>
                       <td className="px-4 py-3 text-center text-gray-700">{r.patent_count}</td>
                       <td className="px-4 py-3">

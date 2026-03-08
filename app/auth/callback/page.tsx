@@ -60,10 +60,19 @@ function CallbackHandler() {
 
     if (refCode) {
       try {
+        // Also carry UTM params from metadata (set at signUp) or sessionStorage
+        const metaUtm = user.user_metadata?.utm_params
+        let sessionUtm: Record<string, string> | null = null
+        try {
+          const stored = sessionStorage.getItem('pp_utm_params')
+          if (stored) sessionUtm = JSON.parse(stored)
+        } catch { /* ignore */ }
+        const utmParams = metaUtm ?? sessionUtm ?? undefined
+
         await fetch('/api/partner/record-referral', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify({ referral_code: refCode }),
+          body: JSON.stringify({ referral_code: refCode, ...(utmParams ? { utm_params: utmParams } : {}) }),
         })
         localStorage.removeItem(REFERRAL_CODE_KEY)
       } catch { /* non-fatal */ }

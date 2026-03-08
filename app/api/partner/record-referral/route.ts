@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
-  const { referral_code } = body
+  const { referral_code, utm_params } = body
   if (!referral_code || typeof referral_code !== 'string') {
     return NextResponse.json({ error: 'referral_code required' }, { status: 400 })
   }
@@ -64,8 +64,13 @@ export async function POST(req: NextRequest) {
     })
     .eq('id', user.id)
 
-  // 4. Create/ensure partner_referrals record
+  // 4. Create/ensure partner_referrals record (with UTM data if present)
   if (pp?.counsel_partner_id) {
+    const utmData = utm_params && typeof utm_params === 'object' ? utm_params : null
+    // Also check user_metadata for UTM (survives email confirmation)
+    const metaUtm = (user as { user_metadata?: Record<string, unknown> }).user_metadata?.utm_params
+    const resolvedUtm = utmData ?? (metaUtm && typeof metaUtm === 'object' ? metaUtm : null)
+
     await supabaseService
       .from('partner_referrals')
       .upsert(
@@ -75,6 +80,7 @@ export async function POST(req: NextRequest) {
           referral_code:     code,
           status:            'pending',
           ...(pp.id && { partner_profile_id: pp.id }),
+          ...(resolvedUtm ? { utm_data: resolvedUtm } : {}),
         },
         { onConflict: 'partner_id,referred_user_id', ignoreDuplicates: true }
       )

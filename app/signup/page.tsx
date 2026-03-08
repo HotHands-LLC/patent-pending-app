@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, Suspense } from 'react'
-import { trackEvent } from '@/components/GoogleAnalytics'
+import { trackEvent, getStoredUtm } from '@/components/GoogleAnalytics'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -61,6 +61,8 @@ function SignupForm() {
 
     const pendingRefCode = refCode ?? localStorage.getItem(REFERRAL_CODE_KEY)
 
+    const utmParams = getStoredUtm()
+
     const { data, error: signupErr } = await supabase.auth.signUp({
       email,
       password,
@@ -70,6 +72,8 @@ function SignupForm() {
           // Store referral code in user metadata so auth/callback can read it
           // even when email confirmation is required (localStorage unavailable server-side)
           ...(pendingRefCode ? { referred_by_code: pendingRefCode } : {}),
+          // Store UTM params so they survive email confirmation delay
+          ...(Object.keys(utmParams).length > 0 ? { utm_params: utmParams } : {}),
         },
         emailRedirectTo: `${window.location.origin}/auth/callback?invite=${inviteToken ?? ''}`,
       },
