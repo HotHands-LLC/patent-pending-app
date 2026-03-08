@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import type { Patent } from '@/lib/supabase'
 
 // ── Step definitions ───────────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ export function currentStep(statuses: boolean[]): number {
 interface FilingProgressTrackerProps {
   patent: Patent
   compact?: boolean  // compact = horizontal pill strip for sidebar/header
+  patentId?: string  // needed to make navigable steps clickable
 }
 
 // ── Compact version — horizontal strip used in header ─────────────────────────
@@ -74,9 +76,16 @@ function CompactTracker({ statuses, current }: { statuses: boolean[]; current: n
 }
 
 // ── Full tracker ───────────────────────────────────────────────────────────────
-export default function FilingProgressTracker({ patent, compact = false }: FilingProgressTrackerProps) {
+// Steps that should be navigable (link to a page) when reached
+const STEP_LINKS: Record<number, (patentId: string) => string> = {
+  7: (id) => `/dashboard/patents/${id}/cover-sheet`,
+}
+
+export default function FilingProgressTracker({ patent, compact = false, patentId }: FilingProgressTrackerProps) {
   const statuses = computeStepStatus(patent)
   const cur = currentStep(statuses)
+  // Step 7 is navigable once step 6 (figures) is complete (step 7 reached or done)
+  const pid = patentId ?? patent.id
 
   if (compact) return <CompactTracker statuses={statuses} current={cur} />
 
@@ -98,16 +107,12 @@ export default function FilingProgressTracker({ patent, compact = false }: Filin
             const done = statuses[i]
             const active = i + 1 === cur && !done
             const locked = !done && i + 1 > cur
+            // A step is navigable if it has a link and has been reached (cur >= step n)
+            const linkFn = STEP_LINKS[step.n]
+            const navigable = !!linkFn && pid && cur >= step.n
 
-            return (
-              <div
-                key={step.n}
-                className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
-                  done  ? 'border-green-100 bg-green-50' :
-                  active ? 'border-amber-200 bg-amber-50' :
-                  'border-gray-100 bg-gray-50'
-                }`}
-              >
+            const inner = (
+              <>
                 {/* Circle */}
                 <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
                   done  ? 'bg-green-500 text-white' :
@@ -121,9 +126,11 @@ export default function FilingProgressTracker({ patent, compact = false }: Filin
                   <div className={`text-xs font-semibold leading-tight ${
                     done  ? 'text-green-800' :
                     active ? 'text-amber-800' :
+                    navigable ? 'text-indigo-700' :
                     'text-gray-400'
                   }`}>
                     {step.label}
+                    {navigable && !active && <span className="ml-1 text-indigo-400">↗</span>}
                   </div>
                   {active && (
                     <div className="text-xs text-amber-600 mt-0.5 font-medium">← Current step</div>
@@ -135,7 +142,20 @@ export default function FilingProgressTracker({ patent, compact = false }: Filin
                     <div className="text-xs text-gray-300 mt-0.5">Locked</div>
                   )}
                 </div>
-              </div>
+              </>
+            )
+
+            const tileClass = `flex items-start gap-3 p-3 rounded-lg border transition-all ${
+              done  ? 'border-green-100 bg-green-50' :
+              active ? 'border-amber-200 bg-amber-50' :
+              navigable ? 'border-indigo-100 bg-indigo-50 cursor-pointer hover:bg-indigo-100' :
+              'border-gray-100 bg-gray-50'
+            }`
+
+            return navigable && pid ? (
+              <Link key={step.n} href={linkFn(pid)} className={tileClass}>{inner}</Link>
+            ) : (
+              <div key={step.n} className={tileClass}>{inner}</div>
             )
           })}
         </div>

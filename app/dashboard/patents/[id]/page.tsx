@@ -911,6 +911,33 @@ export default function PatentDetail() {
                 )}
               </div>
 
+              {/* Task 2B: Cover Sheet quick-access in Details sidebar */}
+              {(patent.filing_status === 'approved' || patent.filing_status === 'filed' || patent.cover_sheet_acknowledged) && (
+                <div className={`rounded-xl border p-4 ${patent.cover_sheet_acknowledged ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-white'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="font-semibold text-[#1a1f36] text-sm flex items-center gap-1.5">
+                      📄 Cover Sheet
+                      {patent.cover_sheet_acknowledged && <span className="text-xs text-green-600 font-normal">✅ Complete</span>}
+                    </h2>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-3">
+                    {patent.cover_sheet_acknowledged
+                      ? 'Your ADS cover sheet has been generated. Open to edit or regenerate.'
+                      : 'Claims approved — generate your USPTO Application Data Sheet.'}
+                  </p>
+                  <Link
+                    href={`/dashboard/patents/${patent.id}/cover-sheet`}
+                    className={`inline-flex items-center px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                      patent.cover_sheet_acknowledged
+                        ? 'bg-green-700 text-white hover:bg-green-800'
+                        : 'bg-[#1a1f36] text-white hover:bg-[#2d3561]'
+                    }`}
+                  >
+                    {patent.cover_sheet_acknowledged ? '🔄 Edit Cover Sheet ↗' : '📄 Open Cover Sheet ↗'}
+                  </Link>
+                </div>
+              )}
+
               {/* ── Arc 3: Deal Page ──────────────────────────────────────────── */}
               {/* Figures summary in Details sidebar */}
               {patent.figures_uploaded && (
@@ -1466,7 +1493,7 @@ export default function PatentDetail() {
         {tab === 'filing' && (
           <div className="space-y-5">
             {/* 9-step progress tracker */}
-            <FilingProgressTracker patent={patent} />
+            <FilingProgressTracker patent={patent} patentId={patent.id} />
 
             {/* What's Next guidance card */}
             {(() => {
