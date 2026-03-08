@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseService
     .from('patent_profiles')
-    .select('id, email, full_name, name_first, name_middle, name_last, company, phone, address_line_1, address_line_2, city, state, zip, country, inventor_contact_id, attorney_contact_id, assignee_contact_id')
+    .select('id, email, full_name, name_first, name_middle, name_last, company, phone, address_line_1, address_line_2, city, state, zip, country, uspto_customer_number, inventor_contact_id, attorney_contact_id, assignee_contact_id')
     .eq('id', user.id)
     .single()
 
@@ -69,7 +69,7 @@ export async function PATCH(req: NextRequest) {
     .from('patent_profiles')
     .update(updates)
     .eq('id', user.id)
-    .select('id, email, full_name, name_first, name_middle, name_last, phone, address_line_1, city, state, zip, country')
+    .select('id, email, full_name, name_first, name_middle, name_last, phone, address_line_1, address_line_2, city, state, zip, country, company, uspto_customer_number')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

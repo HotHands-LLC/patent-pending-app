@@ -206,8 +206,9 @@ export default function CoverSheetPage() {
           phone:          defaultContact?.phone || profile?.phone || '',
           email:          defaultContact?.email || profile?.email || '',
         },
-        signature:      `/${sigStr}/`,
-        signature_date: todayShort,
+        signature:       `/${sigStr}/`,
+        signature_date:  todayShort,
+        customer_number: profile?.uspto_customer_number ?? '',
       }))
 
       setLoading(false)
@@ -278,7 +279,10 @@ export default function CoverSheetPage() {
           body: JSON.stringify({
             patent_id: patentId,
             save_to_profile: true,
-            inventor: form.inventor,
+            inventor: {
+              ...form.inventor,
+              ...(form.customer_number ? { uspto_customer_number: form.customer_number } : {}),
+            },
           }),
         })
         const d = await res.json()

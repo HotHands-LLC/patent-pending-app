@@ -223,6 +223,8 @@ export default function PatentDetail() {
   const [tab, setTab] = useState<Tab>('details')
   const [claimsAction, setClaimsAction] = useState<'idle' | 'approving' | 'requesting'>('idle')
   const [showRefineInterceptModal, setShowRefineInterceptModal] = useState(false)
+  const [showCoverSaveModal, setShowCoverSaveModal] = useState(false)
+  const [coverSaveLoading, setCoverSaveLoading] = useState(false)
   const [selectedChips, setSelectedChips] = useState<string[]>([])
   const [customNote, setCustomNote] = useState('')
   const [claimsMsg, setClaimsMsg] = useState('')
@@ -1048,6 +1050,98 @@ export default function PatentDetail() {
           </div>
         )}
 
+        {/* Cover sheet save modal — Step 7 "Mark as Done" intercept */}
+        {showCoverSaveModal && patent && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+              <h3 className="text-lg font-bold text-[#1a1f36] mb-1">Save cover sheet info to profile?</h3>
+              <p className="text-sm text-gray-600 mb-5">
+                Your name, address, and USPTO customer number from the cover sheet can be saved to your profile for future filings. Or just mark it complete without saving.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  disabled={coverSaveLoading}
+                  onClick={async () => {
+                    setCoverSaveLoading(true)
+                    try {
+                      // Fetch current profile data to use as inventor fields
+                      const profRes = await fetch('/api/users/profile', {
+                        headers: { Authorization: `Bearer ${authToken}` },
+                      })
+                      const { profile: prof } = profRes.ok ? await profRes.json() : { profile: null }
+                      // POST cover-sheet/save with current profile data
+                      await fetch('/api/cover-sheet/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                        body: JSON.stringify({
+                          patent_id:       patent.id,
+                          save_to_profile: true,
+                          inventor: {
+                            name_first:            prof?.name_first      ?? '',
+                            name_middle:           prof?.name_middle     ?? '',
+                            name_last:             prof?.name_last       ?? '',
+                            address_line_1:        prof?.address_line_1  ?? '',
+                            address_line_2:        prof?.address_line_2  ?? '',
+                            city:                  prof?.city            ?? '',
+                            state:                 prof?.state           ?? '',
+                            zip:                   prof?.zip             ?? '',
+                            country:               prof?.country         ?? 'US',
+                            phone:                 prof?.phone           ?? '',
+                            uspto_customer_number: prof?.uspto_customer_number ?? '',
+                          },
+                        }),
+                      })
+                      setPatent(prev => prev ? { ...prev, cover_sheet_acknowledged: true } : null)
+                      showToast('✅ Profile saved + Step 7 complete!')
+                    } catch {
+                      // Fallback: just mark acknowledged
+                      await fetch(`/api/patents/${patent.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                        body: JSON.stringify({ cover_sheet_acknowledged: true }),
+                      })
+                      setPatent(prev => prev ? { ...prev, cover_sheet_acknowledged: true } : null)
+                      showToast('✅ Cover sheet marked complete — Step 7 done!')
+                    } finally {
+                      setCoverSaveLoading(false)
+                      setShowCoverSaveModal(false)
+                    }
+                  }}
+                  className="w-full px-4 py-3 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors"
+                >
+                  {coverSaveLoading ? 'Saving…' : 'Save Profile & Mark Complete'}
+                </button>
+                <button
+                  disabled={coverSaveLoading}
+                  onClick={async () => {
+                    setCoverSaveLoading(true)
+                    const res = await fetch(`/api/patents/${patent.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                      body: JSON.stringify({ cover_sheet_acknowledged: true }),
+                    })
+                    if (res.ok) {
+                      setPatent(prev => prev ? { ...prev, cover_sheet_acknowledged: true } : null)
+                      showToast('✅ Cover sheet marked complete — Step 7 done!')
+                    }
+                    setCoverSaveLoading(false)
+                    setShowCoverSaveModal(false)
+                  }}
+                  className="w-full px-4 py-3 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                >
+                  Mark Done Without Saving
+                </button>
+                <button
+                  onClick={() => setShowCoverSaveModal(false)}
+                  className="w-full text-xs text-gray-400 hover:text-gray-600 py-1"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Arc 3 activation modal */}
         {showArc3Modal && patent && (
           <Arc3Modal
@@ -1803,20 +1897,10 @@ export default function PatentDetail() {
                       </Link>
                       {!coverDone && (
                         <button
-                          onClick={async () => {
-                            const res = await fetch(`/api/patents/${patent.id}`, {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-                              body: JSON.stringify({ cover_sheet_acknowledged: true }),
-                            })
-                            if (res.ok) {
-                              setPatent(prev => prev ? { ...prev, cover_sheet_acknowledged: true } : null)
-                              showToast('✅ Cover sheet marked complete — Step 7 done!')
-                            }
-                          }}
+                          onClick={() => setShowCoverSaveModal(true)}
                           className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors"
                         >
-                          ✅ I've saved my cover sheet
+                          ✅ I&apos;ve saved my cover sheet
                         </button>
                       )}
                     </div>

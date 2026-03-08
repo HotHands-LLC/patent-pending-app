@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       name_first: string; name_middle?: string; name_last: string
       address_line_1?: string; address_line_2?: string
       city?: string; state?: string; zip?: string; country?: string
-      phone?: string; email?: string
+      phone?: string; email?: string; uspto_customer_number?: string
     }
   }
 
@@ -51,18 +51,19 @@ export async function POST(req: NextRequest) {
     .filter(Boolean).join(' ')
 
   await supabaseService.from('patent_profiles').update({
-    name_first:      inventor.name_first,
-    name_middle:     inventor.name_middle ?? null,
-    name_last:       inventor.name_last,
-    full_name:       fullName,
-    phone:           inventor.phone ?? null,
-    address_line_1:  inventor.address_line_1 ?? null,
-    address_line_2:  inventor.address_line_2 ?? null,
-    city:            inventor.city ?? null,
-    state:           inventor.state ?? null,
-    zip:             inventor.zip ?? null,
-    country:         inventor.country ?? 'US',
-    updated_at:      now,
+    name_first:             inventor.name_first,
+    name_middle:            inventor.name_middle ?? null,
+    name_last:              inventor.name_last,
+    full_name:              fullName,
+    phone:                  inventor.phone ?? null,
+    address_line_1:         inventor.address_line_1 ?? null,
+    address_line_2:         inventor.address_line_2 ?? null,
+    city:                   inventor.city ?? null,
+    state:                  inventor.state ?? null,
+    zip:                    inventor.zip ?? null,
+    country:                inventor.country ?? 'US',
+    ...(inventor.uspto_customer_number ? { uspto_customer_number: inventor.uspto_customer_number } : {}),
+    updated_at:             now,
   }).eq('id', user.id)
 
   // 2. Upsert default inventor contact
