@@ -1406,47 +1406,43 @@ function AdminAccountsPanel({ authToken }: { authToken: string }) {
   )
 }
 
+
 // ─── Admin Connectors Panel ──────────────────────────────────────────────────
 
-interface BraveConnector {
-  status: 'connected' | 'missing_key'
-  plan: string
-  monthly_limit: number
-  queries_this_month: number
-  queries_remaining: number
-  usage_pct: number
-  alert_level: 'ok' | 'warning' | 'critical'
-  projected_monthly: number
-  days_to_reset: number
-  reset_date: string
-  runs_this_month: number
-  total_runs: number
-  success_rate: number
-  total_queries_ever: number
-  total_findings_ever: number
-  last_run: {
-    id: string; status: string; started_at: string; completed_at?: string | null
-    findings: number; new_findings: number; queries_used: number; error?: string | null
-  } | null
-  recent_runs: Array<{
-    id: string; status: string; started_at: string; completed_at?: string | null
-    findings: number; new_findings: number; queries: number; error?: string | null
-  }>
+interface ConnectorData {
+  brave_search: {
+    status: 'connected' | 'missing_key'; plan: string; monthly_limit: number
+    queries_this_month: number; queries_remaining: number; usage_pct: number
+    alert_level: 'ok' | 'warning' | 'critical'; projected_monthly: number
+    days_to_reset: number; reset_date: string; runs_this_month: number
+    total_runs: number; success_rate: number; total_queries_ever: number
+    total_findings_ever: number
+    last_run: { id: string; status: string; started_at: string; findings: number; new_findings: number; queries_used: number; error?: string | null } | null
+    recent_runs: Array<{ id: string; status: string; started_at: string; findings: number; new_findings: number; queries: number; error?: string | null }>
+  }
+  resend: { status: string; ping_ms: number; key_present: boolean; emails_sent_month: number; from_domain: string }
+  supabase: { status: string; ping_ms: number; project_ref: string; region: string; user_count: number; ai_calls_month: number; ai_cost_month_usd: number; ai_top_models: Record<string, number>; storage_bucket: string }
+  stripe: { status: string; balance_usd: number; active_subscriptions: number; revenue_30d: number; charges_30d: number }
+  github: { status: string; last_commit_repo: string; last_commit_sha: string; last_commit_msg: string; last_commit_at: string }
+  uspto_odp: { status: string; description: string; base_url: string }
 }
 
 function AdminConnectorsPanel({ authToken }: { authToken: string }) {
-  const [brave, setBrave] = React.useState<BraveConnector | null>(null)
+  const [data, setData] = React.useState<ConnectorData | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [editLimit, setEditLimit] = React.useState(false)
   const [newLimit, setNewLimit] = React.useState('')
   const [saving, setSaving] = React.useState(false)
 
-  React.useEffect(() => {
+  const load = React.useCallback(() => {
+    setLoading(true)
     fetch('/api/admin/connectors', { headers: { Authorization: `Bearer ${authToken}` } })
       .then(r => r.json())
-      .then(d => { setBrave(d.connectors?.brave_search ?? null); setLoading(false) })
+      .then(d => { setData(d.connectors ?? null); setLoading(false) })
       .catch(() => setLoading(false))
   }, [authToken])
+
+  React.useEffect(() => { load() }, [load])
 
   async function saveLimit() {
     if (!newLimit || isNaN(parseInt(newLimit))) return
@@ -1456,195 +1452,317 @@ function AdminConnectorsPanel({ authToken }: { authToken: string }) {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ brave_monthly_limit: parseInt(newLimit), brave_plan: parseInt(newLimit) > 2000 ? 'pro' : 'free' }),
     })
-    setSaving(false)
-    setEditLimit(false)
-    // Reload
-    setLoading(true)
-    fetch('/api/admin/connectors', { headers: { Authorization: `Bearer ${authToken}` } })
-      .then(r => r.json())
-      .then(d => { setBrave(d.connectors?.brave_search ?? null); setLoading(false) })
+    setSaving(false); setEditLimit(false); load()
   }
 
+  const fmtDate = (s?: string | null) => !s ? '—' : new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const statusDot = (s: string) => s === 'connected' || s === 'key_present' ? '🟢' : s === 'degraded' || s === 'error' ? '🔴' : '⚪'
+  const statusBadge = (s: string) => {
+    if (s === 'connected') return 'bg-green-100 text-green-800'
+    if (s === 'degraded' || s === 'error') return 'bg-red-100 text-red-800'
+    if (s === 'key_present') return 'bg-blue-100 text-blue-800'
+    return 'bg-gray-100 text-gray-500'
+  }
+  const statusLabel = (s: string) => s === 'connected' ? '✓ Connected' : s === 'degraded' ? '⚠ Degraded' : s === 'error' ? '✗ Error' : s === 'key_present' ? '✓ Key set' : s === 'missing_key' || s === 'no_key' ? '✗ No key' : s
+
   if (loading) return <div className="text-gray-400 text-sm py-8 text-center">Loading connectors…</div>
+  if (!data) return <div className="text-red-400 text-sm py-8 text-center">Failed to load connector data</div>
 
-  const alertColor = brave?.alert_level === 'critical' ? 'red'
-    : brave?.alert_level === 'warning' ? 'amber' : 'green'
-  const barColor = alertColor === 'red' ? 'bg-red-500' : alertColor === 'amber' ? 'bg-amber-400' : 'bg-emerald-500'
-  const badgeBg  = alertColor === 'red' ? 'bg-red-100 text-red-800' : alertColor === 'amber' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-
-  const fmtDate = (s?: string | null) => s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+  const brave = data.brave_search
+  const alertColor = brave.alert_level === 'critical' ? 'red' : brave.alert_level === 'warning' ? 'amber' : 'green'
+  const barColor   = alertColor === 'red' ? 'bg-red-500' : alertColor === 'amber' ? 'bg-amber-400' : 'bg-emerald-500'
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold text-gray-900">API Connectors</h1>
-        <p className="text-gray-400 text-sm mt-0.5">External API health, usage quotas, and run history</p>
+        <p className="text-gray-400 text-sm mt-0.5">Live health, usage, and stats for every service under the hood</p>
       </div>
 
-      {/* ── Brave Search Card ───────────────────────────────────────────── */}
+      {/* ── Row 1: Supabase + Resend (small cards) ───────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+        {/* Supabase */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🗄️</span>
+              <div>
+                <div className="font-semibold text-sm text-gray-900">Supabase</div>
+                <div className="text-xs text-gray-400">{data.supabase.region}</div>
+              </div>
+            </div>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusBadge(data.supabase.status)}`}>
+              {statusLabel(data.supabase.status)}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-gray-50 rounded-lg p-2 text-center">
+              <div className="font-bold text-gray-900 text-base">{data.supabase.user_count}</div>
+              <div className="text-gray-500">users</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-2 text-center">
+              <div className="font-bold text-gray-900 text-base">{data.supabase.ping_ms}ms</div>
+              <div className="text-gray-500">latency</div>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-gray-400">
+            AI costs this month: <strong className="text-gray-700">${data.supabase.ai_cost_month_usd.toFixed(2)}</strong>
+            {' '}({data.supabase.ai_calls_month} calls)
+          </div>
+          {Object.keys(data.supabase.ai_top_models).length > 0 && (
+            <div className="mt-1 text-xs text-gray-400">
+              {Object.entries(data.supabase.ai_top_models)
+                .sort(([,a],[,b]) => b-a).slice(0,2)
+                .map(([m,c]) => `${m}: ${c}`).join(' · ')}
+            </div>
+          )}
+        </div>
+
+        {/* Resend */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">📧</span>
+              <div>
+                <div className="font-semibold text-sm text-gray-900">Resend</div>
+                <div className="text-xs text-gray-400">transactional email</div>
+              </div>
+            </div>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusBadge(data.resend.status)}`}>
+              {statusLabel(data.resend.status)}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-gray-50 rounded-lg p-2 text-center">
+              <div className="font-bold text-gray-900 text-base">{data.resend.emails_sent_month}</div>
+              <div className="text-gray-500">sent (30d)</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-2 text-center">
+              <div className="font-bold text-gray-900 text-base">{data.resend.ping_ms}ms</div>
+              <div className="text-gray-500">latency</div>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-gray-400 truncate">
+            From: <strong className="text-gray-700">{data.resend.from_domain}</strong>
+          </div>
+        </div>
+
+        {/* Stripe */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">💳</span>
+              <div>
+                <div className="font-semibold text-sm text-gray-900">Stripe</div>
+                <div className="text-xs text-gray-400">payments · live mode</div>
+              </div>
+            </div>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusBadge(data.stripe.status === 'no_key' ? 'no_key' : data.stripe.status)}`}>
+              {data.stripe.status === 'no_key' ? '✗ No key' : statusLabel(data.stripe.status)}
+            </span>
+          </div>
+          {data.stripe.status === 'connected' ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                  <div className="font-bold text-gray-900 text-base">{data.stripe.active_subscriptions}</div>
+                  <div className="text-gray-500">active subs</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                  <div className="font-bold text-gray-900 text-base">${data.stripe.revenue_30d.toFixed(0)}</div>
+                  <div className="text-gray-500">rev (30d)</div>
+                </div>
+              </div>
+              <div className="mt-2 text-xs text-gray-400">
+                {data.stripe.charges_30d} charges · balance: <strong className="text-gray-700">${data.stripe.balance_usd.toFixed(2)}</strong>
+              </div>
+            </>
+          ) : (
+            <div className="text-xs text-gray-400 mt-1">Add STRIPE_SECRET_KEY to Vercel env vars to enable</div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Row 2: GitHub + USPTO ────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+        {/* GitHub */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🐙</span>
+              <div>
+                <div className="font-semibold text-sm text-gray-900">GitHub</div>
+                <div className="text-xs text-gray-400">HotHands-LLC</div>
+              </div>
+            </div>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusBadge(data.github.status === 'no_key' ? 'no_key' : data.github.status)}`}>
+              {data.github.status === 'no_key' ? '✗ No key' : statusLabel(data.github.status)}
+            </span>
+          </div>
+          {data.github.status === 'connected' ? (
+            <div className="text-xs space-y-1">
+              <div className="font-medium text-gray-700">{data.github.last_commit_repo}</div>
+              <div className="text-gray-500 truncate">{data.github.last_commit_msg}</div>
+              <div className="flex items-center gap-2 text-gray-400">
+                <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono">{data.github.last_commit_sha}</code>
+                <span>{fmtDate(data.github.last_commit_at)}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-gray-400">Add GITHUB_PAT to Vercel env vars to enable</div>
+          )}
+        </div>
+
+        {/* USPTO ODP */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">⚖️</span>
+              <div>
+                <div className="font-semibold text-sm text-gray-900">USPTO ODP</div>
+                <div className="text-xs text-gray-400">patent data · read-only</div>
+              </div>
+            </div>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${data.uspto_odp.status === 'key_present' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-500'}`}>
+              {data.uspto_odp.status === 'key_present' ? '✓ Key set' : '✗ No key'}
+            </span>
+          </div>
+          <div className="text-xs text-gray-500 leading-relaxed">{data.uspto_odp.description}</div>
+          <div className="mt-2 text-xs text-gray-400 font-mono truncate">{data.uspto_odp.base_url}</div>
+        </div>
+      </div>
+
+      {/* ── Brave Search (full card) ────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-orange-50 rounded-lg flex items-center justify-center text-xl">🦁</div>
             <div>
               <div className="font-semibold text-gray-900">Brave Search API</div>
-              <div className="text-xs text-gray-400">Patent intelligence · prior art · market signals</div>
+              <div className="text-xs text-gray-400">patent intelligence · prior art · market signals</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${badgeBg}`}>
-              {brave?.alert_level === 'critical' ? '🔴 Near limit' : brave?.alert_level === 'warning' ? '🟡 Approaching limit' : '🟢 OK'}
-            </span>
-            <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${brave?.status === 'connected' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-              {brave?.status === 'connected' ? '✓ Connected' : '✗ No API key'}
+            {brave.alert_level !== 'ok' && (
+              <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${alertColor === 'red' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                {brave.alert_level === 'critical' ? '🔴 Near limit' : '🟡 Warning'}
+              </span>
+            )}
+            <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${brave.status === 'connected' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+              {brave.status === 'connected' ? '✓ Connected' : '✗ No key'}
             </span>
           </div>
         </div>
 
-        <div className="px-5 py-5 space-y-5">
+        <div className="px-5 py-4 space-y-4">
           {/* Usage bar */}
           <div>
             <div className="flex justify-between items-end mb-1.5">
-              <span className="text-sm font-medium text-gray-700">Monthly quota</span>
+              <span className="text-sm font-medium text-gray-700">Monthly quota — {brave.plan} tier</span>
               <span className="text-sm text-gray-500">
-                <strong className="text-gray-900">{brave?.queries_this_month.toLocaleString()}</strong>
-                {' / '}
-                {brave?.monthly_limit.toLocaleString()} queries
-                {' '}
-                <span className={`font-semibold ${alertColor === 'red' ? 'text-red-600' : alertColor === 'amber' ? 'text-amber-600' : 'text-gray-500'}`}>
-                  ({brave?.usage_pct}%)
-                </span>
+                <strong className="text-gray-900">{brave.queries_this_month.toLocaleString()}</strong>
+                {' / '}{brave.monthly_limit.toLocaleString()}
+                {' '}<span className={`font-semibold ${alertColor === 'red' ? 'text-red-600' : alertColor === 'amber' ? 'text-amber-600' : 'text-gray-400'}`}>({brave.usage_pct}%)</span>
               </span>
             </div>
-            <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-                style={{ width: `${Math.min(brave?.usage_pct ?? 0, 100)}%` }}
-              />
+            <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${Math.min(brave.usage_pct, 100)}%` }} />
             </div>
-            <div className="flex justify-between mt-1.5 text-xs text-gray-400">
-              <span>{brave?.queries_remaining.toLocaleString()} remaining · resets in {brave?.days_to_reset} days ({brave?.reset_date})</span>
-              <span>Projected: {brave?.projected_monthly.toLocaleString()} / month</span>
+            <div className="flex justify-between mt-1 text-xs text-gray-400">
+              <span>{brave.queries_remaining.toLocaleString()} remaining · resets {brave.reset_date} ({brave.days_to_reset}d)</span>
+              <span>Projected: {brave.projected_monthly.toLocaleString()}/mo</span>
             </div>
           </div>
 
-          {/* Alert callout */}
-          {brave?.alert_level !== 'ok' && (
-            <div className={`rounded-lg px-4 py-3 text-sm font-medium ${alertColor === 'red' ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>
-              {brave?.alert_level === 'critical'
-                ? `⚠️ Critical: ${brave.usage_pct}% of monthly quota used with ${brave.days_to_reset} days until reset. Consider upgrading to Brave Pro (15k queries/mo).`
-                : `⚠️ Warning: ${brave?.usage_pct}% of monthly quota used. Projected usage of ${brave?.projected_monthly.toLocaleString()} queries this month.`
-              }
+          {brave.alert_level !== 'ok' && (
+            <div className={`rounded-lg px-4 py-2.5 text-sm ${alertColor === 'red' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+              {brave.alert_level === 'critical'
+                ? `⚠️ ${brave.usage_pct}% used with ${brave.days_to_reset} days left. Consider upgrading to Pro (15k/mo at $3/mo).`
+                : `⚠️ ${brave.usage_pct}% used. Projected ${brave.projected_monthly.toLocaleString()} queries this month.`}
             </div>
           )}
 
-          {/* Stats grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Runs this month', value: brave?.runs_this_month ?? 0 },
-              { label: 'Total runs', value: brave?.total_runs ?? 0 },
-              { label: 'Success rate', value: `${brave?.success_rate ?? 0}%` },
-              { label: 'Total findings', value: (brave?.total_findings_ever ?? 0).toLocaleString() },
+              { label: 'Runs this month', value: brave.runs_this_month },
+              { label: 'Total runs', value: brave.total_runs },
+              { label: 'Success rate', value: `${brave.success_rate}%` },
+              { label: 'Findings ever', value: brave.total_findings_ever.toLocaleString() },
             ].map(({ label, value }) => (
-              <div key={label} className="bg-gray-50 rounded-lg px-3 py-2.5 text-center">
-                <div className="text-xl font-bold text-gray-900">{value}</div>
-                <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+              <div key={label} className="bg-gray-50 rounded-lg px-3 py-2 text-center">
+                <div className="text-lg font-bold text-gray-900">{value}</div>
+                <div className="text-xs text-gray-500">{label}</div>
               </div>
             ))}
           </div>
 
-          {/* Last run */}
-          {brave?.last_run && (
+          {brave.last_run && (
             <div className="bg-gray-50 rounded-lg px-4 py-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-gray-700">Last run</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${brave.last_run.status === 'completed' ? 'bg-green-100 text-green-800' : brave.last_run.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'}`}>
+                <span className="text-xs font-medium text-gray-600">Last run</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${brave.last_run.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                   {brave.last_run.status}
                 </span>
               </div>
-              <div className="text-xs text-gray-500 space-y-0.5">
-                <div>Started: {fmtDate(brave.last_run.started_at)}</div>
-                <div>Queries: {brave.last_run.queries_used} · Findings: {brave.last_run.findings} ({brave.last_run.new_findings} new)</div>
-                {brave.last_run.error && <div className="text-red-500">Error: {brave.last_run.error}</div>}
+              <div className="text-xs text-gray-500">
+                {fmtDate(brave.last_run.started_at)} · {brave.last_run.queries_used} queries · {brave.last_run.findings} findings ({brave.last_run.new_findings} new)
+                {brave.last_run.error && <span className="text-red-500 ml-2">⚠️ {brave.last_run.error}</span>}
               </div>
             </div>
           )}
 
-          {/* Plan + limit controls */}
           <div className="flex items-center justify-between pt-1 border-t border-gray-100">
-            <div className="text-xs text-gray-500">
-              Plan: <strong className="text-gray-700 capitalize">{brave?.plan ?? 'free'}</strong>
-              {' · '}Limit: <strong className="text-gray-700">{brave?.monthly_limit.toLocaleString()}/mo</strong>
-              {' · '}
-              <a href="https://api.search.brave.com" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Upgrade →</a>
+            <div className="text-xs text-gray-400">
+              Plan: <strong className="text-gray-700 capitalize">{brave.plan}</strong>
+              {' · '}Limit: <strong className="text-gray-700">{brave.monthly_limit.toLocaleString()}/mo</strong>
+              {' · '}<a href="https://api.search.brave.com" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Upgrade →</a>
             </div>
             {!editLimit ? (
-              <button onClick={() => { setEditLimit(true); setNewLimit(String(brave?.monthly_limit ?? 2000)) }}
-                className="text-xs text-indigo-600 hover:underline font-medium">
-                Update limit
-              </button>
+              <button onClick={() => { setEditLimit(true); setNewLimit(String(brave.monthly_limit)) }}
+                className="text-xs text-indigo-600 hover:underline font-medium">Edit limit</button>
             ) : (
               <div className="flex items-center gap-2">
-                <input
-                  type="number" value={newLimit} onChange={e => setNewLimit(e.target.value)}
-                  className="w-24 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                  placeholder="2000"
-                />
+                <input type="number" value={newLimit} onChange={e => setNewLimit(e.target.value)}
+                  className="w-24 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400" />
                 <button onClick={saveLimit} disabled={saving}
                   className="text-xs bg-indigo-600 text-white px-3 py-1 rounded font-medium disabled:opacity-50">
-                  {saving ? 'Saving…' : 'Save'}
+                  {saving ? '…' : 'Save'}
                 </button>
-                <button onClick={() => setEditLimit(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                <button onClick={() => setEditLimit(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
               </div>
             )}
           </div>
         </div>
 
-        {/* Recent runs table */}
-        {brave?.recent_runs && brave.recent_runs.length > 0 && (
+        {brave.recent_runs.length > 0 && (
           <div className="border-t border-gray-100">
-            <div className="px-5 py-3 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Recent runs (this month)
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="text-left px-5 py-2 text-gray-400 font-medium">Started</th>
-                    <th className="text-left px-4 py-2 text-gray-400 font-medium">Status</th>
-                    <th className="text-right px-4 py-2 text-gray-400 font-medium">Queries</th>
-                    <th className="text-right px-4 py-2 text-gray-400 font-medium">Findings</th>
-                    <th className="text-right px-5 py-2 text-gray-400 font-medium">New</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {brave.recent_runs.map(run => (
-                    <tr key={run.id} className="hover:bg-gray-50">
-                      <td className="px-5 py-2.5 text-gray-600">{fmtDate(run.started_at)}</td>
-                      <td className="px-4 py-2.5">
-                        <span className={`px-2 py-0.5 rounded-full font-semibold ${run.status === 'completed' ? 'bg-green-100 text-green-700' : run.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
-                          {run.status}
-                        </span>
-                        {run.error && <span className="ml-2 text-red-400" title={run.error}>⚠️</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-gray-700 font-medium">{run.queries}</td>
-                      <td className="px-4 py-2.5 text-right text-gray-700">{run.findings}</td>
-                      <td className="px-5 py-2.5 text-right text-emerald-600 font-medium">{run.new_findings > 0 ? `+${run.new_findings}` : '—'}</td>
-                    </tr>
+            <div className="px-5 py-2.5 bg-gray-50 text-xs font-semibold text-gray-400 uppercase tracking-wide">Recent runs</div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-50">
+                  {['Started', 'Status', 'Queries', 'Findings', 'New'].map(h => (
+                    <th key={h} className={`py-2 font-medium text-gray-400 ${h === 'Started' ? 'px-5 text-left' : h === 'Status' ? 'px-4 text-left' : 'px-4 text-right'} ${h === 'New' ? 'pr-5' : ''}`}>{h}</th>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {brave.recent_runs.map(r => (
+                  <tr key={r.id} className="hover:bg-gray-50">
+                    <td className="px-5 py-2 text-gray-500">{fmtDate(r.started_at)}</td>
+                    <td className="px-4 py-2">
+                      <span className={`px-1.5 py-0.5 rounded font-semibold ${r.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{r.status}</span>
+                    </td>
+                    <td className="px-4 py-2 text-right font-medium text-gray-700">{r.queries}</td>
+                    <td className="px-4 py-2 text-right text-gray-600">{r.findings}</td>
+                    <td className="px-5 py-2 text-right text-emerald-600 font-medium">{r.new_findings > 0 ? `+${r.new_findings}` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
-
-      {/* ── More connectors placeholder ─────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-dashed border-gray-200 px-5 py-8 text-center">
-        <div className="text-3xl mb-2">🔌</div>
-        <div className="text-sm font-medium text-gray-400">More connectors coming</div>
-        <div className="text-xs text-gray-300 mt-1">USPTO ODP · Stripe · Gmail</div>
       </div>
     </div>
   )
