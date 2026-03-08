@@ -107,42 +107,52 @@ export default function AdminPage() {
 
   useEffect(() => {
     async function load() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { router.push('/login'); return }
-      if (session.access_token) setAuthToken(session.access_token)
+      try {
+        const { data: sessionData } = await supabase.auth.getSession()
+        const session = sessionData?.session
+        if (!session) { router.push('/login'); return }
+        if (session.access_token) setAuthToken(session.access_token)
 
-      // ── MFA gate — admin requires aal2 (TOTP verified) ─────────────────────
-      const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-      if (aalData) {
-        const { currentLevel, nextLevel } = aalData
-        if (currentLevel !== 'aal2') {
-          // Enrolled but not yet verified this session → go verify
-          if (nextLevel === 'aal2') {
-            router.push('/admin/security/verify-2fa?next=/admin')
-          } else {
-            // Not enrolled yet → set up
-            router.push('/admin/security/setup-2fa')
+        // ── MFA gate — admin requires aal2 (TOTP verified) ─────────────────────
+        try {
+          const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+          if (aalData) {
+            const { currentLevel, nextLevel } = aalData
+            if (currentLevel !== 'aal2') {
+              if (nextLevel === 'aal2') {
+                router.push('/admin/security/verify-2fa?next=/admin')
+              } else {
+                router.push('/admin/security/setup-2fa')
+              }
+              return
+            }
           }
+        } catch (mfaErr) {
+          // MFA check failed — log and continue (don't block admin on MFA API errors)
+          console.error('[AdminPage] MFA check error:', mfaErr)
+        }
+
+        const res = await fetch('/api/admin/stats', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        if (res.status === 403) {
+          setError('Access denied — admin only.')
+          setLoading(false)
           return
         }
-      }
-
-      const res = await fetch('/api/admin/stats', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      if (res.status === 403) {
-        setError('Access denied — admin only.')
+        if (!res.ok) {
+          setError('Failed to load admin data.')
+          setLoading(false)
+          return
+        }
+        const data = await res.json()
+        setStats(data)
         setLoading(false)
-        return
-      }
-      if (!res.ok) {
-        setError('Failed to load admin data.')
+      } catch (err) {
+        console.error('[AdminPage] load error:', err)
+        setError('Failed to load admin panel. Please refresh the page.')
         setLoading(false)
-        return
       }
-      const data = await res.json()
-      setStats(data)
-      setLoading(false)
     }
     load()
   }, [router])
@@ -1004,12 +1014,19 @@ function AdminPartnersPanel({ authToken }: { authToken: string }) {
 
   const load = React.useCallback(async () => {
     setLoading(true)
-    const res = await fetch(`/api/admin/partners?status=${filter}`, {
-      headers: { Authorization: `Bearer ${authToken}` }
-    })
-    const d = await res.json()
-    setPartners(d.partners ?? [])
-    setLoading(false)
+    try {
+      const res = await fetch(`/api/admin/partners?status=${filter}`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      })
+      if (res.ok) {
+        const d = await res.json()
+        setPartners(d.partners ?? [])
+      }
+    } catch (err) {
+      console.error('[AdminPartners] load error:', err)
+    } finally {
+      setLoading(false)
+    }
   }, [authToken, filter])
 
   React.useEffect(() => { if (authToken) load() }, [load])
@@ -1169,6 +1186,7 @@ function AdminAccountsPanel({ authToken }: { authToken: string }) {
     })
       .then(r => r.json())
       .then(d => { setAccounts(d.accounts ?? []); setLoading(false) })
+      .catch(err => { console.error('[AdminAccounts] load error:', err); setLoading(false) })
   }, [authToken])
 
   async function saveEdit(userId: string, email: string) {

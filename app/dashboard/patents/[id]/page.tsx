@@ -1773,6 +1773,9 @@ export default function PatentDetail() {
                   loadAll()
                 }}
               />
+              <p className="mt-1.5 text-xs text-amber-700">
+                ⚠️ USPTO requires PDF version 1.4–1.7. PDF 2.0 files will be rejected. Save from Chrome, Word, or Adobe Acrobat (Compatibility: Acrobat 8 or earlier).
+              </p>
             </div>
 
             {/* Step 6: Figures upload + AI Generate */}
@@ -1863,6 +1866,9 @@ export default function PatentDetail() {
                       loadAll()
                     }}
                   />
+                  <p className="mt-1.5 text-xs text-amber-700">
+                    ⚠️ USPTO requires PDF version 1.4–1.7. PDF 2.0 files will be rejected. PNG and JPG figures are accepted without restrictions.
+                  </p>
                 </div>
               )
             })()}

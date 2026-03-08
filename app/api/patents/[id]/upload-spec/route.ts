@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { validatePDFBuffer } from '@/lib/pdf-validate'
 
 export const maxDuration = 60
 
@@ -68,8 +69,17 @@ export async function POST(
     return NextResponse.json({ error: `File too large (${(file.size/1024/1024).toFixed(1)}MB). Max 25MB.` }, { status: 400 })
   }
 
-  // ── Upload to Supabase Storage ─────────────────────────────────────────────
+  // ── PDF compliance validation (USPTO: versions 1.4–1.7 only) ─────────────
   const buffer = Buffer.from(await file.arrayBuffer())
+  const isPDF = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+  if (isPDF) {
+    const pdfCheck = validatePDFBuffer(buffer, file.name)
+    if (!pdfCheck.valid) {
+      return NextResponse.json({ error: pdfCheck.error }, { status: 400 })
+    }
+  }
+
+  // ── Upload to Supabase Storage ─────────────────────────────────────────────
   const storagePath = `${user.id}/${patentId}/spec/${Date.now()}-${file.name}`
 
   const { error: uploadErr } = await serviceClient.storage
