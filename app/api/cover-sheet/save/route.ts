@@ -37,6 +37,8 @@ export async function POST(req: NextRequest) {
       city?: string; state?: string; zip?: string; country?: string
       phone?: string; email?: string; uspto_customer_number?: string
     }
+    assignee_name?:    string | null
+    assignee_address?: string | null
   }
 
   if (!body.save_to_profile) {
@@ -63,6 +65,9 @@ export async function POST(req: NextRequest) {
     zip:                    inventor.zip ?? null,
     country:                inventor.country ?? 'US',
     ...(inventor.uspto_customer_number ? { uspto_customer_number: inventor.uspto_customer_number } : {}),
+    // Save assignee as user's default (pre-fills next cover sheet)
+    ...(body.assignee_name    !== undefined ? { default_assignee_name:    body.assignee_name    } : {}),
+    ...(body.assignee_address !== undefined ? { default_assignee_address: body.assignee_address } : {}),
     updated_at:             now,
   }).eq('id', user.id)
 

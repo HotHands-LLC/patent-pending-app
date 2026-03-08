@@ -1089,6 +1089,9 @@ export default function PatentDetail() {
                             phone:                 prof?.phone           ?? '',
                             uspto_customer_number: prof?.uspto_customer_number ?? '',
                           },
+                          // Preserve assignee defaults from profile
+                          assignee_name:    prof?.default_assignee_name    ?? null,
+                          assignee_address: prof?.default_assignee_address ?? null,
                         }),
                       })
                       setPatent(prev => prev ? { ...prev, cover_sheet_acknowledged: true } : null)

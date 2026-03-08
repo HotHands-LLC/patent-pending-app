@@ -31,6 +31,8 @@ interface CoverSheetForm {
   signature:          string
   signature_date:     string
   customer_number:    string
+  assignee_name:      string
+  assignee_address:   string
 }
 
 interface SavedContact {
@@ -127,6 +129,8 @@ export default function CoverSheetPage() {
     signature:        '',
     signature_date:   todayShort,
     customer_number:  '',
+    assignee_name:    '',
+    assignee_address: '',
   })
 
   useEffect(() => {
@@ -206,9 +210,11 @@ export default function CoverSheetPage() {
           phone:          defaultContact?.phone || profile?.phone || '',
           email:          defaultContact?.email || profile?.email || '',
         },
-        signature:       `/${sigStr}/`,
-        signature_date:  todayShort,
-        customer_number: profile?.uspto_customer_number ?? '',
+        signature:        `/${sigStr}/`,
+        signature_date:   todayShort,
+        customer_number:  profile?.uspto_customer_number ?? '',
+        assignee_name:    profile?.default_assignee_name ?? '',
+        assignee_address: profile?.default_assignee_address ?? '',
       }))
 
       setLoading(false)
@@ -283,6 +289,8 @@ export default function CoverSheetPage() {
               ...form.inventor,
               ...(form.customer_number ? { uspto_customer_number: form.customer_number } : {}),
             },
+            assignee_name:    form.assignee_name    || null,
+            assignee_address: form.assignee_address || null,
           }),
         })
         const d = await res.json()
@@ -546,10 +554,12 @@ export default function CoverSheetPage() {
             6. Assignee Information (if any)
           </h2>
           <div className="grid grid-cols-2 gap-4">
-            <EditField label="Assignee Name / Organization" value=""
-              onChange={() => {}} placeholder="Hot Hands IP, LLC (if assigned)" />
-            <EditField label="Assignee Address" value=""
-              onChange={() => {}} placeholder="7601 Prentiss Ave, Lubbock TX 79424" />
+            <EditField label="Assignee Name / Organization" value={form.assignee_name}
+              onChange={v => setForm(prev => ({ ...prev, assignee_name: v }))}
+              placeholder="e.g. Hot Hands IP, LLC" />
+            <EditField label="Assignee Address" value={form.assignee_address}
+              onChange={v => setForm(prev => ({ ...prev, assignee_address: v }))}
+              placeholder="e.g. 7601 Prentiss Ave, Lubbock TX 79424" />
           </div>
           <p className="text-xs font-sans text-gray-500 mt-1">
             Leave blank if no formal assignment has been executed. Assignment can be recorded separately with USPTO.
