@@ -20,12 +20,6 @@
       "path": "/api/cron/deadline-reminders",
       "schedule": "0 20 * * *"
     }
-  ],
-  "functions": {
-    "app/api/intake/analyze-upload/route.ts": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  }
+  ]
 }
 
