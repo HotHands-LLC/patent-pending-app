@@ -608,14 +608,15 @@ To generate:
   }
 
   // ── Generate ZIP buffer ─────────────────────────────────────────────────────
-  const zipUint8 = await zip.generateAsync({
-    type: 'uint8array',
+  // Use 'arraybuffer' type — returns plain ArrayBuffer (not ArrayBufferLike),
+  // which is a valid BlobPart without TypeScript narrowing issues.
+  const zipArrayBuffer = await zip.generateAsync({
+    type: 'arraybuffer',
     compression: 'DEFLATE',
     compressionOptions: { level: 6 },
   })
 
-  // Wrap in Blob — BodyInit only accepts Blob, not raw Uint8Array, in Next.js 16 / React 19
-  const zipBlob = new Blob([zipUint8], { type: 'application/zip' })
+  const zipBlob = new Blob([zipArrayBuffer], { type: 'application/zip' })
   const filename = `${folderName}.zip`
 
   return new Response(zipBlob, {
@@ -623,7 +624,7 @@ To generate:
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename="${filename}"`,
-      'Content-Length': String(zipUint8.byteLength),
+      'Content-Length': String(zipArrayBuffer.byteLength),
       'Cache-Control': 'no-store',
     },
   })
