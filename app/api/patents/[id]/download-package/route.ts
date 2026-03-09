@@ -608,20 +608,22 @@ To generate:
   }
 
   // ── Generate ZIP buffer ─────────────────────────────────────────────────────
-  const zipBuffer = await zip.generateAsync({
+  const zipUint8 = await zip.generateAsync({
     type: 'uint8array',
     compression: 'DEFLATE',
     compressionOptions: { level: 6 },
   })
 
+  // Wrap in Blob — BodyInit only accepts Blob, not raw Uint8Array, in Next.js 16 / React 19
+  const zipBlob = new Blob([zipUint8], { type: 'application/zip' })
   const filename = `${folderName}.zip`
 
-  return new NextResponse(zipBuffer, {
+  return new Response(zipBlob, {
     status: 200,
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename="${filename}"`,
-      'Content-Length': String(zipBuffer.byteLength),
+      'Content-Length': String(zipUint8.byteLength),
       'Cache-Control': 'no-store',
     },
   })
