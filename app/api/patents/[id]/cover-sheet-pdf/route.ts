@@ -64,7 +64,8 @@ export async function GET(
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
   const filename = `${slug}-cover-sheet.pdf`
 
-  return new Response(new Blob([pdfBytes], { type: 'application/pdf' }), {
+  const pdfBuffer = pdfBytes.buffer as ArrayBuffer
+  return new Response(new Blob([pdfBuffer], { type: 'application/pdf' }), {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
