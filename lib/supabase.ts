@@ -108,7 +108,7 @@ export const CORRESPONDENCE_TYPE_LABELS: Record<string, string> = {
   filing: 'Filing',
   email: 'Email',
   attorney_note: 'Attorney Note',
-  boclaw_note: 'AI Note',
+  boclaw_note: 'Pattie Note',
   deadline_notice: 'Deadline Notice',
   other: 'Other',
 }

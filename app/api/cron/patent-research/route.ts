@@ -172,7 +172,7 @@ function buildFindingsEmail(
       </div>
       <div style="background:white;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;padding:24px;">
         <p style="color:#374151;font-size:15px;">Hi ${ownerName},</p>
-        <p style="color:#374151;font-size:15px;">BoClaw found <strong>${newFindings.length} new research finding${newFindings.length !== 1 ? 's' : ''}</strong> for your patent:</p>
+        <p style="color:#374151;font-size:15px;">Pattie found <strong>${newFindings.length} new research finding${newFindings.length !== 1 ? 's' : ''}</strong> for your patent:</p>
 
         <table style="width:100%;border-collapse:collapse;margin:16px 0;">
           <thead>
@@ -342,8 +342,8 @@ export async function POST(req: NextRequest) {
           owner_id: patent.owner_id,
           title: `Research Intelligence — ${allFindings.length} finding${allFindings.length !== 1 ? 's' : ''} (${highPriority.length} high priority)`,
           type: 'boclaw_note',
-          content: `BoClaw Research Run (${new Date().toISOString().split('T')[0]})\n\nQueries: ${queries.join(' | ')}\n\nTop findings:\n${allFindings.slice(0, 5).map(f => `• [${f.finding_type}] ${f.title} (${f.source_name}) — Relevance: ${f.relevance_score}/10`).join('\n')}`,
-          from_party: 'BoClaw',
+          content: `Pattie Research Run (${new Date().toISOString().split('T')[0]})\n\nQueries: ${queries.join(' | ')}\n\nTop findings:\n${allFindings.slice(0, 5).map(f => `• [${f.finding_type}] ${f.title} (${f.source_name}) — Relevance: ${f.relevance_score}/10`).join('\n')}`,
+          from_party: 'Pattie',
           to_party: 'Inventor',
           correspondence_date: new Date().toISOString().split('T')[0],
           attachments: [],

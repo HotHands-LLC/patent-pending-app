@@ -99,8 +99,8 @@ const PHASES = [
 // ── Next action map (phase → action prompt) ──────────────────────────────────
 const NEXT_ACTIONS: Record<number, string> = {
   1: "Complete patent intake card — enter provisional number, filing date, entity status",
-  2: "Run spec gap analysis — BoClaw will generate structured gap report",
-  3: "Draft independent claims — BoClaw drafts, you review and approve",
+  2: "Run spec gap analysis — Pattie will generate structured gap report",
+  3: "Draft independent claims — Pattie drafts, you review and approve",
   4: "Generate figure briefs — describe each drawing, approve one at a time",
   5: "Complete forms package — ADS, Inventor Oath, Cover Sheet",
   6: "Assemble filing package — index all docs, validate PDF versions",

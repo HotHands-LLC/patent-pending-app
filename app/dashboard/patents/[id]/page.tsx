@@ -2083,6 +2083,7 @@ export default function PatentDetail() {
                   </div>
                   <div className="p-5">
                     <CorrespondenceForm patents={allPatents} preselectedPatentId={patent.id} ownerId={ownerId}
+                      authToken={authToken}
                       onSuccess={() => { setShowCorrespondenceForm(false); loadAll() }}
                       onCancel={() => setShowCorrespondenceForm(false)} />
                   </div>
@@ -2160,7 +2161,12 @@ export default function PatentDetail() {
                               {CORRESPONDENCE_TYPE_LABELS[item.type] || item.type}
                             </span>
                           </div>
-                          <div className="font-medium text-[#1a1f36] text-sm">{item.title}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-[#1a1f36] text-sm">{item.title}</span>
+                            {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                              <span className="text-xs text-blue-500" title={`${item.attachments.length} attachment`}>📎</span>
+                            )}
+                          </div>
                           <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-400">
                             <span>{new Date(item.correspondence_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                             {item.from_party && <span>From: {item.from_party}</span>}
@@ -2174,6 +2180,23 @@ export default function PatentDetail() {
                       <div className="px-4 pb-4 border-t border-gray-50">
                         {item.content && (
                           <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap">{item.content}</div>
+                        )}
+                        {/* Attachments */}
+                        {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {(item.attachments as { name: string; size?: number; storage_path: string }[]).map((att, ai) => (
+                              <a
+                                key={ai}
+                                href={`/api/correspondence/download?path=${encodeURIComponent(att.storage_path)}&token=${authToken}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                              >
+                                📎 {att.name}
+                                {att.size && <span className="text-blue-400">({(att.size / 1024).toFixed(0)}KB)</span>}
+                              </a>
+                            ))}
+                          </div>
                         )}
                         {item.tags && item.tags.length > 0 && (
                           <div className="flex flex-wrap gap-1.5 mt-3">

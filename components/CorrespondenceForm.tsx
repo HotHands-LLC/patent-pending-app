@@ -1,18 +1,30 @@
 'use client'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { supabase, Patent, CORRESPONDENCE_TYPE_LABELS } from '@/lib/supabase'
 
 interface Props {
   patents: Patent[]
   preselectedPatentId?: string
   ownerId: string
+  authToken?: string
   onSuccess: () => void
   onCancel: () => void
 }
 
-export default function CorrespondenceForm({ patents, preselectedPatentId, ownerId, onSuccess, onCancel }: Props) {
+const ATTACHMENT_ACCEPT = '.pdf,.txt,.docx,.doc,.png,.jpg,.jpeg'
+const MAX_ATTACH_BYTES = 10 * 1024 * 1024
+
+function formatBytes(b: number) {
+  if (b < 1048576) return `${(b / 1024).toFixed(1)}KB`
+  return `${(b / 1048576).toFixed(1)}MB`
+}
+
+export default function CorrespondenceForm({ patents, preselectedPatentId, ownerId, authToken, onSuccess, onCancel }: Props) {
   const today = new Date().toISOString().split('T')[0]
+  const fileRef = useRef<HTMLInputElement>(null)
   const [saving, setSaving] = useState(false)
+  const [attachFile, setAttachFile] = useState<File | null>(null)
+  const [attachError, setAttachError] = useState('')
   const [form, setForm] = useState({
     title: '',
     type: 'email',
@@ -24,10 +36,50 @@ export default function CorrespondenceForm({ patents, preselectedPatentId, owner
     tags: '',
   })
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null
+    setAttachError('')
+    if (!f) { setAttachFile(null); return }
+    if (f.size > MAX_ATTACH_BYTES) {
+      setAttachError(`${f.name} exceeds 10MB limit.`)
+      setAttachFile(null)
+      return
+    }
+    setAttachFile(f)
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.title || !form.type) return
     setSaving(true)
+
+    let attachments: { name: string; size: number; storage_path: string; signed_url: string }[] = []
+
+    // ── Upload attachment if present ──────────────────────────────────────────
+    if (attachFile && authToken) {
+      try {
+        const fd = new FormData()
+        fd.append('file', attachFile)
+        if (form.patent_id) fd.append('patent_id', form.patent_id)
+        const res = await fetch('/api/correspondence/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` },
+          body: fd,
+        })
+        const json = await res.json()
+        if (!res.ok) {
+          setAttachError(json.error || 'File upload failed')
+          setSaving(false)
+          return
+        }
+        attachments = [{ name: json.name, size: json.size, storage_path: json.storage_path, signed_url: json.signed_url }]
+      } catch {
+        setAttachError('Network error uploading file — please try again.')
+        setSaving(false)
+        return
+      }
+    }
+
     const payload: Record<string, unknown> = {
       title: form.title,
       type: form.type,
@@ -38,7 +90,9 @@ export default function CorrespondenceForm({ patents, preselectedPatentId, owner
       content: form.content || null,
       patent_id: form.patent_id || null,
       tags: form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : null,
+      attachments: attachments.length ? attachments : [],
     }
+
     const { error } = await supabase.from('patent_correspondence').insert([payload])
     setSaving(false)
     if (!error) onSuccess()
@@ -144,13 +198,55 @@ export default function CorrespondenceForm({ patents, preselectedPatentId, owner
         />
       </div>
 
+      {/* ── File Attachment ────────────────────────────────────────────────────── */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+          Attachment (optional)
+        </label>
+        {attachFile ? (
+          <div className="flex items-center gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+            <span className="text-base">📎</span>
+            <span className="flex-1 truncate font-medium text-blue-800">{attachFile.name}</span>
+            <span className="text-xs text-blue-500 flex-shrink-0">{formatBytes(attachFile.size)}</span>
+            <button
+              type="button"
+              onClick={() => { setAttachFile(null); if (fileRef.current) fileRef.current.value = '' }}
+              className="text-blue-400 hover:text-blue-600 flex-shrink-0 text-xs"
+            >
+              ✕ Remove
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="w-full px-4 py-2.5 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-gray-400 hover:bg-gray-50 transition-colors text-left"
+          >
+            📎 Attach a file — PDF, TXT, DOCX, PNG, JPG (max 10MB)
+          </button>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept={ATTACHMENT_ACCEPT}
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
+        {attachError && (
+          <p className="mt-1.5 text-xs text-red-600">⚠️ {attachError}</p>
+        )}
+        {attachFile && !authToken && (
+          <p className="mt-1.5 text-xs text-amber-600">⚠️ File upload requires a logged-in session.</p>
+        )}
+      </div>
+
       <div className="flex gap-3 pt-2">
         <button
           type="submit"
           disabled={saving}
           className="flex-1 sm:flex-none px-5 py-2.5 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-50 min-h-[44px]"
         >
-          {saving ? 'Saving...' : 'Add Correspondence'}
+          {saving ? (attachFile ? 'Uploading & saving...' : 'Saving...') : 'Add Correspondence'}
         </button>
         <button
           type="button"
