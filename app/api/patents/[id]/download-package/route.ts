@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import JSZip from 'jszip'
+import { USPTO_FEES } from '@/lib/uspto-fees'
 
 export const maxDuration = 60
 
@@ -77,8 +78,13 @@ FILING STEPS:
   3. Go to patentcenter.uspto.gov and create/log into your account
   4. Start a new provisional application (Application Type: Provisional)
   5. Upload: ADS PDF, specification .txt (or convert to PDF), claims .txt, figures
-  6. Pay filing fee (~$320 micro entity, ~$640 small entity, ~$1,600 undiscounted)
+  6. Pay filing fee ($${USPTO_FEES.provisional.micro} micro entity / $${USPTO_FEES.provisional.small} small entity / $${USPTO_FEES.provisional.large} large entity)
   7. Save your filing receipt — it confirms your priority date
+
+FILING FEES (USPTO Fee Schedule, effective Jan 19, 2025):
+  Micro entity: $${USPTO_FEES.provisional.micro}
+  Small entity: $${USPTO_FEES.provisional.small}
+  Large entity: $${USPTO_FEES.provisional.large}
 
 IMPORTANT:
   • Your non-provisional must be filed within 12 months of the provisional
@@ -159,7 +165,7 @@ OPTIONAL DOCUMENTS:
 ALSO REQUIRED (not in this package):
   • Abstract (max 150 words) — generate in PatentPending.app
   • Inventor Declaration (37 CFR 1.63)
-  • Filing fees (~$800 micro entity, ~$1,600 small, ~$4,000 undiscounted for non-provisional)
+  • Filing fees — non-provisional total: ~$${USPTO_FEES.nonProvisional.total.micro} micro / ~$${USPTO_FEES.nonProvisional.total.small} small / ~$${USPTO_FEES.nonProvisional.total.large.toLocaleString()} large entity
   • IDS (Information Disclosure Statement) if you know of prior art
 
 NON-PROVISIONAL FILING NOTES:

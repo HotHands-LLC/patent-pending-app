@@ -2,6 +2,7 @@
 // Drop into: components/dashboard/PatentIntakeCard.tsx
 // Shows for any patent where intake fields are incomplete (phase 1)
 // On submit: updates patents table + advances current_phase to 2
+import { USPTO_FEES } from '@/lib/uspto-fees'
 
 "use client";
 
@@ -50,9 +51,9 @@ interface IntakeFormData {
 
 // ── Entity status info ────────────────────────────────────────────────────────
 const ENTITY_STATUS_INFO = {
-  micro:  { label: "Micro Entity",  fee: "~$320",   note: "≤$239k gross income, ≤4 prior patents" },
-  small:  { label: "Small Entity",  fee: "~$640",   note: "Individual, small biz, or nonprofit" },
-  large:  { label: "Large Entity",  fee: "~$1,600", note: "Corporation >500 employees" },
+  micro:  { label: "Micro Entity",  fee: `$${USPTO_FEES.provisional.micro}`,   note: "≤$239k gross income, ≤4 prior patents" },
+  small:  { label: "Small Entity",  fee: `$${USPTO_FEES.provisional.small}`,   note: "Individual, small biz, or nonprofit" },
+  large:  { label: "Large Entity",  fee: `$${USPTO_FEES.provisional.large}`, note: "Corporation >500 employees" },
 };
 
 // ── Is intake complete? ───────────────────────────────────────────────────────

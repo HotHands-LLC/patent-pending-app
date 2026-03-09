@@ -15,6 +15,7 @@ import type { ClaimsScore } from '@/lib/claims-score'
 import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 import Arc3Modal from '@/components/Arc3Modal'
 import DownloadPackageModal from '@/components/DownloadPackageModal'
+import { USPTO_FEES } from '@/lib/uspto-fees'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -1645,7 +1646,7 @@ export default function PatentDetail() {
                 8: {
                   icon: '🏛️',
                   title: 'Step 8: File with USPTO Patent Center',
-                  body: 'You now have your claims, spec, drawings, and cover sheet. Go to patentcenter.uspto.gov, create an account, and file your provisional application. Filing fee: ~$320 (micro entity) or ~$640 (small entity).',
+                  body: `You now have your claims, spec, drawings, and cover sheet. Go to patentcenter.uspto.gov, create an account, and file your provisional application. Filing fee: $${USPTO_FEES.provisional.micro} (micro entity) / $${USPTO_FEES.provisional.small} (small entity) / $${USPTO_FEES.provisional.large} (large entity).`,
                   action: { label: 'Open USPTO Patent Center ↗', href: 'https://patentcenter.uspto.gov' },
                 },
                 9: {

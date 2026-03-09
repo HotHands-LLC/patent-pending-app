@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import SmartHandoffModal, { type ExtractedFields } from '@/components/SmartHandoffModal'
+import { USPTO_FEES } from '@/lib/uspto-fees'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface IntakeSession {
@@ -425,8 +426,8 @@ function InventorStep({
           </p>
           <div style={{ display: 'flex', gap: 10 }}>
             {[
-              { val: true, label: 'Yes — I likely qualify', sub: '~$320 filing fee' },
-              { val: false, label: 'No or unsure', sub: '~$640 small / ~$1,600 large' },
+              { val: true, label: 'Yes — I likely qualify', sub: `$${USPTO_FEES.provisional.micro} filing fee` },
+              { val: false, label: 'No or unsure', sub: `$${USPTO_FEES.provisional.small} small / $${USPTO_FEES.provisional.large} large` },
             ].map(({ val, label, sub }) => (
               <button
                 key={String(val)}
@@ -493,7 +494,7 @@ function SummaryStep({
         { label: 'Name', value: data.inventor_name },
         { label: 'Email', value: data.inventor_email || '—' },
         { label: 'Co-inventors', value: (data.co_inventors || []).length > 0 ? (data.co_inventors || []).join(', ') : 'None' },
-        { label: 'Micro entity', value: data.micro_entity_eligible === true ? 'Likely yes (~$320 fee)' : data.micro_entity_eligible === false ? 'No / unsure' : 'Not answered' },
+        { label: 'Micro entity', value: data.micro_entity_eligible === true ? `Likely yes ($${USPTO_FEES.provisional.micro} fee)` : data.micro_entity_eligible === false ? 'No / unsure' : 'Not answered' },
       ]
     }
   ]
