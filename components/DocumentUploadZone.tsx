@@ -3,8 +3,19 @@ import { useRef, useState, useCallback } from 'react'
 
 type UploadType = 'spec' | 'figures'
 
+interface UploadedFileResult {
+  name: string
+  outputName?: string
+  size: number
+  signed_url: string
+  converted?: boolean
+  lowContrastWarning?: boolean
+}
+
 interface UploadResult {
-  files: { name: string; size: number; signed_url: string }[]
+  files: UploadedFileResult[]
+  count?: number
+  convertedCount?: number
 }
 
 interface DocumentUploadZoneProps {
@@ -24,6 +35,7 @@ const CONFIG: Record<UploadType, {
   maxFiles: number
   maxMB: number
   hint: string
+  helperText?: string
 }> = {
   spec: {
     label: 'Upload Specification Document',
@@ -37,11 +49,15 @@ const CONFIG: Record<UploadType, {
   figures: {
     label: 'Upload Drawings / Figures',
     icon: '📐',
-    accept: ['.pdf', '.png', '.jpg', '.jpeg'],
-    acceptMime: new Set(['application/pdf','image/png','image/jpeg']),
+    accept: ['.png', '.jpg', '.jpeg', '.webp', '.tiff', '.tif', '.heic', '.heif', '.bmp', '.pdf'],
+    acceptMime: new Set([
+      'image/png','image/jpeg','image/webp','image/tiff',
+      'image/heic','image/heif','image/bmp','application/pdf',
+    ]),
     maxFiles: 10,
     maxMB: 10,
-    hint: 'PDF or images (PNG/JPG) — USPTO line art, up to 10 files, 10MB each',
+    hint: 'PNG, JPG, WebP, HEIC, TIFF, PDF — up to 10 files, 10MB each',
+    helperText: 'Upload any image — we\'ll automatically convert it to USPTO-compliant black & white line art at 300 DPI. Hand sketches welcome.',
   },
 }
 
@@ -60,7 +76,7 @@ export default function DocumentUploadZone({
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
-  const [done, setDone] = useState(false)
+  const [result, setResult] = useState<UploadResult | null>(null)
 
   function validate(incoming: File[]): string | null {
     const combined = [...files, ...incoming]
@@ -102,28 +118,81 @@ export default function DocumentUploadZone({
         headers: { Authorization: `Bearer ${authToken}` },
         body: fd,
       })
-      const json = await res.json()
+      const json = await res.json() as UploadResult & { error?: string }
       if (!res.ok) { setError(json.error || 'Upload failed'); setUploading(false); return }
-      setDone(true)
-      onSuccess(json as UploadResult)
+      setResult(json)
+      onSuccess(json)
     } catch {
       setError('Network error — please try again.')
       setUploading(false)
     }
   }
 
-  if (done) {
+  // ── Done state ──────────────────────────────────────────────────────────────
+  if (result) {
+    const anyConverted = (result.files ?? []).some(f => f.converted)
+    const anyLowContrast = (result.files ?? []).some(f => f.lowContrastWarning)
+
     return (
-      <div className="bg-green-50 border border-green-200 rounded-xl p-5 flex items-center gap-3">
-        <span className="text-2xl flex-shrink-0">✅</span>
-        <div>
-          <div className="font-semibold text-green-800 text-sm">{cfg.label} — Uploaded</div>
-          <div className="text-xs text-green-600 mt-0.5">{files.length} file{files.length > 1 ? 's' : ''} saved to your correspondence folder.</div>
+      <div className="bg-white rounded-xl border border-green-200 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 bg-green-50 flex items-center gap-2">
+          <span>{cfg.icon}</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-green-700">
+            {cfg.label} — Uploaded
+          </span>
+        </div>
+        <div className="p-5 space-y-3">
+          {/* Per-file results */}
+          {(result.files ?? []).map((f, i) => (
+            <div key={i} className="space-y-1">
+              <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg text-xs">
+                <span className="text-base">{f.converted ? '🖼️' : '📄'}</span>
+                <span className="flex-1 truncate font-medium text-gray-700">
+                  {f.outputName ?? f.name}
+                </span>
+                <span className="text-gray-400 flex-shrink-0">{formatBytes(f.size)}</span>
+                {f.signed_url && (
+                  <a
+                    href={f.signed_url}
+                    download={f.outputName ?? f.name}
+                    className="text-indigo-500 hover:text-indigo-700 flex-shrink-0"
+                    title="Download"
+                  >
+                    ⬇
+                  </a>
+                )}
+              </div>
+              {/* Per-file badges */}
+              {f.converted && !f.lowContrastWarning && (
+                <p className="text-xs text-green-700 pl-2">
+                  ✅ Converted to USPTO-compliant format (greyscale, 300 DPI)
+                </p>
+              )}
+              {f.lowContrastWarning && (
+                <p className="text-xs text-amber-700 pl-2">
+                  ⚠️ This image may not convert cleanly to line art. For best results, use a clean sketch or diagram with clear lines and high contrast.
+                </p>
+              )}
+            </div>
+          ))}
+
+          {/* Summary badge */}
+          {anyConverted && !anyLowContrast && (
+            <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+              ✅ All figures converted to USPTO-compliant greyscale PNG at 300 DPI. Ready to include in your filing package.
+            </div>
+          )}
+          {anyLowContrast && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+              ⚠️ One or more figures may not convert cleanly to line art. Photos or low-contrast images can become muddy greyscale. For best USPTO results, use clean sketches, CAD exports, or diagrams with clear lines.
+            </div>
+          )}
         </div>
       </div>
     )
   }
 
+  // ── Upload state ────────────────────────────────────────────────────────────
   return (
     <div className={`bg-white rounded-xl border ${disabled ? 'border-gray-100 opacity-60' : 'border-gray-200'} overflow-hidden`}>
       <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
@@ -134,6 +203,13 @@ export default function DocumentUploadZone({
         )}
       </div>
       <div className="p-5">
+        {/* Helper text — figures only */}
+        {cfg.helperText && !disabled && (
+          <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 mb-3">
+            🖼️ {cfg.helperText}
+          </p>
+        )}
+
         {/* Drop zone */}
         <div
           onDragOver={onDragOver}
@@ -177,6 +253,13 @@ export default function DocumentUploadZone({
           </div>
         )}
 
+        {/* Processing note — figures only */}
+        {type === 'figures' && files.length > 0 && !disabled && (
+          <p className="mt-2 text-xs text-gray-400">
+            Files will be auto-converted to greyscale PNG at 300 DPI on upload.
+          </p>
+        )}
+
         {error && (
           <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">⚠️ {error}</div>
         )}
@@ -187,7 +270,10 @@ export default function DocumentUploadZone({
             disabled={uploading || disabled}
             className="mt-4 w-full py-2.5 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-50 transition-colors min-h-[44px]"
           >
-            {uploading ? 'Uploading…' : `Upload ${files.length} File${files.length > 1 ? 's' : ''} →`}
+            {uploading
+              ? (type === 'figures' ? '⏳ Converting + uploading…' : 'Uploading…')
+              : `Upload ${files.length} File${files.length > 1 ? 's' : ''} →`
+            }
           </button>
         )}
       </div>

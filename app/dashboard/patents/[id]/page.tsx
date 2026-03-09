@@ -1973,7 +1973,7 @@ export default function PatentDetail() {
                     }}
                   />
                   <p className="mt-1.5 text-xs text-gray-400">
-                    Accepts PDF, PNG, JPG. Max 10MB per file. Up to 5 files.
+                    Upload any image — we&apos;ll automatically convert to USPTO-compliant black &amp; white line art at 300 DPI. Hand sketches welcome. Accepts PNG, JPG, WebP, HEIC, TIFF. Max 10MB each.
                   </p>
                 </div>
               )
@@ -1989,36 +1989,81 @@ export default function PatentDetail() {
 
               return (
                 <div className={`bg-white rounded-xl border ${coverDone ? 'border-green-200' : 'border-gray-200'} overflow-hidden`}>
-                  <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                  <div className={`px-5 py-3 border-b border-gray-100 flex items-center justify-between ${coverDone ? 'bg-green-50' : 'bg-gray-50'}`}>
                     <div className="flex items-center gap-2">
                       <span>📄</span>
-                      <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Cover Sheet (USPTO Form SB/16)</span>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${coverDone ? 'text-green-700' : 'text-gray-500'}`}>
+                        {coverDone ? '✅ Cover Sheet Complete' : 'Cover Sheet (USPTO Form SB/16)'}
+                      </span>
                     </div>
-                    {coverDone && <span className="text-xs font-semibold text-green-700">✅ Complete</span>}
+                    {coverDone && (
+                      <span className="text-xs text-green-600">
+                        ~{Math.max(1, Math.round(((patent.spec_draft?.length ?? 0) + (patent.claims_draft?.length ?? 0)) / 3000))} page ADS
+                      </span>
+                    )}
                   </div>
                   <div className="p-5">
-                    <p className="text-sm text-gray-600 mb-4">
-                      {coverDone
-                        ? 'Your cover sheet has been generated and acknowledged. You can regenerate it at any time.'
-                        : 'We\'ve pre-filled a cover sheet from your patent data. Open it, review, print or save as PDF, then mark it complete below.'}
-                    </p>
-                    <div className="flex gap-3 flex-wrap">
-                      <Link
-                        href={`/dashboard/patents/${patent.id}/cover-sheet`}
-                        target="_blank"
-                        className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors"
-                      >
-                        {coverDone ? '🔄 Regenerate Cover Sheet ↗' : '📄 Open Cover Sheet ↗'}
-                      </Link>
-                      {!coverDone && (
-                        <button
-                          onClick={() => setShowCoverSaveModal(true)}
-                          className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors"
-                        >
-                          ✅ I&apos;ve saved my cover sheet
-                        </button>
-                      )}
-                    </div>
+                    {coverDone ? (
+                      <>
+                        <p className="text-sm text-gray-600 mb-4">
+                          Your USPTO Application Data Sheet has been generated as a PDF. Download it and upload directly to Patent Center — no conversion needed.
+                        </p>
+                        <div className="flex items-center gap-4 flex-wrap">
+                          {/* Primary: Download PDF */}
+                          <a
+                            href={`/api/patents/${patent.id}/cover-sheet-pdf`}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              fetch(`/api/patents/${patent.id}/cover-sheet-pdf`, {
+                                headers: { Authorization: `Bearer ${authToken}` }
+                              })
+                                .then(r => r.blob())
+                                .then(blob => {
+                                  const url = URL.createObjectURL(blob)
+                                  const a = document.createElement('a')
+                                  a.href = url
+                                  a.download = `${patent.title.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().slice(0, 40)}-cover-sheet.pdf`
+                                  a.click()
+                                  URL.revokeObjectURL(url)
+                                })
+                                .catch(() => showToast('❌ PDF generation failed — try again'))
+                            }}
+                            className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors"
+                          >
+                            ⬇ Download Cover Sheet PDF
+                          </a>
+                          {/* Secondary: Regenerate (link style) */}
+                          <Link
+                            href={`/dashboard/patents/${patent.id}/cover-sheet`}
+                            target="_blank"
+                            className="text-xs text-gray-400 hover:text-gray-600 underline"
+                          >
+                            🔄 Regenerate
+                          </Link>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-gray-600 mb-4">
+                          We&apos;ve pre-filled a cover sheet from your patent data. Open it, review, print or save as PDF, then mark it complete below.
+                        </p>
+                        <div className="flex gap-3 flex-wrap">
+                          <Link
+                            href={`/dashboard/patents/${patent.id}/cover-sheet`}
+                            target="_blank"
+                            className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors"
+                          >
+                            📄 Open Cover Sheet ↗
+                          </Link>
+                          <button
+                            onClick={() => setShowCoverSaveModal(true)}
+                            className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors"
+                          >
+                            ✅ I&apos;ve saved my cover sheet
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )
