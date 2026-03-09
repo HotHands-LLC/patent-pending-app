@@ -144,7 +144,8 @@ export async function POST(
         // ── Low-contrast check ─────────────────────────────────────────────
         try {
           const stats = await sharp(processedBuf).stats()
-          const stdev = stats.channels[0]?.std ?? 255
+          // sharp ChannelStats uses 'stdev' not 'std'
+          const stdev = (stats.channels[0] as unknown as { stdev?: number })?.stdev ?? 255
           if (stdev < LOW_CONTRAST_STDEV) {
             lowContrastWarning = true
           }
