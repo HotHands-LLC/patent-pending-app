@@ -14,6 +14,7 @@ import {
 import type { ClaimsScore } from '@/lib/claims-score'
 import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 import Arc3Modal from '@/components/Arc3Modal'
+import DownloadPackageModal from '@/components/DownloadPackageModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -244,6 +245,7 @@ export default function PatentDetail() {
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [showArc3Modal, setShowArc3Modal] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
+  const [showDownloadModal, setShowDownloadModal] = useState(false)
   // Inline title editing
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -1146,6 +1148,14 @@ export default function PatentDetail() {
         )}
 
         {/* Arc 3 activation modal */}
+        {showDownloadModal && patent && authToken && (
+          <DownloadPackageModal
+            patent={patent}
+            authToken={authToken}
+            onClose={() => setShowDownloadModal(false)}
+          />
+        )}
+
         {showArc3Modal && patent && (
           <Arc3Modal
             patentId={patent.id}
@@ -1591,6 +1601,16 @@ export default function PatentDetail() {
           <div className="space-y-5">
             {/* 9-step progress tracker */}
             <FilingProgressTracker patent={patent} patentId={patent.id} />
+
+            {/* Download Filing Package CTA */}
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowDownloadModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#1a1f36] text-white rounded-xl text-sm font-semibold hover:bg-[#2d3561] transition-colors shadow-sm"
+              >
+                📦 Download Filing Package
+              </button>
+            </div>
 
             {/* What's Next guidance card */}
             {(() => {
