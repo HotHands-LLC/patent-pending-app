@@ -2,12 +2,12 @@
 // Drop into: components/dashboard/PatentIntakeCard.tsx
 // Shows for any patent where intake fields are incomplete (phase 1)
 // On submit: updates patents table + advances current_phase to 2
-import { USPTO_FEES } from '@/lib/uspto-fees'
 
 "use client";
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { USPTO_FEES } from "@/lib/uspto-fees";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface Patent {
