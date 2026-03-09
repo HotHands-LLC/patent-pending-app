@@ -609,7 +609,7 @@ To generate:
 
   // ── Generate ZIP buffer ─────────────────────────────────────────────────────
   const zipBuffer = await zip.generateAsync({
-    type: 'nodebuffer',
+    type: 'uint8array',
     compression: 'DEFLATE',
     compressionOptions: { level: 6 },
   })
