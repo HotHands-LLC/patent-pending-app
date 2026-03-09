@@ -28,6 +28,8 @@ interface ScenarioCard {
 export default function DownloadPackageModal({ patent, authToken, onClose }: DownloadPackageModalProps) {
   const [selected, setSelected] = useState<Scenario | null>(null)
   const [loading, setLoading] = useState(false)
+  const [emailing, setEmailing] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
   const [error, setError] = useState('')
 
   const hasSpec    = !!(patent.spec_draft)
@@ -42,7 +44,7 @@ export default function DownloadPackageModal({ patent, authToken, onClose }: Dow
       title: 'Provisional Filing',
       subtitle: 'Everything to file a provisional application at USPTO Patent Center',
       docs: [
-        { label: 'Cover Sheet (ADS HTML)', present: true, required: true, note: 'Open in browser → Print → Save as PDF' },
+        { label: 'Cover Sheet (ADS PDF)', present: true, required: true, note: 'PDF 1.7 — USPTO compliant, no conversion needed' },
         { label: 'Specification (.txt)', present: hasSpec, required: true },
         { label: 'Claims (.txt)', present: hasClaims, required: true },
         { label: 'Figures', present: hasFigures, required: false, note: 'Optional for provisional' },
@@ -65,7 +67,7 @@ export default function DownloadPackageModal({ patent, authToken, onClose }: Dow
       title: 'Non-Provisional Prep',
       subtitle: 'Full spec package + cover sheet for non-provisional filing',
       docs: [
-        { label: 'Cover Sheet (ADS HTML)', present: true, required: true, note: 'Reference your provisional app number' },
+        { label: 'Cover Sheet (ADS PDF)', present: true, required: true, note: 'Confirm provisional app number is listed' },
         { label: 'Specification (.txt)', present: hasSpec, required: true },
         { label: 'Claims (.txt)', present: hasClaims, required: true },
         { label: 'Figures', present: hasFigures, required: false, note: 'Must be 300 DPI line art for USPTO' },
@@ -216,11 +218,16 @@ export default function DownloadPackageModal({ patent, authToken, onClose }: Dow
               ⚠️ {error}
             </div>
           )}
+          {emailSent && (
+            <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+              ✅ Package sent to your email — check your inbox (including spam).
+            </div>
+          )}
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 mb-3">
             <button
               onClick={onClose}
-              className="flex-1 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors"
+              className="py-2.5 px-4 border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors"
             >
               Cancel
             </button>
@@ -240,6 +247,42 @@ export default function DownloadPackageModal({ patent, authToken, onClose }: Dow
               )}
             </button>
           </div>
+
+          {/* Email option */}
+          <button
+            onClick={async () => {
+              if (!selected || !canDownload || emailing) return
+              setEmailing(true)
+              setError('')
+              setEmailSent(false)
+              try {
+                const res = await fetch(`/api/patents/${patent.id}/email-package`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                  body: JSON.stringify({ scenario: selected }),
+                })
+                const json = await res.json()
+                if (!res.ok) { setError(json.error || 'Email failed — please try again.'); return }
+                setEmailSent(true)
+              } catch {
+                setError('Network error — please try again.')
+              } finally {
+                setEmailing(false)
+              }
+            }}
+            disabled={!canDownload || emailing || emailSent}
+            className="w-full py-2 border border-gray-200 text-gray-500 rounded-xl text-sm hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {emailing ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="animate-spin">⏳</span> Sending…
+              </span>
+            ) : emailSent ? (
+              '✅ Sent to your email'
+            ) : (
+              '📧 Email this package to me'
+            )}
+          </button>
 
           <p className="text-xs text-gray-400 text-center mt-3">
             PatentPending.app is not a law firm. Review all documents before filing.

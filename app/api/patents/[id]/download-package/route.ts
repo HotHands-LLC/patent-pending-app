@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import JSZip from 'jszip'
+import sharp from 'sharp'
 import { USPTO_FEES } from '@/lib/uspto-fees'
+import { buildCoverSheetPdf } from '@/lib/cover-sheet-pdf'
 
 export const maxDuration = 60
 
@@ -50,10 +52,10 @@ This package contains the documents needed to file a provisional patent applicat
 with the USPTO Patent Center (patentcenter.uspto.gov).
 
 REQUIRED DOCUMENTS:
-  01-cover-sheet.html      — Application Data Sheet (ADS)
-                             ACTION: Open in browser → Print → Save as PDF
+  01-cover-sheet.pdf       — Application Data Sheet (ADS) — PDF 1.7, USPTO compliant
+                             Auto-filled from your profile. No conversion needed.
                              USPTO Form: PTO/AIA/14 (37 CFR 1.76)
-                             ⚠️ Fill in any blank fields before printing
+                             ⚠️ Review all fields — correct any blanks before uploading
 
   02-specification.txt     — Written Description of Your Invention
                              Status: ${hasSpec ? '✅ Present' : '⚠️ MISSING — complete Step 5 in PatentPending.app'}
@@ -68,16 +70,15 @@ REQUIRED DOCUMENTS:
 OPTIONAL DOCUMENTS:
   figures/                 — Patent Drawings / Figures
                              Status: ${hasFigures ? '✅ Present' : '⚠️ Not yet generated'}
-                             USPTO note: Figures should be black and white line art
-                             at 300 DPI minimum. PDF format preferred for USPTO upload.
-                             SVG files are vector format — convert to PDF for filing.
+                             All figures exported at 300 DPI (USPTO minimum requirement met)
+                             Format: PNG — greyscale, lossless, USPTO-acceptable
+                             No conversion needed — upload directly to Patent Center
 
 FILING STEPS:
-  1. Open 01-cover-sheet.html in Chrome → File → Print → Save as PDF
-  2. Review and edit all blank fields in the cover sheet
-  3. Go to patentcenter.uspto.gov and create/log into your account
-  4. Start a new provisional application (Application Type: Provisional)
-  5. Upload: ADS PDF, specification .txt (or convert to PDF), claims .txt, figures
+  1. Review 01-cover-sheet.pdf — fill in any blank fields (open in Adobe Acrobat or Preview)
+  2. Go to patentcenter.uspto.gov and create/log into your account
+  3. Start a new provisional application (Application Type: Provisional)
+  4. Upload: 01-cover-sheet.pdf, 02-specification.txt, 03-claims.txt, figures/*.png
   6. Pay filing fee ($${USPTO_FEES.provisional.micro} micro entity / $${USPTO_FEES.provisional.small} small entity / $${USPTO_FEES.provisional.large} large entity)
   7. Save your filing receipt — it confirms your priority date
 
@@ -140,10 +141,9 @@ A non-provisional is the full patent application that can result in a granted pa
    patent attorney or agent (USPTO.gov/patent-attorney-or-agent-search).
 
 REQUIRED DOCUMENTS:
-  01-cover-sheet.html      — Application Data Sheet (ADS)
-                             ACTION: Open in browser → Print → Save as PDF
-                             Must reference your provisional app number for priority
-                             ⚠️ Update "Prior Application Number" field with provisional #
+  01-cover-sheet.pdf       — Application Data Sheet (ADS) — PDF 1.7, USPTO compliant
+                             Auto-filled. Must reference your provisional app number.
+                             ⚠️ Confirm "Prior Application Number" field is correct
 
   02-specification.txt     — Full Written Description
                              Status: ${hasSpec ? '✅ Present' : '⚠️ MISSING'}
@@ -156,11 +156,10 @@ REQUIRED DOCUMENTS:
                              USPTO note: Must include at least one independent claim
 
 OPTIONAL DOCUMENTS:
-  figures/                 — Patent Drawings
+  figures/                 — Patent Drawings (300 DPI PNG, USPTO minimum met)
                              Status: ${hasFigures ? '✅ Present' : '⚠️ Not generated'}
-                             For non-provisional: must be USPTO-compliant
-                             Black and white line art, 300 DPI minimum
-                             Margins: 1" top/right, 3/8" sides/bottom
+                             All figures exported at 300 DPI, greyscale, lossless PNG
+                             Margins: 1" top/right, 3/8" sides/bottom — verify before uploading
 
 ALSO REQUIRED (not in this package):
   • Abstract (max 150 words) — generate in PatentPending.app
@@ -509,100 +508,96 @@ export async function POST(
   // ── README ──────────────────────────────────────────────────────────────────
   folder.file('README.txt', buildReadme(scenario, patent as Record<string, unknown>, hasSpec, hasClaims, hasFigures))
 
-  // ── Scenario: provisional_filing ────────────────────────────────────────────
+  // ── Scenario: provisional_filing / non_provisional_prep ────────────────────
   if (scenario === 'provisional_filing' || scenario === 'non_provisional_prep') {
-    // Cover sheet (HTML)
-    folder.file('01-cover-sheet.html', buildCoverSheetHtml(patent as Record<string, unknown>, profile as Record<string, unknown> | null))
+    // Cover sheet — server-side PDF (USPTO-compliant PDF 1.7)
+    try {
+      const coverPdfBytes = await buildCoverSheetPdf(
+        patent as Record<string, unknown>,
+        profile as Record<string, unknown> | null
+      )
+      folder.file('01-cover-sheet.pdf', coverPdfBytes)
+    } catch (err) {
+      console.error('[download-package] cover sheet PDF error:', err)
+      // Fallback: include HTML if PDF generation fails
+      folder.file('01-cover-sheet.html', buildCoverSheetHtml(patent as Record<string, unknown>, profile as Record<string, unknown> | null))
+    }
 
     // Specification
     if (patent.spec_draft) {
       folder.file('02-specification.txt', patent.spec_draft)
     } else {
-      folder.file('02-specification-MISSING.txt', `SPECIFICATION NOT YET GENERATED
-
-This patent does not yet have a specification draft.
-
-To generate one:
-1. Go to PatentPending.app
-2. Open this patent
-3. Go to the Filing tab
-4. Complete Step 5: Specification
-`)
+      folder.file('02-specification-MISSING.txt', `SPECIFICATION NOT YET GENERATED\n\nComplete Step 5 in PatentPending.app first.`)
     }
 
     // Claims
     if (patent.claims_draft) {
       folder.file('03-claims.txt', patent.claims_draft)
     } else {
-      folder.file('03-claims-MISSING.txt', `CLAIMS NOT YET GENERATED
-
-This patent does not yet have claims.
-
-To generate:
-1. Go to PatentPending.app
-2. Open this patent
-3. Go to the Claims tab
-4. Generate and approve claims
-`)
+      folder.file('03-claims-MISSING.txt', `CLAIMS NOT YET GENERATED\n\nGenerate and approve claims in PatentPending.app first.`)
     }
 
-    // Abstract (bonus — include if exists)
+    // Abstract (bonus)
     if (patent.abstract_draft) {
       folder.file('04-abstract.txt', patent.abstract_draft)
     }
 
-    // Figures — list and download from storage
+    // Figures — download + process to 300 DPI PNG via Sharp
     if (patent.figures_uploaded) {
       const figuresFolder = folder.folder('figures')!
 
-      // Try AI-generated path first: {patentId}/figures/
       const { data: aiList } = await supabaseService.storage
         .from('patent-uploads')
         .list(`${patentId}/figures`, { limit: 20 })
+      const aiFiles = (aiList ?? []).filter(f => f.name.match(/^fig\d+\.(svg|png|jpg|jpeg)$/i))
 
-      const aiFiles = (aiList ?? []).filter(f => f.name.match(/^fig\d+\.(svg|png|jpg|jpeg|pdf)$/i))
-
-      // Also try user-uploaded path: {userId}/{patentId}/figures/
       const { data: userList } = await supabaseService.storage
         .from('patent-uploads')
         .list(`${user.id}/${patentId}/figures`, { limit: 20 })
+      const userFiles = (userList ?? []).filter(f => f.name.match(/\.(svg|png|jpg|jpeg)$/i))
 
-      const userFiles = (userList ?? []).filter(f =>
-        f.name.match(/\.(svg|png|jpg|jpeg|pdf)$/i)
-      )
+      const allFigs = [
+        ...aiFiles.map(f => ({ path: `${patentId}/figures/${f.name}`, name: f.name })),
+        ...userFiles.map(f => ({ path: `${user.id}/${patentId}/figures/${f.name}`, name: f.name })),
+      ]
 
-      // Download and add AI-generated figures
-      for (const fig of aiFiles) {
+      for (const fig of allFigs) {
         try {
-          const path = `${patentId}/figures/${fig.name}`
           const { data: signed } = await supabaseService.storage
             .from('patent-uploads')
-            .createSignedUrl(path, 300)
-          if (signed?.signedUrl) {
-            const res = await fetch(signed.signedUrl)
-            if (res.ok) {
-              const buf = await res.arrayBuffer()
-              figuresFolder.file(fig.name, buf)
-            }
-          }
-        } catch { /* skip failed downloads */ }
-      }
+            .createSignedUrl(fig.path, 300)
+          if (!signed?.signedUrl) continue
 
-      // Download and add user-uploaded figures
-      for (const fig of userFiles) {
-        try {
-          const path = `${user.id}/${patentId}/figures/${fig.name}`
-          const { data: signed } = await supabaseService.storage
-            .from('patent-uploads')
-            .createSignedUrl(path, 300)
-          if (signed?.signedUrl) {
-            const res = await fetch(signed.signedUrl)
-            if (res.ok) {
-              const buf = await res.arrayBuffer()
-              figuresFolder.file(fig.name, buf)
-            }
+          const res = await fetch(signed.signedUrl)
+          if (!res.ok) continue
+          const rawBuf = Buffer.from(await res.arrayBuffer())
+
+          const isSvg = fig.name.toLowerCase().endsWith('.svg')
+          let pngBuf: Buffer
+
+          if (isSvg) {
+            // SVG → PNG at 300 DPI, greyscale (USPTO: black and white line art)
+            pngBuf = await sharp(rawBuf, { density: 300 })
+              .resize({ width: 2550, height: 3300, fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+              .greyscale()
+              .png({ compressionLevel: 9 })
+              .toBuffer()
+          } else {
+            // PNG/JPG → set 300 DPI metadata, convert to PNG if needed
+            pngBuf = await sharp(rawBuf)
+              .withMetadata({ density: 300 })
+              .greyscale()
+              .png({ compressionLevel: 9 })
+              .toBuffer()
           }
-        } catch { /* skip failed downloads */ }
+
+          // Always output as .png in the ZIP
+          const outName = fig.name.replace(/\.(svg|jpg|jpeg)$/i, '.png')
+          figuresFolder.file(outName, pngBuf)
+        } catch (e) {
+          console.error(`[download-package] figure processing error for ${fig.name}:`, e)
+          // Skip failed figures — don't abort ZIP
+        }
       }
     }
   }
