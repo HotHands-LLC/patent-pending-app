@@ -154,15 +154,11 @@ export async function POST(
   }
 
   if (scenario === 'provisional_filing' || scenario === 'non_provisional_prep') {
-    // Cover sheet PDF
-    try {
-      const coverPdf = Buffer.from(
-        await buildCoverSheetPdf(patent as Record<string, unknown>, profile as Record<string, unknown> | null)
-      )
-      addFile('01-cover-sheet.pdf', coverPdf)
-    } catch (e) {
-      console.error('[email-package] cover sheet error:', e)
-    }
+    // Cover sheet PDF — always included (throws on failure so caller gets a proper error)
+    const coverPdf = Buffer.from(
+      await buildCoverSheetPdf(patent as Record<string, unknown>, profile as Record<string, unknown> | null)
+    )
+    addFile('01-cover-sheet.pdf', coverPdf)
 
     // Specification
     if (patent.spec_draft) {
