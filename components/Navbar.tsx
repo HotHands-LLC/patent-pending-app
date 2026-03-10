@@ -24,6 +24,20 @@ function usePendingReviewCount() {
   return count
 }
 
+function useIsAdmin(): boolean {
+  const [isAdmin, setIsAdmin] = useState(false)
+  useEffect(() => {
+    async function check() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+      setIsAdmin(!!(data as { is_admin?: boolean } | null)?.is_admin)
+    }
+    check()
+  }, [])
+  return isAdmin
+}
+
 type Tier = 'free' | 'pro' | 'complimentary' | null
 
 function useSubscriptionTier(): Tier {
@@ -61,6 +75,7 @@ export default function Navbar() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const pendingCount = usePendingReviewCount()
   const tier = useSubscriptionTier()
+  const isAdmin = useIsAdmin()
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => setIsLoggedIn(!!user))
@@ -143,6 +158,15 @@ export default function Navbar() {
                 >
                   + New Patent
                 </Link>
+                {isAdmin && (
+                  <Link
+                    href="/admin"
+                    className="px-2.5 py-1.5 text-white/50 hover:text-white/80 text-sm transition-colors border border-white/20 rounded-lg hover:border-white/40"
+                    title="Admin panel"
+                  >
+                    ⚙ Admin
+                  </Link>
+                )}
                 <button
                   onClick={signOut}
                   className="text-white/60 hover:text-white text-sm transition-colors"
@@ -227,6 +251,15 @@ export default function Navbar() {
                   >
                     + New Patent
                   </Link>
+                  {isAdmin && (
+                    <Link
+                      href="/admin"
+                      onClick={() => setMobileOpen(false)}
+                      className="flex items-center px-3 py-3 text-white/60 hover:text-white text-sm min-h-[44px] border border-white/20 rounded-lg"
+                    >
+                      ⚙ Admin
+                    </Link>
+                  )}
                   <button
                     onClick={signOut}
                     className="flex items-center w-full px-3 py-3 text-white/60 hover:text-white text-sm min-h-[44px]"

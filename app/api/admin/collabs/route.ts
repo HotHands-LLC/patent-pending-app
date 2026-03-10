@@ -30,9 +30,9 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await getUserClient(token).auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Verify admin
+  // Verify admin — use profiles table (has is_admin column, not patent_profiles)
   const { data: profile } = await supabaseService
-    .from('patent_profiles')
+    .from('profiles')
     .select('is_admin')
     .eq('id', user.id)
     .single()

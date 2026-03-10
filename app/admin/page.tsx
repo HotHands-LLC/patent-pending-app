@@ -78,7 +78,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'collabs' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'accounts' | 'connectors'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'people' | 'collabs' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'accounts' | 'connectors'>('overview')
   const [authToken, setAuthToken] = useState('')
   const [mfaWarning, setMfaWarning] = useState<'setup' | 'verify' | null>(null)
 
@@ -316,7 +316,7 @@ export default function AdminPage() {
     { key: 'partners', label: 'Partners', icon: '⚖️' },
     { key: 'accounts', label: 'Accounts', icon: '👥' },
     { key: 'patents', label: `Patents (${summary.total_patents})`, icon: '📋' },
-    { key: 'users', label: `Users (${summary.total_users})`, icon: '👤' },
+    { key: 'people', label: 'People', icon: '👥' },
     { key: 'collabs', label: 'Collabs', icon: '🤝' },
     { key: 'ai-costs', label: 'AI Costs', icon: '🤖' },
     { key: 'activity', label: 'Activity', icon: '📡' },
@@ -553,11 +553,9 @@ export default function AdminPage() {
           )}
 
           {/* ── USERS ────────────────────────────────────────────────────── */}
-          {activeSection === 'users' && (
-            <AdminUsersPanel
-              users={stats.user_table}
-              authToken={authToken}
-            />
+          {/* ── PEOPLE (unified view) ────────────────────────────────── */}
+          {activeSection === 'people' && (
+            <AdminPeoplePanel authToken={authToken} />
           )}
 
           {/* ── COLLABORATOR INVITES ──────────────────────────────────── */}
@@ -1945,4 +1943,242 @@ function AdminCollabsPanel({ authToken }: { authToken: string }) {
       )}
     </div>
   )
+}
+
+// ── Admin People Panel (unified: auth users + patent_profiles + collabs) ─────
+
+interface PersonRow {
+  email: string
+  name: string | null
+  account_status: 'active' | 'ghost' | 'no_account'
+  user_id: string | null
+  patents_owned: number
+  collaborations: Array<{
+    collab_id: string
+    patent_id: string
+    patent_title: string
+    role: string
+    collab_status: 'active' | 'ghost' | 'pending' | 'expired'
+  }>
+  joined: string | null
+  last_seen: string | null
+}
+
+const ACCOUNT_BADGE: Record<string, { label: string; cls: string }> = {
+  active:     { label: '✅ Active',     cls: 'bg-green-100 text-green-700' },
+  ghost:      { label: '⚠️ Ghost',      cls: 'bg-orange-100 text-orange-700' },
+  no_account: { label: '👤 No Account', cls: 'bg-gray-100 text-gray-500' },
+}
+
+const COLLAB_ROLE_SHORT: Record<string, string> = {
+  co_inventor: 'Co-Inv',
+  counsel: 'Counsel',
+  attorney: 'Attorney',
+  viewer: 'Viewer',
+  owner: 'Owner',
+}
+
+const COLLAB_STATUS_COLOR: Record<string, string> = {
+  active:  'bg-green-100 text-green-700',
+  ghost:   'bg-orange-100 text-orange-700',
+  pending: 'bg-amber-100 text-amber-700',
+  expired: 'bg-red-100 text-red-600',
+}
+
+function AdminPeoplePanel({ authToken }: { authToken: string }) {
+  const [people, setPeople] = React.useState<PersonRow[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState('')
+  const [resendingId, setResendingId] = React.useState<string | null>(null)
+  const [resendMsg, setResendMsg] = React.useState<Record<string, string>>({})
+  const [filter, setFilter] = React.useState<'all' | 'active' | 'ghost' | 'no_account'>('all')
+
+  const load = React.useCallback(async () => {
+    setLoading(true)
+    const res = await fetch('/api/admin/people', {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+    const d = await res.json()
+    if (!res.ok) { setError(d.error ?? 'Failed to load'); setLoading(false); return }
+    setPeople(d.people ?? [])
+    setLoading(false)
+  }, [authToken])
+
+  React.useEffect(() => { load() }, [load])
+
+  async function resendToPerson(person: PersonRow) {
+    // Find the most recent expired/pending/ghost invite to resend
+    const target = person.collaborations.find(
+      c => c.collab_status === 'expired' || c.collab_status === 'ghost' || c.collab_status === 'pending'
+    )
+    if (!target) return
+
+    setResendingId(person.email)
+    const res = await fetch(`/api/patents/${target.patent_id}/resend-invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ collaborator_id: target.collab_id }),
+    })
+    const d = await res.json()
+    setResendMsg(prev => ({ ...prev, [person.email]: res.ok ? `✅ Resent to ${person.email}` : `❌ ${d.error}` }))
+    setTimeout(() => setResendMsg(prev => { const copy = { ...prev }; delete copy[person.email]; return copy }), 5000)
+    setResendingId(null)
+    if (res.ok) load()
+  }
+
+  function formatDate(s: string | null) {
+    if (!s) return '—'
+    return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+  }
+
+  const filtered = filter === 'all' ? people : people.filter(p => p.account_status === filter)
+  const counts = { all: people.length, active: 0, ghost: 0, no_account: 0 }
+  people.forEach(p => { counts[p.account_status]++ })
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-gray-900">People ({people.length})</h1>
+        <button onClick={load} className="text-xs text-indigo-600 hover:underline">↻ Refresh</button>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {(['all', 'active', 'ghost', 'no_account'] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
+              filter === f
+                ? 'bg-indigo-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {f === 'all'
+              ? `All (${counts.all})`
+              : f === 'no_account'
+              ? `👤 No Account (${counts.no_account})`
+              : f === 'ghost'
+              ? `⚠️ Ghost (${counts.ghost})`
+              : `✅ Active (${counts.active})`}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div className="text-sm text-gray-400 py-8 text-center">Loading...</div>}
+      {error && <div className="text-sm text-red-500 py-4">{error}</div>}
+
+      {!loading && !error && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Person</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Patents</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Collaborations</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Joined</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Last Seen</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-400">No people found.</td>
+                  </tr>
+                )}
+                {filtered.map(p => {
+                  const badge = ACCOUNT_BADGE[p.account_status]
+                  const canResend = (p.account_status === 'ghost' || p.account_status === 'no_account')
+                    && p.collaborations.some(c =>
+                      c.collab_status === 'expired' || c.collab_status === 'ghost' || c.collab_status === 'pending'
+                    )
+                  return (
+                    <tr key={p.email} className="hover:bg-gray-50 align-top">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-800">{p.name ?? <span className="text-gray-400 italic">No name</span>}</div>
+                        <div className="text-gray-400 mt-0.5">{p.email}</div>
+                        {resendMsg[p.email] && (
+                          <div className={`mt-1 text-xs ${resendMsg[p.email].startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>
+                            {resendMsg[p.email]}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-full font-semibold ${badge.cls}`}>
+                          {badge.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-gray-700">
+                        {p.patents_owned > 0 ? `${p.patents_owned} owned` : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {p.collaborations.length === 0 ? (
+                          <span className="text-gray-300">—</span>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            {p.collaborations.map(c => (
+                              <span
+                                key={c.collab_id}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${COLLAB_STATUS_COLOR[c.collab_status]}`}
+                                title={`${c.patent_title} — ${c.role} — ${c.collab_status}`}
+                              >
+                                <span className="truncate max-w-[100px]">{c.patent_title.replace(/^(READI|QR\+|Traffic Stop)/i, m => m)}</span>
+                                <span className="opacity-70">· {COLLAB_ROLE_SHORT[c.role] ?? c.role}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">{formatDate(p.joined)}</td>
+                      <td className="px-4 py-3 text-gray-500">{formatDate(p.last_seen)}</td>
+                      <td className="px-4 py-3">
+                        {canResend && (
+                          <button
+                            onClick={() => resendToPersonWrapped(p)}
+                            disabled={resendingId === p.email}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 px-2.5 py-1 rounded border border-indigo-200 hover:bg-indigo-50 transition-colors disabled:opacity-50 font-medium whitespace-nowrap"
+                          >
+                            {resendingId === p.email ? '...' : 'Resend →'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
+  function resendToPersonWrapped(person: PersonRow) {
+    resendToPersonFn(person)
+  }
+
+  async function resendToPersonFn(person: PersonRow) {
+    return resendToPersonImpl(person)
+  }
+
+  async function resendToPersonImpl(person: PersonRow) {
+    const target = person.collaborations.find(
+      c => c.collab_status === 'expired' || c.collab_status === 'ghost' || c.collab_status === 'pending'
+    )
+    if (!target) return
+    setResendingId(person.email)
+    const res = await fetch(`/api/patents/${target.patent_id}/resend-invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ collaborator_id: target.collab_id }),
+    })
+    const d = await res.json()
+    setResendMsg(prev => ({ ...prev, [person.email]: res.ok ? `✅ Resent to ${person.email}` : `❌ ${d.error}` }))
+    setTimeout(() => setResendMsg(prev => { const copy = { ...prev }; delete copy[person.email]; return copy }), 5000)
+    setResendingId(null)
+    if (res.ok) load()
+  }
 }
