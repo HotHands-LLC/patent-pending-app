@@ -94,7 +94,7 @@ export type PatentCorrespondence = {
   patent_id: string | null
   owner_id: string
   title: string
-  type: 'uspto_action' | 'email' | 'filing' | 'attorney_note' | 'boclaw_note' | 'deadline_notice' | 'other'
+  type: 'uspto_action' | 'email' | 'filing' | 'attorney_note' | 'boclaw_note' | 'deadline_notice' | 'ai_research' | 'other'
   content: string | null
   from_party: string | null
   to_party: string | null
@@ -113,6 +113,7 @@ export const CORRESPONDENCE_TYPE_LABELS: Record<string, string> = {
   attorney_note: 'Attorney Note',
   boclaw_note: 'Pattie Note',
   deadline_notice: 'Deadline Notice',
+  ai_research: 'AI Research',
   other: 'Other',
 }
 
@@ -123,5 +124,6 @@ export const CORRESPONDENCE_TYPE_COLORS: Record<string, string> = {
   attorney_note: 'bg-purple-100 text-purple-800 border border-purple-200',
   boclaw_note: 'bg-orange-100 text-orange-800 border border-orange-200',
   deadline_notice: 'bg-yellow-100 text-yellow-800 border border-yellow-200',
+  ai_research: 'bg-indigo-100 text-indigo-800 border border-indigo-200',
   other: 'bg-gray-100 text-gray-600 border border-gray-200',
 }

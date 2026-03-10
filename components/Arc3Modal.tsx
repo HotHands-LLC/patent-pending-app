@@ -22,7 +22,7 @@ export default function Arc3Modal({ patentId, patentTitle, authToken, onSuccess,
     setActivating(true)
     setError('')
     try {
-      // Step 1: Activate Arc 3 (creates agency agreement)
+      // Step 1: Activate Marketplace (creates agency agreement)
       const res = await fetch(`/api/patents/${patentId}/activate-arc3`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
@@ -54,7 +54,7 @@ export default function Arc3Modal({ patentId, patentTitle, authToken, onSuccess,
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Activate Arc 3 — Deal Page</h2>
+            <h2 className="text-lg font-bold text-gray-900">Activate Marketplace</h2>
             <p className="text-sm text-gray-500 mt-0.5 truncate max-w-xs">{patentTitle}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl w-8 h-8 flex items-center justify-center">×</button>
@@ -63,7 +63,7 @@ export default function Arc3Modal({ patentId, patentTitle, authToken, onSuccess,
         <div className="px-6 py-5 space-y-5">
           {/* What this does */}
           <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
-            <div className="font-semibold text-indigo-900 mb-1">What Arc 3 does</div>
+            <div className="font-semibold text-indigo-900 mb-1">What the Marketplace does</div>
             <ul className="text-sm text-indigo-700 space-y-1">
               <li>✓ Creates a public deal page at patentpending.app/patents/[slug]</li>
               <li>✓ AI generates plain-English summary + market opportunity</li>
@@ -150,7 +150,7 @@ export default function Arc3Modal({ patentId, patentTitle, authToken, onSuccess,
             disabled={activating || !agreed}
             className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 transition-colors"
           >
-            {activating ? 'Activating...' : 'Activate Arc 3 — Create Deal Page →'}
+            {activating ? 'Activating...' : 'Activate Marketplace — Create Deal Page →'}
           </button>
         </div>
       </div>

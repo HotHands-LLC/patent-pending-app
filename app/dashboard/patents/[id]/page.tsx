@@ -1,5 +1,6 @@
 'use client'
 import React, { useEffect, useState, useRef, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
@@ -861,7 +862,7 @@ export default function PatentDetail() {
           const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
-              if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Arc 3 active
+              if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               return canView(t)
             })
@@ -1102,7 +1103,7 @@ export default function PatentDetail() {
                 </div>
               )}
 
-              {/* ── Arc 3: Deal Page ──────────────────────────────────────────── */}
+              {/* ── Marketplace: Deal Page ─────────────────────────────────────── */}
               {/* Figures summary in Details sidebar */}
               {patent.figures_uploaded && (
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -1142,7 +1143,8 @@ export default function PatentDetail() {
                 }`}>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-base">🏛️</span>
-                    <h2 className="font-semibold text-[#1a1f36] text-sm">Arc 3 — Deal Page</h2>
+                    <h2 className="font-semibold text-[#1a1f36] text-sm">Marketplace</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">List your patent. Reach licensees, OEMs, and acquirers.</p>
                   </div>
                   {(patent as Patent & { arc3_active?: boolean }).arc3_active ? (
                     <div>
@@ -1155,6 +1157,36 @@ export default function PatentDetail() {
                       >
                         View public deal page →
                       </a>
+                      {/* Research plan trigger */}
+                      {(() => {
+                        const researchStatus = (patent as Patent & { marketplace_research_status?: string }).marketplace_research_status
+                        const brief = (patent as Patent & { deal_page_brief?: Record<string, string> }).deal_page_brief
+                        if (researchStatus === 'complete') {
+                          return <p className="text-xs text-green-600 mt-1">📊 Research plan ready — see Correspondence tab</p>
+                        }
+                        if (researchStatus === 'pending') {
+                          return <p className="text-xs text-gray-400 mt-1 animate-pulse">⏳ Generating research plan…</p>
+                        }
+                        if (brief) {
+                          return (
+                            <button
+                              onClick={async () => {
+                                setPatent(prev => prev ? { ...prev, marketplace_research_status: 'pending' } as typeof prev : null)
+                                await fetch(`/api/patents/${patent.id}/marketplace/research`, {
+                                  method: 'POST',
+                                  headers: { Authorization: `Bearer ${authToken}` },
+                                })
+                                setPatent(prev => prev ? { ...prev, marketplace_research_status: 'complete' } as typeof prev : null)
+                                setTab('correspondence')
+                              }}
+                              className="text-xs text-indigo-600 underline mt-1 block text-left hover:text-indigo-800"
+                            >
+                              📊 Generate research plan →
+                            </button>
+                          )
+                        }
+                        return null
+                      })()}
                     </div>
                   ) : (
                     <>
@@ -1307,7 +1339,7 @@ export default function PatentDetail() {
           </div>
         )}
 
-        {/* Arc 3 activation modal */}
+        {/* Marketplace activation modal */}
         {showDownloadModal && patent && authToken && (
           <DownloadPackageModal
             patent={patent}
@@ -1325,7 +1357,7 @@ export default function PatentDetail() {
               setArc3Slug(slug)
               setShowArc3Modal(false)
               setPatent(prev => prev ? { ...prev, arc3_active: true } as typeof prev : null)
-              showToast('🏛️ Arc 3 activated! Deal page is live.')
+              showToast('🏛️ Marketplace activated! Deal page is live.')
               // Trigger Pattie interview to build deal page brief
               setShowArc3Interview(true)
             }}
@@ -2366,7 +2398,13 @@ export default function PatentDetail() {
                     {expandedCorr === item.id && (
                       <div className="px-4 pb-4 border-t border-gray-50">
                         {item.content && (
-                          <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap">{item.content}</div>
+                          item.type === 'ai_research'
+                            ? (
+                              <div className="mt-3 p-4 bg-gray-50 rounded-lg text-sm text-gray-800 prose prose-sm prose-headings:text-[#1a1f36] prose-headings:font-bold prose-h2:text-base prose-h2:mt-5 prose-h2:mb-2 prose-ul:my-1 prose-li:my-0.5 max-w-none">
+                                <ReactMarkdown>{item.content}</ReactMarkdown>
+                              </div>
+                            )
+                            : <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap">{item.content}</div>
                         )}
                         {/* Attachments */}
                         {Array.isArray(item.attachments) && item.attachments.length > 0 && (
@@ -2539,7 +2577,7 @@ function Arc3InterviewModal({ patentId, patentTitle, authToken, onClose }: {
           <div>
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">PP</div>
-              <span className="font-bold text-[#1a1f36] text-sm">Pattie — Deal Page Interview</span>
+              <span className="font-bold text-[#1a1f36] text-sm">Pattie — Marketplace Interview</span>
             </div>
             <p className="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{patentTitle}</p>
           </div>

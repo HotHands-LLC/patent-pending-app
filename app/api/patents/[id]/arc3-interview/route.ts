@@ -68,7 +68,7 @@ export async function POST(
     // Kick off the interview — Pattie asks Q1
     messages.push({
       role: 'user',
-      content: `[Arc 3 deal page interview initiated for: "${patent.title}". Please start with question 1.]`,
+      content: `[Marketplace deal page interview initiated for: "${patent.title}". Please start with question 1.]`,
     })
   }
 
