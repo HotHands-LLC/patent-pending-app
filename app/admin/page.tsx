@@ -78,7 +78,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'people' | 'collabs' | 'roles' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'accounts' | 'connectors'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'people' | 'collabs' | 'roles' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'billing' | 'connectors'>('overview')
   const [authToken, setAuthToken] = useState('')
   const [mfaWarning, setMfaWarning] = useState<'setup' | 'verify' | null>(null)
 
@@ -314,7 +314,7 @@ export default function AdminPage() {
     // 'content' tab removed — BoBozly content lives in bo.hotdeck.com/admin (shared Supabase project)
     { key: 'agency', label: 'Agency', icon: '🤝' },
     { key: 'partners', label: 'Partners', icon: '⚖️' },
-    { key: 'accounts', label: 'Accounts', icon: '👥' },
+    { key: 'billing', label: 'Billing', icon: '💳' },
     { key: 'patents', label: `Patents (${summary.total_patents})`, icon: '📋' },
     { key: 'people', label: 'People', icon: '👥' },
     { key: 'collabs', label: 'Collabs', icon: '🤝' },
@@ -924,7 +924,7 @@ export default function AdminPage() {
           {activeSection === 'partners' && (
             <AdminPartnersPanel authToken={authToken} />
           )}
-          {activeSection === 'accounts' && (
+          {activeSection === 'billing' && (
             <AdminAccountsPanel authToken={authToken} />
           )}
 
@@ -1321,7 +1321,7 @@ function AdminAccountsPanel({ authToken }: { authToken: string }) {
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-[#1a1f36] mb-4">Account Management</h2>
+      <h2 className="text-lg font-bold text-[#1a1f36] mb-4">Billing &amp; Tiers</h2>
       {msg && <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">{msg}</div>}
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
@@ -1338,7 +1338,12 @@ function AdminAccountsPanel({ authToken }: { authToken: string }) {
             {accounts.map(a => (
               <tr key={a.id} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="py-3 pr-4">
-                  <div className="font-medium text-[#1a1f36]">{a.full_name ?? '—'}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-[#1a1f36]">{a.full_name ?? '—'}</span>
+                    {a.is_internal && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-400 border border-gray-200">Internal</span>
+                    )}
+                  </div>
                   <div className="text-xs text-gray-400">{a.email}</div>
                 </td>
                 <td className="py-3 pr-4">

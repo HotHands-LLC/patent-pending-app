@@ -22,6 +22,7 @@ export interface PersonRow {
   account_status: 'active' | 'ghost' | 'no_account'
   user_id: string | null
   patents_owned: number
+  is_internal: boolean
   collaborations: Array<{
     collab_id: string
     patent_id: string
@@ -69,7 +70,7 @@ export async function GET(req: NextRequest) {
     patentsResult,
   ] = await Promise.all([
     supabaseService.auth.admin.listUsers({ perPage: 1000 }),
-    supabaseService.from('patent_profiles').select('id, email, full_name, created_at'),
+    supabaseService.from('patent_profiles').select('id, email, full_name, created_at, is_internal'),
     supabaseService
       .from('patent_collaborators')
       .select('id, patent_id, invited_email, role, accepted_at, user_id, created_at, patents(id, title)')
@@ -85,6 +86,11 @@ export async function GET(req: NextRequest) {
   // Build lookup maps
   const authByEmail = new Map(authUsers.map(u => [u.email?.toLowerCase() ?? '', u]))
   const profileByEmail = new Map(profiles.map(p => [(p.email ?? '').toLowerCase(), p]))
+
+  // Build internal email set for quick lookup
+  const internalEmails = new Set(
+    profiles.filter(p => p.is_internal).map(p => (p.email ?? '').toLowerCase())
+  )
 
   // Count patents owned per user_id
   const patentsOwnedByUserId = new Map<string, number>()
@@ -107,6 +113,8 @@ export async function GET(req: NextRequest) {
   const people: PersonRow[] = []
 
   for (const email of allEmails) {
+    // Skip internal accounts from the People list (they appear in Billing with a badge)
+    if (internalEmails.has(email)) continue
     const authUser = authByEmail.get(email)
     const profile = profileByEmail.get(email)
 
@@ -161,6 +169,7 @@ export async function GET(req: NextRequest) {
       account_status,
       user_id,
       patents_owned,
+      is_internal: internalEmails.has(email),
       collaborations,
       joined,
       last_seen,
