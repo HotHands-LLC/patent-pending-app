@@ -15,6 +15,7 @@ import type { ClaimsScore } from '@/lib/claims-score'
 import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 import Arc3Modal from '@/components/Arc3Modal'
 import DownloadPackageModal from '@/components/DownloadPackageModal'
+import PattieChatDrawer from '@/components/PattieChatDrawer'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -245,6 +246,7 @@ export default function PatentDetail() {
   const [collaboratorRole, setCollaboratorRole] = useState<string | null>(null)
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [showArc3Modal, setShowArc3Modal] = useState(false)
+  const [showPattie, setShowPattie] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   // Inline title editing
@@ -2241,6 +2243,36 @@ export default function PatentDetail() {
 
       {/* Toast */}
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
+
+      {/* ── ASK PATTIE floating button ───────────────────────────────────────── */}
+      {patent && authToken && !showPattie && (
+        <button
+          onClick={() => setShowPattie(true)}
+          className="
+            fixed bottom-6 right-6 z-40
+            flex items-center gap-2
+            bg-[#4f46e5] text-white
+            px-4 py-3 rounded-full shadow-lg
+            hover:bg-[#4338ca] active:scale-95 transition-all
+            text-sm font-semibold
+            sm:rounded-full
+          "
+          aria-label="Open Pattie chat"
+        >
+          <span className="text-base">🦞</span>
+          <span>Ask Pattie</span>
+        </button>
+      )}
+
+      {/* ── PATTIE CHAT DRAWER ───────────────────────────────────────────────── */}
+      {showPattie && patent && authToken && (
+        <PattieChatDrawer
+          patentId={patent.id}
+          patentTitle={patent.title}
+          authToken={authToken}
+          onClose={() => setShowPattie(false)}
+        />
+      )}
     </div>
   )
 }
