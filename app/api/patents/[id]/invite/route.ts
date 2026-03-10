@@ -48,7 +48,7 @@ export async function POST(
     if (!invited_email || !invited_email.includes('@')) {
       return NextResponse.json({ error: 'Valid invited_email required' }, { status: 400 })
     }
-    if (!['co_inventor', 'counsel', 'attorney', 'viewer'].includes(role)) {
+    if (!['co_inventor', 'legal_counsel', 'agency', 'viewer'].includes(role)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
     }
 
@@ -235,12 +235,12 @@ async function sendInviteEmail(
 
   const roleLabel = {
     co_inventor: 'Co-Inventor',
-    counsel: 'Legal Counsel',
-    attorney: 'Attorney',
+    legal_counsel: 'Legal Counsel',
+    agency: 'Agency',
     viewer: 'Viewer',
   }[role] ?? role
 
-  const counselNote = role === 'counsel'
+  const counselNote = role === 'legal_counsel'
     ? `<p style="color:#374151;background:#f3f4f6;padding:12px;border-radius:8px;font-size:14px;">
         You have legal counsel view access to this patent. You can view and download all documents
         including the specification, claims, and figures.
@@ -251,7 +251,7 @@ async function sendInviteEmail(
     ? `<p style="color:#374151;">Your ownership stake: <strong>${ownershipPct}%</strong></p>`
     : ''
 
-  const isLegal = role === 'counsel' || role === 'attorney'
+  const isLegal = role === 'legal_counsel'
   const subjectLine = isLegal
     ? `Legal access granted — ${patentTitle}`
     : `${inviterName} invited you to collaborate on a patent`

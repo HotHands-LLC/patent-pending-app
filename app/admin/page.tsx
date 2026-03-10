@@ -1795,8 +1795,8 @@ const COLLAB_STATUS_BADGE: Record<string, { label: string; cls: string; icon: st
 
 const ROLE_LABELS_ADMIN: Record<string, string> = {
   co_inventor: 'Co-Inventor',
-  counsel: 'Counsel',
-  attorney: 'Attorney',
+  legal_counsel: 'Legal Counsel',
+  agency: 'Agency',
   viewer: 'Viewer',
   owner: 'Owner',
 }
@@ -1972,8 +1972,8 @@ const ACCOUNT_BADGE: Record<string, { label: string; cls: string }> = {
 
 const COLLAB_ROLE_SHORT: Record<string, string> = {
   co_inventor: 'Co-Inv',
-  counsel: 'Counsel',
-  attorney: 'Attorney',
+  legal_counsel: 'Counsel',
+  agency: 'Agency',
   viewer: 'Viewer',
   owner: 'Owner',
 }

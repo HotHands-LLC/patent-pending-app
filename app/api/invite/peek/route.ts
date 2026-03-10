@@ -51,8 +51,8 @@ export async function GET(req: NextRequest) {
 
   const roleLabel: Record<string, string> = {
     co_inventor: 'Co-Inventor',
-    counsel: 'Legal Counsel',
-    attorney: 'Attorney',
+    legal_counsel: 'Legal Counsel',
+    agency: 'Agency',
     viewer: 'Viewer',
   }
 

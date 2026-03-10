@@ -107,11 +107,11 @@ export async function POST(
 
     const roleLabel: Record<string, string> = {
       co_inventor: 'Co-Inventor',
-      counsel: 'Legal Counsel',
-      attorney: 'Attorney',
+      legal_counsel: 'Legal Counsel',
+      agency: 'Agency',
       viewer: 'Viewer',
     }
-    const isLegal = collab.role === 'counsel' || collab.role === 'attorney'
+    const isLegal = collab.role === 'legal_counsel'
     const ownershipLine = collab.ownership_pct > 0
       ? `<p style="color:#374151;">Your ownership stake: <strong>${collab.ownership_pct}%</strong></p>`
       : ''
