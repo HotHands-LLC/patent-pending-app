@@ -9,6 +9,7 @@ type ImportStatus = 'provisional' | 'non_provisional' | 'granted' | 'published' 
 interface LookupResult {
   application_number: string
   patent_number: string
+  publication_number: string | null
   title: string
   inventors: string[]
   filing_date: string | null
@@ -16,6 +17,7 @@ interface LookupResult {
   status: string
   status_text: string
   abstract: string
+  source?: string
 }
 
 interface Props {
@@ -25,32 +27,39 @@ interface Props {
 
 // ── Status config ──────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<ImportStatus, {
-  label: string; emoji: string; fields: string[]; numberLabel: string; numberPlaceholder: string;
+  label: string; emoji: string; fields: string[];
+  numberLabel: string; numberPlaceholder: string;
+  desc: string;
 }> = {
   provisional: {
     label: 'Provisional', emoji: '📝',
     fields: ['provisional_number', 'filing_date', 'provisional_deadline'],
     numberLabel: 'Provisional Application #', numberPlaceholder: '63/123,456',
+    desc: 'Filed to establish priority date — you have 12 months to file the non-provisional.',
   },
   non_provisional: {
     label: 'Non-Provisional (Utility)', emoji: '📋',
     fields: ['application_number', 'filing_date', 'provisional_number'],
     numberLabel: 'Application #', numberPlaceholder: '17/123,456',
+    desc: 'Full utility application filed and pending USPTO examination.',
   },
   granted: {
     label: 'Granted / Issued', emoji: '🏆',
     fields: ['patent_number', 'application_number', 'filing_date'],
-    numberLabel: 'Patent #', numberPlaceholder: 'US10,123,456',
+    numberLabel: 'Patent # or Publication #', numberPlaceholder: 'US11977694B2',
+    desc: 'Patent granted — all rights in force. Paste the grant number (e.g. US11977694B2) to auto-fill.',
   },
   published: {
     label: 'Published (Pre-Grant)', emoji: '📰',
     fields: ['application_number', 'filing_date'],
-    numberLabel: 'Publication #', numberPlaceholder: 'US20210123456A1',
+    numberLabel: 'Publication # or Application #', numberPlaceholder: 'US20210123456A1',
+    desc: 'Application published by USPTO — examination in progress, patent not yet granted.',
   },
   abandoned: {
     label: 'Abandoned', emoji: '🗂️',
     fields: ['application_number', 'filing_date'],
     numberLabel: 'Application #', numberPlaceholder: '17/123,456',
+    desc: 'Application is no longer active — archived for reference.',
   },
 }
 
@@ -129,8 +138,12 @@ export default function NewPatentModal({ onClose, authToken }: Props) {
       if (r.filing_date) handleFilingDate(r.filing_date)
       if (r.provisional_deadline) set('provisional_deadline', r.provisional_deadline)
       if (r.application_number) set('application_number', r.application_number)
+      if (r.patent_number || r.publication_number) set('patent_number', r.patent_number || r.publication_number || '')
       if (r.abstract) set('description', r.abstract)
-      if (r.status) setImportStatus(r.status as ImportStatus)
+      // Auto-select status based on result
+      if (r.status && Object.keys(STATUS_CONFIG).includes(r.status)) {
+        setImportStatus(r.status as ImportStatus)
+      }
     } catch { setLookupError('Network error — try again.') }
     finally { setLooking(false) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,32 +262,36 @@ export default function NewPatentModal({ onClose, authToken }: Props) {
         {branch === 'import' && (
           <div className="p-6 space-y-5">
 
-            {/* Status picker */}
+            {/* Status picker — single-select radio style */}
             <div>
               <label className="block text-sm font-medium text-[#1a1f36] mb-2">Patent Status</label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
                 {(Object.keys(STATUS_CONFIG) as ImportStatus[]).map(s => (
                   <button
                     key={s}
                     onClick={() => setImportStatus(s)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-all text-left ${
                       importStatus === s
-                        ? 'border-[#1a1f36] bg-[#1a1f36] text-white'
-                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                        ? 'border-[#1a1f36] bg-[#1a1f36] text-white ring-2 ring-[#1a1f36] ring-offset-1'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-400 hover:bg-gray-50'
                     }`}
                   >
-                    <span>{STATUS_CONFIG[s].emoji}</span>
-                    {STATUS_CONFIG[s].label}
+                    <span className="flex-shrink-0">{STATUS_CONFIG[s].emoji}</span>
+                    <span className="leading-tight">{STATUS_CONFIG[s].label}</span>
                   </button>
                 ))}
               </div>
+              {/* Description for selected status */}
+              <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100 leading-snug">
+                {STATUS_CONFIG[importStatus].desc}
+              </p>
             </div>
 
-            {/* USPTO lookup */}
+            {/* USPTO / Google Patents lookup */}
             <div>
               <label className="block text-sm font-medium text-[#1a1f36] mb-1">
                 {cfg.numberLabel}
-                <span className="font-normal text-gray-400 ml-1">— lookup from USPTO</span>
+                <span className="font-normal text-gray-400 ml-1">— auto-fill from USPTO or Google Patents</span>
               </label>
               <div className="flex gap-2">
                 <input
@@ -298,9 +315,13 @@ export default function NewPatentModal({ onClose, authToken }: Props) {
               )}
               {lookupResult && (
                 <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800">
-                  ✅ Found: <strong>{lookupResult.title || 'Untitled'}</strong>
-                  {lookupResult.status_text && <span className="ml-1 opacity-60">({lookupResult.status_text})</span>}
-                  <span className="block opacity-70 mt-0.5">Fields pre-filled below — review and edit as needed.</span>
+                  <div className="font-semibold">✅ {lookupResult.title || 'Untitled'}</div>
+                  <div className="mt-0.5 opacity-70">
+                    {lookupResult.inventors?.length > 0 && <span>{lookupResult.inventors.length} inventor{lookupResult.inventors.length !== 1 ? 's' : ''} · </span>}
+                    {lookupResult.status_text && <span>{lookupResult.status_text} · </span>}
+                    <span>via {lookupResult.source === 'google_patents' ? 'Google Patents' : 'USPTO ODP'}</span>
+                  </div>
+                  <div className="mt-0.5 opacity-60">All fields pre-filled below — review and edit as needed.</div>
                 </div>
               )}
             </div>
