@@ -96,26 +96,52 @@ export default function Arc3Modal({ patentId, patentTitle, authToken, onSuccess,
             </div>
           </div>
 
-          {/* Agency Agreement Terms */}
-          <div className="border border-amber-200 rounded-xl p-4 bg-amber-50">
-            <div className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-2">Agency Agreement — v1</div>
-            <div className="text-xs text-amber-900 space-y-2 max-h-32 overflow-y-auto">
-              <p>By activating Arc 3, you authorize Hot Hands LLC (&ldquo;Agency&rdquo;) to represent your patent for licensing and sale on the PatentPending marketplace.</p>
-              <p><strong>Commission:</strong> Agency earns 20% of the gross value of any licensing deal or outright sale originating from your deal page, including all subsequent payments under that agreement.</p>
-              <p><strong>Non-exclusive:</strong> You retain the right to pursue deals independently. Agency commission only applies to deals where the licensee first contacted you through the PatentPending deal page.</p>
-              <p><strong>No upfront cost:</strong> There is no fee to list. Commission is only owed upon a signed deal.</p>
-              <p><strong>Termination:</strong> Either party may deactivate the deal page at any time. Commission is owed on deals signed prior to deactivation.</p>
-            </div>
-          </div>
+          {/* Agency Agreement Terms — dynamic based on checked license types */}
+          {(() => {
+            const checkedTypes = [
+              licensingNonExclusive && 'Non-Exclusive License',
+              licensingExclusive && 'Exclusive License',
+              licensingFieldOfUse && 'Field-of-Use License',
+              'Outright Sale / Acquisition',  // always available
+            ].filter(Boolean) as string[]
+            const atLeastOne = licensingNonExclusive || licensingExclusive || licensingFieldOfUse
 
-          {/* Agreement checkbox */}
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)}
-              className="mt-0.5 w-4 h-4 rounded accent-indigo-600 flex-shrink-0" />
-            <span className="text-sm text-gray-700">
-              I agree to the Agency Agreement above. I understand Hot Hands LLC will receive a 20% commission on deals originating from my deal page.
-            </span>
-          </label>
+            return (
+              <>
+                <div className="border border-amber-200 rounded-xl p-4 bg-amber-50">
+                  <div className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-2">Agency Agreement — v1</div>
+                  <div className="text-xs text-amber-900 space-y-2 max-h-36 overflow-y-auto">
+                    <p>By activating Arc 3, you authorize Hot Hands LLC (&ldquo;Agency&rdquo;) to represent your patent for licensing and sale on the PatentPending marketplace.</p>
+                    <p>
+                      <strong>Deal structures available:</strong>{' '}
+                      Licensor makes this patent available for the following deal structures:{' '}
+                      <span className="font-semibold">{checkedTypes.join(', ')}</span>.
+                    </p>
+                    <p>
+                      <strong>Commission:</strong> Agency earns 20% commission on deals originating from the PatentPending platform only. You retain the right to pursue deals independently; commission only applies to deals where the buyer first contacted you through the deal page.
+                    </p>
+                    <p><strong>No upfront cost.</strong> Commission is owed only upon a signed deal.</p>
+                    <p><strong>Termination:</strong> Either party may deactivate the deal page at any time with 30 days written notice. Commission is owed on deals signed prior to deactivation.</p>
+                  </div>
+                </div>
+
+                {/* Agreement checkbox — disabled until at least one license type is checked */}
+                <label className={`flex items-start gap-3 ${atLeastOne ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
+                  <input
+                    type="checkbox"
+                    checked={agreed}
+                    disabled={!atLeastOne}
+                    onChange={e => setAgreed(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded accent-indigo-600 flex-shrink-0"
+                  />
+                  <span className="text-sm text-gray-700">
+                    I agree to the Agency Agreement above. I understand Hot Hands LLC will receive a 20% commission on deals originating from my deal page.
+                    {!atLeastOne && <span className="block text-xs text-amber-600 mt-0.5">Select at least one license type above to proceed.</span>}
+                  </span>
+                </label>
+              </>
+            )
+          })()}
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 

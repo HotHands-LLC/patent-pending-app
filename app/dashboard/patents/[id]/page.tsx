@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
@@ -35,7 +35,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'correspondence' | 'collaborators'
+type Tab = 'details' | 'claims' | 'filing' | 'correspondence' | 'collaborators' | 'leads'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -249,6 +249,7 @@ export default function PatentDetail() {
   const [collabId, setCollabId] = useState<string | null>(null)
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [showArc3Modal, setShowArc3Modal] = useState(false)
+  const [showArc3Interview, setShowArc3Interview] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
@@ -856,9 +857,11 @@ export default function PatentDetail() {
         {/* canView: owners see all; collaborators use permission matrix */}
         {(() => {
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
-          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators'] as Tab[])
+          const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
+              if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Arc 3 active
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               return canView(t)
             })
@@ -1323,9 +1326,29 @@ export default function PatentDetail() {
               setShowArc3Modal(false)
               setPatent(prev => prev ? { ...prev, arc3_active: true } as typeof prev : null)
               showToast('🏛️ Arc 3 activated! Deal page is live.')
+              // Trigger Pattie interview to build deal page brief
+              setShowArc3Interview(true)
             }}
             onClose={() => setShowArc3Modal(false)}
           />
+        )}
+
+        {/* ── ARC 3 ONBOARDING INTERVIEW MODAL ────────────────────────────────── */}
+        {showArc3Interview && patent && authToken && (
+          <Arc3InterviewModal
+            patentId={patent.id}
+            patentTitle={patent.title}
+            authToken={authToken}
+            onClose={() => {
+              setShowArc3Interview(false)
+              setTab('leads')
+            }}
+          />
+        )}
+
+        {/* ── LEADS TAB ───────────────────────────────────────────────────────── */}
+        {tab === 'leads' && (
+          <LeadsPanel patentId={patent.id} authToken={authToken} />
         )}
 
         {/* ── CLAIMS TAB ──────────────────────────────────────────────────────── */}
@@ -2438,6 +2461,243 @@ export default function PatentDetail() {
           patentStatus={patent.status}
         />
       )}
+    </div>
+  )
+}
+
+// ── Arc3InterviewModal ───────────────────────────────────────────────────────
+function Arc3InterviewModal({ patentId, patentTitle, authToken, onClose }: {
+  patentId: string; patentTitle: string; authToken: string; onClose: () => void
+}) {
+  const [messages, setMessages] = React.useState<{ role: 'user' | 'assistant'; content: string }[]>([])
+  const [input, setInput] = React.useState('')
+  const [streaming, setStreaming] = React.useState(false)
+  const [briefSaved, setBriefSaved] = React.useState(false)
+  const bottomRef = React.useRef<HTMLDivElement>(null)
+
+  // Kick off interview on mount
+  React.useEffect(() => {
+    sendMessage()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  React.useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, streaming])
+
+  async function sendMessage(userText?: string) {
+    const newMessages: { role: 'user' | 'assistant'; content: string }[] = userText
+      ? [...messages, { role: 'user' as const, content: userText }]
+      : messages
+    if (userText) {
+      setMessages(newMessages)
+      setInput('')
+    }
+    setStreaming(true)
+    let assistantText = ''
+    setMessages(prev => [...prev, { role: 'assistant', content: '' }])
+    try {
+      const res = await fetch(`/api/patents/${patentId}/arc3-interview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ messages: newMessages }),
+      })
+      if (!res.body) return
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value)
+        for (const line of chunk.split('\n')) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') break
+          try {
+            const parsed = JSON.parse(data)
+            if (parsed.text) {
+              assistantText += parsed.text
+              setMessages(prev => {
+                const copy = [...prev]
+                copy[copy.length - 1] = { role: 'assistant', content: assistantText }
+                return copy
+              })
+            }
+            if (parsed.brief_saved) setBriefSaved(true)
+          } catch { /* partial chunk */ }
+        }
+      }
+    } finally {
+      setStreaming(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full flex flex-col" style={{ height: '80vh' }}>
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">PP</div>
+              <span className="font-bold text-[#1a1f36] text-sm">Pattie — Deal Page Interview</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{patentTitle}</p>
+          </div>
+          {briefSaved && (
+            <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-full">✓ Brief saved</span>
+          )}
+          {briefSaved && (
+            <button onClick={onClose} className="ml-2 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700">
+              View Leads →
+            </button>
+          )}
+          {!briefSaved && (
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl w-8 h-8 flex items-center justify-center">×</button>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                m.role === 'user'
+                  ? 'bg-indigo-600 text-white rounded-br-sm'
+                  : 'bg-gray-100 text-gray-800 rounded-bl-sm'
+              }`}>
+                {m.content || (streaming && i === messages.length - 1 ? <span className="animate-pulse">▋</span> : '')}
+              </div>
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+
+        {!briefSaved && (
+          <div className="px-4 py-3 border-t border-gray-100 flex gap-2 flex-shrink-0">
+            <input
+              type="text"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !streaming && input.trim()) sendMessage(input.trim()) }}
+              placeholder="Type your answer…"
+              disabled={streaming}
+              className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+            />
+            <button
+              onClick={() => { if (input.trim() && !streaming) sendMessage(input.trim()) }}
+              disabled={streaming || !input.trim()}
+              className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+            >
+              Send
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── LeadsPanel ───────────────────────────────────────────────────────────────
+function LeadsPanel({ patentId, authToken }: { patentId: string; authToken: string }) {
+  interface Inquiry {
+    id: string
+    inquirer_name: string
+    inquirer_email: string
+    inquirer_company: string | null
+    deal_type_interest: string[] | null
+    message: string | null
+    status: string
+    created_at: string
+  }
+  const [inquiries, setInquiries] = React.useState<Inquiry[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [updating, setUpdating] = React.useState<string | null>(null)
+
+  const STATUS_BADGE: Record<string, string> = {
+    new: 'bg-blue-100 text-blue-700',
+    reviewed: 'bg-gray-100 text-gray-600',
+    qualified: 'bg-green-100 text-green-700',
+    rejected: 'bg-red-100 text-red-600',
+    closed: 'bg-purple-100 text-purple-700',
+  }
+
+  React.useEffect(() => {
+    fetch(`/api/patents/${patentId}/leads`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).then(r => r.json()).then(d => { setInquiries(d.inquiries ?? []); setLoading(false) })
+  }, [patentId, authToken])
+
+  async function updateStatus(id: string, status: string) {
+    setUpdating(id)
+    try {
+      const res = await fetch(`/api/patents/${patentId}/leads?inquiry_id=${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ status }),
+      })
+      if (res.ok) {
+        setInquiries(prev => prev.map(i => i.id === id ? { ...i, status } : i))
+      }
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  if (loading) return <div className="text-gray-400 text-sm py-8 text-center">Loading leads…</div>
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-semibold text-[#1a1f36]">Licensing Inquiries ({inquiries.length})</h3>
+        {inquiries.length === 0 && (
+          <span className="text-xs text-gray-400">No inquiries yet — your deal page is live and waiting.</span>
+        )}
+      </div>
+      {inquiries.map(inq => (
+        <div key={inq.id} className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="font-semibold text-[#1a1f36] text-sm">{inq.inquirer_name}</div>
+              <div className="text-xs text-gray-400">{inq.inquirer_email}{inq.inquirer_company ? ` · ${inq.inquirer_company}` : ''}</div>
+              {inq.deal_type_interest?.length ? (
+                <div className="flex gap-1 mt-1 flex-wrap">
+                  {inq.deal_type_interest.map(t => (
+                    <span key={t} className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">{t}</span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGE[inq.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                {inq.status}
+              </span>
+              <span className="text-xs text-gray-400">{new Date(inq.created_at).toLocaleDateString()}</span>
+            </div>
+          </div>
+          {inq.message && (
+            <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3 mb-3 leading-relaxed">"{inq.message}"</p>
+          )}
+          <div className="flex gap-2 flex-wrap">
+            {inq.status === 'new' && (
+              <button onClick={() => updateStatus(inq.id, 'reviewed')} disabled={updating === inq.id}
+                className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
+                Mark Reviewed
+              </button>
+            )}
+            {inq.status !== 'qualified' && inq.status !== 'closed' && (
+              <button onClick={() => updateStatus(inq.id, 'qualified')} disabled={updating === inq.id}
+                className="px-3 py-1.5 text-xs font-medium bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50">
+                ✓ Mark Qualified
+              </button>
+            )}
+            {inq.status !== 'rejected' && inq.status !== 'closed' && (
+              <button onClick={() => updateStatus(inq.id, 'rejected')} disabled={updating === inq.id}
+                className="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 border border-red-100 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50">
+                Reject
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
