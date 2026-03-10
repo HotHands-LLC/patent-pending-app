@@ -341,6 +341,16 @@ export async function POST(
   if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
   if (patent.owner_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
+  // ── Hard block: claims required for filing packages (not assignment templates) ──
+  if (scenario !== 'assignment') {
+    if (!patent.claims_draft || (patent.claims_draft as string).trim().length === 0) {
+      return NextResponse.json({
+        error: 'Cannot generate filing package: no claims on record. Generate and approve claims in PatentPending first.',
+        code: 'NO_CLAIMS',
+      }, { status: 400 })
+    }
+  }
+
   // ── Fetch user profile for cover sheet ─────────────────────────────────────
   const { data: profile } = await supabaseService
     .from('patent_profiles')
