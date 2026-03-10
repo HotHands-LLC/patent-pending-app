@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 export interface Collaborator {
   id: string
@@ -31,6 +31,21 @@ const ROLE_COLORS: Record<string, string> = {
   viewer: 'bg-gray-100 text-gray-700 border border-gray-200',
 }
 
+const INVITE_EXPIRY_MS = 24 * 60 * 60 * 1000
+
+function isExpired(createdAt: string): boolean {
+  return Date.now() - new Date(createdAt).getTime() > INVITE_EXPIRY_MS
+}
+
+function expiryLabel(createdAt: string): string {
+  const expiresAt = new Date(createdAt).getTime() + INVITE_EXPIRY_MS
+  const remaining = expiresAt - Date.now()
+  if (remaining <= 0) return 'Expired'
+  const h = Math.floor(remaining / 3600000)
+  const m = Math.floor((remaining % 3600000) / 60000)
+  return h > 0 ? `Expires in ${h}h ${m}m` : `Expires in ${m}m`
+}
+
 export default function CollaboratorsTab({
   patentId,
   authToken,
@@ -43,6 +58,14 @@ export default function CollaboratorsTab({
   const [sending, setSending] = useState(false)
   const [inviteMsg, setInviteMsg] = useState('')
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [resendingId, setResendingId] = useState<string | null>(null)
+  const [resendMsg, setResendMsg] = useState<Record<string, string>>({})
+  // Tick every minute to keep expiry countdown live
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setTick(n => n + 1), 60_000)
+    return () => clearInterval(t)
+  }, [])
 
   async function sendInvite() {
     if (!inviteEmail || !inviteEmail.includes('@')) {
@@ -94,6 +117,29 @@ export default function CollaboratorsTab({
     }
   }
 
+  async function resendInvite(collabId: string, email: string) {
+    setResendingId(collabId)
+    setResendMsg(prev => ({ ...prev, [collabId]: '' }))
+    try {
+      const res = await fetch(`/api/patents/${patentId}/resend-invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ collaborator_id: collabId }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setResendMsg(prev => ({ ...prev, [collabId]: data.error ?? 'Failed to resend' }))
+      } else {
+        setResendMsg(prev => ({ ...prev, [collabId]: `✅ Resent to ${email}` }))
+        onRefresh()
+      }
+    } catch {
+      setResendMsg(prev => ({ ...prev, [collabId]: 'Network error — try again' }))
+    } finally {
+      setResendingId(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Collaborators list */}
@@ -110,36 +156,62 @@ export default function CollaboratorsTab({
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {collaborators.map(c => (
-              <div key={c.id} className="px-5 py-4 flex items-center gap-4">
-                <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-bold text-indigo-600 flex-shrink-0">
-                  {c.invited_email[0].toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900 truncate">{c.invited_email}</div>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${ROLE_COLORS[c.role]}`}>
-                      {ROLE_LABELS[c.role]}
-                    </span>
-                    {c.ownership_pct > 0 && (
-                      <span className="text-xs text-gray-400">{c.ownership_pct}% ownership</span>
-                    )}
-                    {c.accepted_at ? (
-                      <span className="text-xs text-green-600 font-medium">✓ Accepted</span>
-                    ) : (
-                      <span className="text-xs text-amber-600">Pending invite</span>
-                    )}
+            {collaborators.map(c => {
+              const pending = !c.accepted_at
+              const expired = pending && isExpired(c.created_at)
+              return (
+                <div key={c.id} className="px-5 py-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-bold text-indigo-600 flex-shrink-0">
+                      {c.invited_email[0].toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900 truncate">{c.invited_email}</div>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${ROLE_COLORS[c.role]}`}>
+                          {ROLE_LABELS[c.role]}
+                        </span>
+                        {c.ownership_pct > 0 && (
+                          <span className="text-xs text-gray-400">{c.ownership_pct}% ownership</span>
+                        )}
+                        {c.accepted_at ? (
+                          <span className="text-xs text-green-600 font-medium">✓ Accepted</span>
+                        ) : expired ? (
+                          <span className="text-xs text-red-500 font-medium">⏰ Expired</span>
+                        ) : (
+                          <span className="text-xs text-amber-600">
+                            Pending — {expiryLabel(c.created_at)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {pending && expired && (
+                        <button
+                          onClick={() => resendInvite(c.id, c.invited_email)}
+                          disabled={resendingId === c.id}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 px-2.5 py-1 rounded border border-indigo-200 hover:bg-indigo-50 transition-colors disabled:opacity-50 font-medium"
+                        >
+                          {resendingId === c.id ? '...' : 'Resend Invite →'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => removeCollaborator(c.id)}
+                        disabled={removingId === c.id}
+                        className="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors disabled:opacity-50"
+                      >
+                        {removingId === c.id ? '...' : 'Remove'}
+                      </button>
+                    </div>
                   </div>
+                  {resendMsg[c.id] && (
+                    <p className={`text-xs mt-1.5 pl-13 ${resendMsg[c.id].startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>
+                      {resendMsg[c.id]}
+                    </p>
+                  )}
                 </div>
-                <button
-                  onClick={() => removeCollaborator(c.id)}
-                  disabled={removingId === c.id}
-                  className="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors flex-shrink-0 disabled:opacity-50"
-                >
-                  {removingId === c.id ? '...' : 'Remove'}
-                </button>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

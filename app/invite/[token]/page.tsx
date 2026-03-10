@@ -4,13 +4,16 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
-type InviteStatus = 'loading' | 'landing' | 'needs-login' | 'accepting' | 'success' | 'error'
+type InviteStatus = 'loading' | 'landing' | 'needs-login' | 'accepting' | 'success' | 'error' | 'expired'
 
 interface InviteInfo {
   patent_title: string
   invited_email: string
   role: string
   role_label: string
+  owner_name?: string
+  owner_email?: string | null
+  expires_at?: string
 }
 
 const PENDING_INVITE_KEY = 'pp_pending_invite'
@@ -28,6 +31,10 @@ export default function InviteAcceptPage() {
       const peek = await fetch(`/api/invite/peek?token=${token}`)
       if (!peek.ok) {
         const d = await peek.json()
+        if (peek.status === 410 || d.expired) {
+          setStatus('expired')
+          return
+        }
         setMessage(d.error ?? 'This invite link is invalid or has already been used.')
         setStatus('error')
         return
@@ -143,6 +150,33 @@ export default function InviteAcceptPage() {
               You now have access to <strong>{info?.patent_title}</strong>.
               <br />Redirecting to the patent...
             </p>
+          </>
+        )}
+
+        {status === 'expired' && (
+          <>
+            <div className="text-5xl mb-4">⏰</div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Invitation Expired</h2>
+            <p className="text-gray-600 mb-4 text-sm">
+              This invitation link has expired. Invitation links are valid for <strong>24 hours</strong>.
+            </p>
+            <p className="text-gray-500 text-sm mb-5">
+              Please ask{' '}
+              <strong>{info?.owner_name ?? 'the patent owner'}</strong>{' '}
+              to send you a new invite.
+            </p>
+            {info?.owner_email && (
+              <a
+                href={`mailto:${info.owner_email}?subject=Please resend my PatentPending invite&body=Hi, my invite link for PatentPending has expired. Could you please send a new one? Thank you!`}
+                className="inline-block mb-4 py-2.5 px-5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors text-sm"
+              >
+                Request New Invite →
+              </a>
+            )}
+            <br />
+            <Link href="/dashboard" className="text-indigo-600 underline text-sm">
+              Go to Dashboard
+            </Link>
           </>
         )}
 

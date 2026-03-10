@@ -66,6 +66,14 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden — only the patent owner can invite collaborators' }, { status: 403 })
     }
 
+    // Fetch inviter name for email personalisation
+    const { data: inviterProfile } = await supabaseService
+      .from('patent_profiles')
+      .select('full_name, email')
+      .eq('id', user.id)
+      .single()
+    const inviterName = inviterProfile?.full_name ?? inviterProfile?.email ?? 'the patent owner'
+
     // Check for existing invite
     const { data: existing } = await supabaseService
       .from('patent_collaborators')
@@ -78,29 +86,16 @@ export async function POST(
       if (existing.accepted_at) {
         return NextResponse.json({ error: 'This person has already accepted an invite for this patent' }, { status: 409 })
       }
-      // Re-send invite (update token to refresh)
-      const { data: updated } = await supabaseService
-        .from('patent_collaborators')
-        .update({
-          role,
-          ownership_pct,
-          invite_token: null, // will regenerate via DEFAULT
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existing.id)
-        .select('invite_token')
-        .single()
-
-      // Actually need to manually regenerate since DEFAULT only fires on INSERT
+      // Re-send invite — regenerate token (DEFAULT only fires on INSERT, must do manually)
       const newToken = Array.from(crypto.getRandomValues(new Uint8Array(32)))
         .map(b => b.toString(16).padStart(2, '0')).join('')
 
       await supabaseService
         .from('patent_collaborators')
-        .update({ invite_token: newToken, updated_at: new Date().toISOString() })
+        .update({ role, ownership_pct, invite_token: newToken, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
 
-      await sendInviteEmail(invited_email, patent.title, newToken, role, ownership_pct)
+      await sendInviteEmail(invited_email, patent.title, newToken, role, ownership_pct, inviterName)
       return NextResponse.json({ message: 'Invite resent', id: existing.id })
     }
 
@@ -127,7 +122,7 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to create invite' }, { status: 500 })
     }
 
-    await sendInviteEmail(invited_email, patent.title, inviteToken, role, ownership_pct)
+    await sendInviteEmail(invited_email, patent.title, inviteToken, role, ownership_pct, inviterName)
 
     return NextResponse.json({ message: 'Invite sent', id: collab.id })
   } catch (err) {
@@ -217,9 +212,10 @@ async function sendInviteEmail(
   patentTitle: string,
   token: string,
   role: string,
-  ownershipPct: number
+  ownershipPct: number,
+  inviterName = 'the patent owner'
 ) {
-  const resend = getResend()
+  void getResend() // validates RESEND_API_KEY is set before proceeding
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
   const inviteUrl = `${appUrl}/invite/${token}`
 
@@ -241,9 +237,14 @@ async function sendInviteEmail(
     ? `<p style="color:#374151;">Your ownership stake: <strong>${ownershipPct}%</strong></p>`
     : ''
 
+  const isLegal = role === 'counsel' || role === 'attorney'
+  const subjectLine = isLegal
+    ? `Legal access granted — ${patentTitle}`
+    : `${inviterName} invited you to collaborate on a patent`
+
   const html = `
     <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;">
-      <h1 style="font-size:22px;color:#111827;">${role === 'counsel' ? 'Patent Legal Counsel Access' : 'Patent Collaboration Invite'}</h1>
+      <h1 style="font-size:22px;color:#111827;">${isLegal ? 'Patent Document Access' : `${inviterName} invited you`}</h1>
       <p style="color:#374151;">You've been granted <strong>${roleLabel}</strong> access to:</p>
       <blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:16px 0;color:#1f2937;font-weight:600;">
         ${patentTitle}
@@ -253,8 +254,12 @@ async function sendInviteEmail(
       <p style="color:#374151;">Click the button below to accept and access the patent:</p>
       <a href="${inviteUrl}"
          style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:8px 0;">
-        ${role === 'counsel' ? 'Access Patent Documents →' : 'Accept Invite →'}
+        ${isLegal ? 'Access Patent Documents →' : 'Accept Invite →'}
       </a>
+      <p style="color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;font-size:14px;margin-top:16px;">
+        ⏰ <strong>This invitation link expires in 24 hours.</strong><br/>
+        If it has expired, contact ${inviterName} to send a new one.
+      </p>
       <p style="color:#6b7280;font-size:14px;margin-top:20px;">
         <strong>Don't have an account?</strong> That's fine — the link above will guide you through creating a free account and accepting your invite automatically.
       </p>
@@ -266,9 +271,7 @@ async function sendInviteEmail(
   await sendEmail(buildEmail({
     to: toEmail,
     from: FROM_DEFAULT,
-    subject: role === 'counsel'
-      ? `Legal counsel access granted — ${patentTitle}`
-      : `You've been invited to collaborate on ${patentTitle}`,
+    subject: subjectLine,
     html,
   }))
 }
