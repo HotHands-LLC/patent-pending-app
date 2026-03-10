@@ -741,11 +741,7 @@ export default function PatentDetail() {
                   {days <= 0 ? 'DEADLINE OVERDUE' : `${days} days to deadline`}
                 </span>
               )}
-              {isGranted && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-                  Granted ✓
-                </span>
-              )}
+              {/* Granted ✓ badge removed — status pill ("granted") is sufficient */}
             </div>
             {/* Inline lock suggestion for granted + unlocked patents (owner only) */}
             {isGranted && !isLocked && !isCollaborator && (
@@ -2439,6 +2435,7 @@ export default function PatentDetail() {
           authToken={authToken}
           onClose={() => setShowPattie(false)}
           canEdit={canWrite}
+          patentStatus={patent.status}
         />
       )}
     </div>

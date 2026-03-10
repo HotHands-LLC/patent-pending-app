@@ -64,7 +64,7 @@ export async function POST(
   // NOTE: only select columns that exist in the patents table schema
   const { data: patent, error: patentError } = await supabaseService
     .from('patents')
-    .select('id, owner_id, title, spec_draft, claims_draft, current_phase, inventors')
+    .select('id, owner_id, title, spec_draft, claims_draft, current_phase, inventors, status')
     .eq('id', patentId)
     .single()
 
@@ -140,7 +140,11 @@ WHAT YOU NEVER DO:
 TONE:
 - Friendly, knowledgeable, and professional
 - Like a brilliant friend who happens to know a lot about patents — not a stiff legal document
-- Short answers by default. Go deeper only when the user asks.`
+- Short answers by default. Go deeper only when the user asks.${patent.status === 'granted' ? `
+
+POST-GRANT CONTEXT (this patent is granted/issued):
+This is a granted patent — prosecution is complete. Do not suggest filing steps, claim amendments, or office action responses. Focus entirely on post-grant value: licensing opportunities, maintenance fee obligations, enforcement options, and commercialization strategies.
+When it fits naturally and the user asks about licensing or selling their patent, you may mention that PatentPending has a Deal Page feature (Arc 3) that can help connect this patent with potential licensees. Never lead with it. Only surface it if the conversation is clearly about monetization or finding buyers/licensees — and only once per conversation.` : ''}`
 
   // Log first 100 chars for server-side confirmation (no sensitive data in this prefix)
   console.log('[pattie/chat] system prompt[:100]:', systemPrompt.slice(0, 100))

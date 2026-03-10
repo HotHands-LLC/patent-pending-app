@@ -11,13 +11,20 @@ interface PattieChatDrawerProps {
   patentTitle: string
   authToken: string
   onClose: () => void
-  canEdit?: boolean  // passed from page — prereq gate for future Pattie write mode (Prompt 8)
+  canEdit?: boolean      // prereq gate for future Pattie write mode (Prompt 8)
+  patentStatus?: string  // drives status-aware chips and system prompt addendum
 }
 
-const STARTER_CHIPS = [
+const STARTER_CHIPS_DEFAULT = [
   'How strong are my claims?',
   "What's my next filing step?",
   'Explain my spec in plain English',
+]
+
+const STARTER_CHIPS_GRANTED = [
+  'Who might want to license this patent?',
+  'What industries could use this technology?',
+  'How do I protect my rights as an inventor?',
 ]
 
 /** PP logomark — circular monogram, matches brand indigo */
@@ -67,10 +74,12 @@ export default function PattieChatDrawer({
   authToken,
   onClose,
   canEdit = false,
+  patentStatus,
 }: PattieChatDrawerProps) {
   // canEdit is the prerequisite for Pattie write mode (Prompt 8)
-  // Currently read-only — this flag is stored for future use
   void canEdit
+  const isGrantedPatent = patentStatus === 'granted'
+  const starterChips = isGrantedPatent ? STARTER_CHIPS_GRANTED : STARTER_CHIPS_DEFAULT
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -273,7 +282,7 @@ export default function PattieChatDrawer({
           {/* ── Starter chips (first open only) ── */}
           {isFirstMessage && !streaming && (
             <div className="flex flex-wrap gap-2 pl-9 pt-1">
-              {STARTER_CHIPS.map(chip => (
+              {starterChips.map(chip => (
                 <button
                   key={chip}
                   onClick={() => sendMessage(chip)}
