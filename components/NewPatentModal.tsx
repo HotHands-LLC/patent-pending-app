@@ -94,6 +94,8 @@ export default function NewPatentModal({ onClose, authToken }: Props) {
   const [lookupError, setLookupError] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [ownershipAdvisory, setOwnershipAdvisory] = useState(false)
+  const [accessRequested, setAccessRequested] = useState<{ title: string } | null>(null)
 
   const [form, setForm] = useState({
     title: '',
@@ -122,7 +124,7 @@ export default function NewPatentModal({ onClose, authToken }: Props) {
   // USPTO lookup
   const handleLookup = useCallback(async () => {
     if (!lookupQuery.trim()) return
-    setLooking(true); setLookupError(''); setLookupResult(null)
+    setLooking(true); setLookupError(''); setLookupResult(null); setOwnershipAdvisory(false)
     try {
       const res = await fetch(`/api/patents/lookup-uspto?q=${encodeURIComponent(lookupQuery)}`, {
         headers: { Authorization: `Bearer ${authToken}` }
@@ -144,6 +146,27 @@ export default function NewPatentModal({ onClose, authToken }: Props) {
       if (r.status && Object.keys(STATUS_CONFIG).includes(r.status)) {
         setImportStatus(r.status as ImportStatus)
       }
+      // Ownership advisory for granted patents
+      if (r.status === 'granted' && r.inventors?.length) {
+        try {
+          const { data: { user: me } } = await supabase.auth.getUser()
+          if (me) {
+            const { data: profile } = await supabase
+              .from('patent_profiles')
+              .select('full_name')
+              .eq('id', me.id)
+              .single()
+            if (profile?.full_name) {
+              const norm = (s: string) => s.toLowerCase().replace(/[^a-z ]/g, '').trim()
+              const tokens = norm(profile.full_name).split(/\s+/).filter(t => t.length > 1)
+              const match = r.inventors.some((inv: string) => tokens.some((t: string) => norm(inv).includes(t)))
+              setOwnershipAdvisory(!match)
+            } else {
+              setOwnershipAdvisory(true) // no profile name → can't verify
+            }
+          }
+        } catch { /* fail open — skip advisory */ }
+      }
     } catch { setLookupError('Network error — try again.') }
     finally { setLooking(false) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,41 +177,52 @@ export default function NewPatentModal({ onClose, authToken }: Props) {
     if (!form.title.trim()) { setSaveError('Title is required.'); return }
     setSaving(true); setSaveError('')
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
-
     const inventorList = form.inventors ? form.inventors.split(',').map(s => s.trim()).filter(Boolean) : []
     const tagList = form.tags ? form.tags.split(',').map(s => s.trim()).filter(Boolean) : []
 
     const payload = {
-      owner_id: user.id,
       title: form.title.trim(),
       description: form.description || null,
       inventors: inventorList,
       provisional_number: form.provisional_number || null,
       application_number: form.application_number || null,
+      patent_number: form.patent_number || null,
       filing_date: form.filing_date || null,
       provisional_deadline: form.provisional_deadline || null,
       status: importStatus,
       tags: tagList,
     }
 
-    const { data, error } = await supabase.from('patents').insert(payload).select().single()
-    if (error) { setSaveError(error.message); setSaving(false); return }
-
-    // Create deadline record if provisional_deadline set
-    if (data && form.provisional_deadline) {
-      await supabase.from('patent_deadlines').insert({
-        patent_id: data.id,
-        owner_id: user.id,
-        deadline_type: 'non_provisional',
-        due_date: form.provisional_deadline,
-        notes: 'File non-provisional or PCT by this date (12 months from provisional)',
+    try {
+      const res = await fetch('/api/patents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(payload),
       })
-    }
+      const json = await res.json()
 
-    onClose()
-    router.push(`/dashboard/patents/${data?.id}`)
+      // Same user already has this patent → redirect there
+      if (json.duplicate) {
+        onClose()
+        router.push(`/dashboard/patents/${json.patent_id}`)
+        return
+      }
+
+      // Different user owns this patent → access request created
+      if (json.access_requested) {
+        setAccessRequested({ title: json.patent_title })
+        setSaving(false)
+        return
+      }
+
+      if (!res.ok) { setSaveError(json.error || 'Failed to create patent.'); setSaving(false); return }
+
+      onClose()
+      router.push(`/dashboard/patents/${json.id}`)
+    } catch {
+      setSaveError('Network error — try again.')
+      setSaving(false)
+    }
   }
 
   const cfg = STATUS_CONFIG[importStatus]
@@ -259,7 +293,24 @@ export default function NewPatentModal({ onClose, authToken }: Props) {
         )}
 
         {/* ── IMPORT BRANCH ──────────────────────────────────────────────── */}
-        {branch === 'import' && (
+        {branch === 'import' && accessRequested && (
+          <div className="p-8 text-center space-y-4">
+            <div className="text-4xl mb-2">📬</div>
+            <h3 className="text-lg font-bold text-[#1a1f36]">Access Request Sent</h3>
+            <p className="text-sm text-gray-600">
+              <strong>"{accessRequested.title}"</strong> is already in PatentPending under another account.
+            </p>
+            <p className="text-sm text-gray-500">
+              Your request for <strong>Viewer</strong> access has been sent to the owner. You'll get an email when it's approved or denied.
+            </p>
+            <button onClick={onClose}
+              className="mt-4 px-5 py-2.5 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors">
+              Done
+            </button>
+          </div>
+        )}
+
+        {branch === 'import' && !accessRequested && (
           <div className="p-6 space-y-5">
 
             {/* Status picker — single-select radio style */}
@@ -401,6 +452,21 @@ export default function NewPatentModal({ onClose, authToken }: Props) {
               onChange={v => set('tags', v)}
               placeholder="ai, mobile, saas (comma-separated)"
             />
+
+            {/* Provisional rights note */}
+            {importStatus === 'provisional' && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+                📝 <strong>Provisional note:</strong> Provisional applications are not publicly searchable.
+                You&apos;re responsible for confirming you have rights to this application.
+              </div>
+            )}
+
+            {/* Ownership advisory for granted patents where name doesn't match */}
+            {ownershipAdvisory && importStatus === 'granted' && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                ⚠️ We couldn&apos;t verify your name on this patent&apos;s USPTO record. You can still import it, but an admin may follow up to confirm your rights.
+              </div>
+            )}
 
             {saveError && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">{saveError}</div>

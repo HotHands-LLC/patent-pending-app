@@ -65,6 +65,20 @@ export default function CollaboratorsTab({
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [resendMsg, setResendMsg] = useState<Record<string, string>>({})
   const [togglingEdit, setTogglingEdit] = useState<string | null>(null)
+
+  // Access requests (owner only)
+  interface AccessRequest {
+    id: string
+    requester_id: string
+    requester_name: string | null
+    requester_email: string | null
+    requested_role: string
+    message: string | null
+    created_at: string
+  }
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([])
+  const [loadingRequests, setLoadingRequests] = useState(false)
+  const [resolvingRequest, setResolvingRequest] = useState<string | null>(null)
   // Tick every minute to keep expiry countdown live
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -122,6 +136,36 @@ export default function CollaboratorsTab({
     }
   }
 
+  // Load access requests on mount (owner only)
+  useEffect(() => {
+    if (!isOwner) return
+    setLoadingRequests(true)
+    fetch(`/api/patents/${patentId}/access-requests`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(r => r.ok ? r.json() : { requests: [] })
+      .then(d => setAccessRequests(d.requests ?? []))
+      .catch(() => {})
+      .finally(() => setLoadingRequests(false))
+  }, [isOwner, patentId, authToken])
+
+  async function resolveAccessRequest(requestId: string, action: 'approve' | 'deny') {
+    setResolvingRequest(requestId)
+    try {
+      const res = await fetch(`/api/patents/${patentId}/access-requests/${requestId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ action }),
+      })
+      if (res.ok) {
+        setAccessRequests(prev => prev.filter(r => r.id !== requestId))
+        if (action === 'approve') onRefresh()
+      }
+    } finally {
+      setResolvingRequest(null)
+    }
+  }
+
   async function toggleCanEdit(collabId: string, currentValue: boolean) {
     setTogglingEdit(collabId)
     try {
@@ -161,6 +205,58 @@ export default function CollaboratorsTab({
 
   return (
     <div className="space-y-6">
+
+      {/* ── Access requests (owner only) ─────────────────────────────── */}
+      {isOwner && !loadingRequests && accessRequests.length > 0 && (
+        <div className="bg-amber-50 rounded-xl border border-amber-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-amber-100 bg-amber-100/60 flex items-center gap-2">
+            <span className="text-amber-600 text-base">🔔</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-700">
+              Access Requests ({accessRequests.length})
+            </span>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {accessRequests.map(r => (
+              <div key={r.id} className="px-5 py-4 flex items-center gap-4">
+                <div className="w-9 h-9 rounded-full bg-amber-200 flex items-center justify-center text-sm font-bold text-amber-700 flex-shrink-0">
+                  {(r.requester_name || r.requester_email || '?')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-[#1a1f36] truncate">
+                    {r.requester_name ?? r.requester_email ?? 'Unknown'}
+                  </div>
+                  {r.requester_name && r.requester_email && (
+                    <div className="text-xs text-gray-400 truncate">{r.requester_email}</div>
+                  )}
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs text-amber-700 font-medium capitalize bg-amber-100 px-1.5 py-0.5 rounded">
+                      Requested: {r.requested_role.replace('_', ' ')}
+                    </span>
+                    {r.message && <span className="text-xs text-gray-400 italic truncate">"{r.message}"</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => resolveAccessRequest(r.id, 'approve')}
+                    disabled={resolvingRequest === r.id}
+                    className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
+                  >
+                    {resolvingRequest === r.id ? '…' : 'Approve'}
+                  </button>
+                  <button
+                    onClick={() => resolveAccessRequest(r.id, 'deny')}
+                    disabled={resolvingRequest === r.id}
+                    className="px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    Deny
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Collaborators list */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
