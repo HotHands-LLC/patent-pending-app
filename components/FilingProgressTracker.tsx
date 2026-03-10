@@ -16,6 +16,10 @@ export const FILING_STEPS = [
 
 // ── Derive step completion from patent record ──────────────────────────────────
 export function computeStepStatus(patent: Patent): boolean[] {
+  // Granted / abandoned = all steps complete — no dynamic computation
+  if (patent.status === 'granted' || patent.status === 'abandoned') {
+    return Array(9).fill(true)
+  }
   const hasClaimsDraft = !!patent.claims_draft
   return [
     // 1 Intake — has session, or payment, or claims draft (seed patents)

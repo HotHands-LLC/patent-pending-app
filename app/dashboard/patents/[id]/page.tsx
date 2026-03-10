@@ -687,7 +687,10 @@ export default function PatentDetail() {
   //   owners: can write unless patent is locked
   //   collaborators: can write only if can_edit=true AND patent is not locked
   const isLocked = patent.is_locked ?? false
+  const isGranted = patent.status === 'granted'
   const canWrite = !isLocked && (!isCollaborator || collabCanEdit)
+  // Claims are always read-only for granted patents (issued — nothing to edit)
+  const claimsReadOnly = isGranted || !canWrite
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -733,12 +736,36 @@ export default function PatentDetail() {
               <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[patent.status] || 'bg-gray-100 text-gray-800'}`}>
                 {patent.status.replace('_', ' ')}
               </span>
-              {days !== null && (
+              {!isGranted && days !== null && (
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getUrgencyBadge(days)}`}>
                   {days <= 0 ? 'DEADLINE OVERDUE' : `${days} days to deadline`}
                 </span>
               )}
+              {isGranted && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                  Granted ✓
+                </span>
+              )}
             </div>
+            {/* Inline lock suggestion for granted + unlocked patents (owner only) */}
+            {isGranted && !isLocked && !isCollaborator && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                <span>💡 Issued patents are typically locked from editing.</span>
+                <button
+                  onClick={async () => {
+                    const res = await fetch(`/api/patents/${patent.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                      body: JSON.stringify({ is_locked: true }),
+                    })
+                    if (res.ok) setPatent(prev => prev ? { ...prev, is_locked: true } : null)
+                  }}
+                  className="text-indigo-600 hover:text-indigo-800 font-medium underline underline-offset-2"
+                >
+                  Lock this patent?
+                </button>
+              </div>
+            )}
           </div>
           {tab === 'details' && !isCollaborator && (
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -772,8 +799,8 @@ export default function PatentDetail() {
           )}
         </div>
 
-        {/* Deadline Alert */}
-        {days !== null && days <= 48 && (
+        {/* Deadline Alert — suppressed for granted patents (no prosecution deadline) */}
+        {!isGranted && days !== null && days <= 48 && (
           <div className={`mb-5 p-4 rounded-xl border flex items-start gap-3 ${days <= 30 ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200'}`}>
             <span className="text-xl flex-shrink-0">{days <= 30 ? '🚨' : '⚠️'}</span>
             <div>
@@ -835,6 +862,7 @@ export default function PatentDetail() {
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators'] as Tab[])
             .filter(t => {
+              if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               return canView(t)
             })
@@ -955,6 +983,55 @@ export default function PatentDetail() {
             </div>
 
             <div className="space-y-4">
+              {/* Maintenance fees for granted patents — replaces prosecution deadlines */}
+              {isGranted ? (() => {
+                const baseDate = patent.filing_date  // approximation; grant date preferred but not in schema yet
+                if (!baseDate) return (
+                  <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h2 className="font-semibold text-[#1a1f36] mb-2">Maintenance Fees</h2>
+                    <p className="text-xs text-gray-400">Add a filing date to calculate maintenance fee schedule.</p>
+                  </div>
+                )
+                const base = new Date(baseDate + 'T00:00:00')
+                const addYearsMonths = (d: Date, years: number, months: number) => {
+                  const n = new Date(d)
+                  n.setFullYear(n.getFullYear() + years)
+                  n.setMonth(n.getMonth() + months)
+                  return n
+                }
+                const fees = [
+                  { label: '3.5-Year Fee', due: addYearsMonths(base, 3, 6) },
+                  { label: '7.5-Year Fee', due: addYearsMonths(base, 7, 6) },
+                  { label: '11.5-Year Fee', due: addYearsMonths(base, 11, 6) },
+                ]
+                return (
+                  <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h2 className="font-semibold text-[#1a1f36] mb-1">Maintenance Fees</h2>
+                    <p className="text-xs text-gray-400 mb-4">Fees must be paid to USPTO to keep this patent in force.</p>
+                    <div className="space-y-3">
+                      {fees.map((f) => {
+                        const dueStr = f.due.toISOString().split('T')[0]
+                        const ddays = getDaysUntil(dueStr)
+                        const isPaid = false  // TODO Prompt later: track payment
+                        const statusLabel = isPaid ? 'Paid' : ddays <= 0 ? 'Overdue' : 'Due'
+                        const statusColor = isPaid ? 'bg-green-100 text-green-700' : ddays <= 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                        return (
+                          <div key={f.label} className="border-b border-gray-50 last:border-0 pb-3 last:pb-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs font-medium text-[#1a1f36]">{f.label}</div>
+                              <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${statusColor}`}>{statusLabel}</span>
+                            </div>
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              {f.due.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </div>
+                            <button className="mt-1 text-xs text-indigo-500 hover:text-indigo-700">💡 Mark as paid (coming soon)</button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })() : (
               <div className="bg-white rounded-xl border border-gray-200 p-5">
                 <h2 className="font-semibold text-[#1a1f36] mb-4">Deadlines</h2>
                 {deadlines.length === 0 ? (
@@ -981,6 +1058,7 @@ export default function PatentDetail() {
                   </div>
                 )}
               </div>
+              )}
 
               <div className="bg-white rounded-xl border border-gray-200 p-5">
                 <h2 className="font-semibold text-[#1a1f36] mb-3">USPTO Status</h2>
@@ -1332,7 +1410,7 @@ export default function PatentDetail() {
                 {!isPro && <ProBadge patentId={patent.id} />}
 
                 {/* Deep Research staged result — review & apply banner */}
-                {!isCollaborator && patent.claims_draft_research_pending && (
+                {!claimsReadOnly && patent.claims_draft_research_pending && (
                   <div className="bg-amber-50 rounded-xl border border-amber-300 p-4 mb-1">
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -1386,7 +1464,7 @@ export default function PatentDetail() {
                 )}
 
                 {/* Pro AI passes — shown for Pro users, clickable */}
-                {!isCollaborator && (
+                {!claimsReadOnly && (
                   <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3">
                     <button
                       onClick={async () => {
@@ -1533,8 +1611,8 @@ export default function PatentDetail() {
                   )
                 })()}
 
-                {/* Action bar */}
-                {patent.filing_status === 'draft' && (
+                {/* Action bar — hidden for granted patents (read-only claims view) */}
+                {!claimsReadOnly && patent.filing_status === 'draft' && (
                   <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
                     <h3 className="font-semibold text-[#1a1f36] text-sm">Review this draft</h3>
                     <div className="flex flex-col sm:flex-row gap-3">
