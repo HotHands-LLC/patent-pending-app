@@ -8,6 +8,7 @@ export interface Collaborator {
   ownership_pct: number
   accepted_at: string | null
   created_at: string
+  can_edit: boolean
   is_ghost?: boolean  // accepted but never signed in
 }
 
@@ -16,6 +17,7 @@ interface CollaboratorsTabProps {
   authToken: string
   collaborators: Collaborator[]
   onRefresh: () => void
+  isOwner?: boolean  // only owner can toggle can_edit
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -52,6 +54,7 @@ export default function CollaboratorsTab({
   authToken,
   collaborators,
   onRefresh,
+  isOwner = false,
 }: CollaboratorsTabProps) {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<'co_inventor' | 'legal_counsel' | 'agency' | 'viewer'>('co_inventor')
@@ -61,6 +64,7 @@ export default function CollaboratorsTab({
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [resendMsg, setResendMsg] = useState<Record<string, string>>({})
+  const [togglingEdit, setTogglingEdit] = useState<string | null>(null)
   // Tick every minute to keep expiry countdown live
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -115,6 +119,20 @@ export default function CollaboratorsTab({
       onRefresh()
     } finally {
       setRemovingId(null)
+    }
+  }
+
+  async function toggleCanEdit(collabId: string, currentValue: boolean) {
+    setTogglingEdit(collabId)
+    try {
+      await fetch(`/api/patents/${patentId}/collaborators/${collabId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ can_edit: !currentValue }),
+      })
+      onRefresh()
+    } finally {
+      setTogglingEdit(null)
     }
   }
 
@@ -189,7 +207,23 @@ export default function CollaboratorsTab({
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {/* Can Edit toggle — owner only, accepted collaborators only */}
+                      {isOwner && c.accepted_at && !c.is_ghost && (
+                        <div className="flex items-center gap-1.5" title={c.can_edit ? 'Can edit — click to revoke' : 'Read-only — click to grant edit access'}>
+                          <span className="text-xs text-gray-400">Edit</span>
+                          <button
+                            onClick={() => toggleCanEdit(c.id, c.can_edit)}
+                            disabled={togglingEdit === c.id}
+                            aria-label={`Toggle edit access for ${c.invited_email}`}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+                              c.can_edit ? 'bg-indigo-600' : 'bg-gray-200'
+                            } ${togglingEdit === c.id ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:opacity-90'}`}
+                          >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${c.can_edit ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                          </button>
+                        </div>
+                      )}
                       {needsResend && (
                         <button
                           onClick={() => resendInvite(c.id, c.invited_email)}

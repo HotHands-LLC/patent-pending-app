@@ -11,6 +11,7 @@ interface PattieChatDrawerProps {
   patentTitle: string
   authToken: string
   onClose: () => void
+  canEdit?: boolean  // passed from page — prereq gate for future Pattie write mode (Prompt 8)
 }
 
 const STARTER_CHIPS = [
@@ -65,7 +66,11 @@ export default function PattieChatDrawer({
   patentTitle,
   authToken,
   onClose,
+  canEdit = false,
 }: PattieChatDrawerProps) {
+  // canEdit is the prerequisite for Pattie write mode (Prompt 8)
+  // Currently read-only — this flag is stored for future use
+  void canEdit
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)

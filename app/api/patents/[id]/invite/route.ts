@@ -162,7 +162,7 @@ export async function GET(
 
   const { data: collaborators } = await supabaseService
     .from('patent_collaborators')
-    .select('id, invited_email, role, ownership_pct, accepted_at, created_at, user_id')
+    .select('id, invited_email, role, ownership_pct, accepted_at, created_at, user_id, can_edit')
     .eq('patent_id', patentId)
     .order('created_at', { ascending: false })
 

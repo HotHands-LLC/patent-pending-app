@@ -245,6 +245,8 @@ export default function PatentDetail() {
   const [isCollaborator, setIsCollaborator] = useState(false)
   const [collaboratorRole, setCollaboratorRole] = useState<string | null>(null)
   const [collabPerms, setCollabPerms] = useState<Record<string, boolean>>({})
+  const [collabCanEdit, setCollabCanEdit] = useState(false)
+  const [collabId, setCollabId] = useState<string | null>(null)
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [showArc3Modal, setShowArc3Modal] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
@@ -297,7 +299,7 @@ export default function PatentDetail() {
       // Check collaborator record
       const { data: collabRecord } = await supabase
         .from('patent_collaborators')
-        .select('role')
+        .select('id, role, can_edit')
         .eq('patent_id', id)
         .eq('user_id', user.id)
         .not('accepted_at', 'is', null)
@@ -305,6 +307,8 @@ export default function PatentDetail() {
       if (collabRecord) {
         setIsCollaborator(true)
         setCollaboratorRole(collabRecord.role)
+        setCollabCanEdit(collabRecord.can_edit ?? false)
+        setCollabId(collabRecord.id)
         // Load permission matrix for this role
         try {
           const permRes = await fetch(`/api/role-permissions?role=${collabRecord.role}`)
@@ -679,6 +683,12 @@ export default function PatentDetail() {
   const claimsScore = patent.claims_score as ClaimsScore | null
   const revisionContentReady = selectedChips.some(c => c !== 'custom') || customNote.trim().length > 0
 
+  // Write access:
+  //   owners: can write unless patent is locked
+  //   collaborators: can write only if can_edit=true AND patent is not locked
+  const isLocked = patent.is_locked ?? false
+  const canWrite = !isLocked && (!isCollaborator || collabCanEdit)
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
@@ -709,11 +719,14 @@ export default function PatentDetail() {
             ) : (
               <div
                 className="group flex items-center gap-2 cursor-pointer"
-                onClick={() => { setTitleDraft(patent.title); setEditingTitle(true) }}
-                title="Click to edit title"
+                onClick={() => { if (canWrite) { setTitleDraft(patent.title); setEditingTitle(true) } }}
+                title={canWrite ? 'Click to edit title' : isLocked ? 'Patent is locked' : undefined}
               >
                 <h1 className="text-lg sm:text-2xl font-bold text-[#1a1f36] leading-snug">{patent.title}</h1>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-sm flex-shrink-0">✏️</span>
+                {isLocked
+                  ? <span className="text-base flex-shrink-0" title="Patent is locked — read only">🔒</span>
+                  : <span className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-sm flex-shrink-0">✏️</span>
+                }
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2">
@@ -727,14 +740,35 @@ export default function PatentDetail() {
               )}
             </div>
           </div>
-          {tab === 'details' && (
-            <button
-              onClick={() => editing ? saveEdits() : setEditing(true)}
-              disabled={saving}
-              className="flex-shrink-0 px-3 sm:px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium hover:bg-[#2d3561] transition-colors disabled:opacity-50 min-h-[44px]"
-            >
-              {saving ? 'Saving...' : editing ? 'Save' : 'Edit'}
-            </button>
+          {tab === 'details' && !isCollaborator && (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Lock/Unlock toggle — owner, details tab only */}
+              {!isLocked ? (
+                <button
+                  onClick={async () => {
+                    const res = await fetch(`/api/patents/${patent.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                      body: JSON.stringify({ is_locked: true }),
+                    })
+                    if (res.ok) { setPatent(prev => prev ? { ...prev, is_locked: true } : null); setEditing(false) }
+                  }}
+                  className="flex-shrink-0 px-3 py-2 border border-gray-300 text-gray-500 rounded-lg text-sm font-medium hover:bg-gray-50 hover:text-gray-700 transition-colors min-h-[44px]"
+                  title="Lock this patent — disables all editing"
+                >
+                  🔒 Lock
+                </button>
+              ) : null}
+              {canWrite && (
+                <button
+                  onClick={() => editing ? saveEdits() : setEditing(true)}
+                  disabled={saving}
+                  className="flex-shrink-0 px-3 sm:px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium hover:bg-[#2d3561] transition-colors disabled:opacity-50 min-h-[44px]"
+                >
+                  {saving ? 'Saving...' : editing ? 'Save' : 'Edit'}
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -753,16 +787,43 @@ export default function PatentDetail() {
           </div>
         )}
 
-        {/* Co-inventor read-only banner */}
+        {/* 🔒 Locked banner — everyone sees this when is_locked=true */}
+        {isLocked && (
+          <div className="mb-4 px-4 py-3 bg-slate-100 border border-slate-300 rounded-xl flex items-center gap-3">
+            <span className="text-xl">🔒</span>
+            <div className="flex-1">
+              <span className="text-sm font-semibold text-slate-800">This patent is locked.</span>
+              <span className="text-sm text-slate-600 ml-2">All editing is disabled. Only the owner can unlock it.</span>
+            </div>
+            {/* Owner can unlock */}
+            {!isCollaborator && (
+              <button
+                onClick={async () => {
+                  const res = await fetch(`/api/patents/${patent.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                    body: JSON.stringify({ is_locked: false }),
+                  })
+                  if (res.ok) setPatent(prev => prev ? { ...prev, is_locked: false } : null)
+                }}
+                className="text-xs text-slate-500 hover:text-slate-700 px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-200 transition-colors font-medium flex-shrink-0"
+              >
+                Unlock
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Co-inventor read-only / can-edit banner */}
         {isCollaborator && (
           <div className="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
-            <span className="text-amber-500 text-lg">👁</span>
+            <span className="text-amber-500 text-lg">{collabCanEdit ? '✏️' : '👁'}</span>
             <div>
-              <span className="text-sm font-semibold text-amber-800">Read-Only Access</span>
+              <span className="text-sm font-semibold text-amber-800">{collabCanEdit ? 'Edit Access' : 'Read-Only Access'}</span>
               <span className="text-sm text-amber-700 ml-2">
                 You are viewing this patent as a{' '}
                 <span className="font-semibold capitalize">{collaboratorRole?.replace('_', '-') ?? 'collaborator'}</span>.
-                Contact the patent owner to make changes.
+                {!collabCanEdit && ' Contact the patent owner to make changes.'}
               </span>
             </div>
           </div>
@@ -1888,21 +1949,25 @@ export default function PatentDetail() {
                   </div>
                 </div>
               )}
-              <DocumentUploadZone
-                type="spec"
-                patentId={patent.id}
-                authToken={authToken}
-                disabled={!computeStepStatus(patent)[3]}
-                disabledReason={!computeStepStatus(patent)[3] ? 'Approve claims first (Step 4)' : undefined}
-                onSuccess={() => {
-                  setPatent(prev => prev ? { ...prev, spec_uploaded: true } : null)
-                  showToast('✅ Specification uploaded — Step 5 complete!')
-                  loadAll()
-                }}
-              />
-              <p className="mt-1.5 text-xs text-gray-400">
-                Accepts PDF, DOCX, TXT, MD. Max 25MB.
-              </p>
+              {canWrite && (
+                <>
+                  <DocumentUploadZone
+                    type="spec"
+                    patentId={patent.id}
+                    authToken={authToken}
+                    disabled={!computeStepStatus(patent)[3]}
+                    disabledReason={!computeStepStatus(patent)[3] ? 'Approve claims first (Step 4)' : undefined}
+                    onSuccess={() => {
+                      setPatent(prev => prev ? { ...prev, spec_uploaded: true } : null)
+                      showToast('✅ Specification uploaded — Step 5 complete!')
+                      loadAll()
+                    }}
+                  />
+                  <p className="mt-1.5 text-xs text-gray-400">
+                    Accepts PDF, DOCX, TXT, MD. Max 25MB.
+                  </p>
+                </>
+              )}
             </div>
 
             {/* Step 6: Figures upload + AI Generate */}
@@ -2116,10 +2181,12 @@ export default function PatentDetail() {
               <p className="text-sm text-gray-500">
                 {uploadedFiles.length + correspondence.length} record{(uploadedFiles.length + correspondence.length) !== 1 ? 's' : ''} for this patent
               </p>
-              <button onClick={() => setShowCorrespondenceForm(true)}
-                className="px-3 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors min-h-[44px] flex items-center">
-                + Add
-              </button>
+              {canWrite && (
+                <button onClick={() => setShowCorrespondenceForm(true)}
+                  className="px-3 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors min-h-[44px] flex items-center">
+                  + Add
+                </button>
+              )}
             </div>
 
             {/* BUG 1 FIX: Uploaded files section — shown before AI-generated items */}
@@ -2164,10 +2231,12 @@ export default function PatentDetail() {
               <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
                 <div className="text-3xl mb-3">📬</div>
                 <p className="text-gray-400 text-sm mb-4">No correspondence for this patent yet.</p>
-                <button onClick={() => setShowCorrespondenceForm(true)}
-                  className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold min-h-[44px]">
-                  Add Record
-                </button>
+                {canWrite && (
+                  <button onClick={() => setShowCorrespondenceForm(true)}
+                    className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold min-h-[44px]">
+                    Add Record
+                  </button>
+                )}
               </div>
             ) : correspondence.length > 0 && (
               <div className="space-y-2">
@@ -2242,6 +2311,7 @@ export default function PatentDetail() {
             authToken={authToken}
             collaborators={collaborators}
             onRefresh={loadAll}
+            isOwner={!isCollaborator}
           />
         )}
 
@@ -2290,6 +2360,7 @@ export default function PatentDetail() {
           patentTitle={patent.title}
           authToken={authToken}
           onClose={() => setShowPattie(false)}
+          canEdit={canWrite}
         />
       )}
     </div>

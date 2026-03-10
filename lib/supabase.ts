@@ -51,6 +51,7 @@ export type Patent = {
   licensing_field_of_use?: boolean
   deal_page_summary?: string | null
   deal_page_market?: string | null
+  is_locked?: boolean
 }
 
 export type PatentDeadline = {
