@@ -244,6 +244,7 @@ export default function PatentDetail() {
   const [toast, setToast] = useState<string | null>(null)
   const [isCollaborator, setIsCollaborator] = useState(false)
   const [collaboratorRole, setCollaboratorRole] = useState<string | null>(null)
+  const [collabPerms, setCollabPerms] = useState<Record<string, boolean>>({})
   const [collaborators, setCollaborators] = useState<Collaborator[]>([])
   const [showArc3Modal, setShowArc3Modal] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
@@ -304,6 +305,16 @@ export default function PatentDetail() {
       if (collabRecord) {
         setIsCollaborator(true)
         setCollaboratorRole(collabRecord.role)
+        // Load permission matrix for this role
+        try {
+          const permRes = await fetch(`/api/role-permissions?role=${collabRecord.role}`)
+          if (permRes.ok) {
+            const permData = await permRes.json()
+            setCollabPerms(permData.permissions ?? {})
+          }
+        } catch {
+          // fail open — show all tabs if permissions can't be loaded
+        }
       }
     }
 
@@ -758,11 +769,17 @@ export default function PatentDetail() {
         )}
 
         {/* Tabs */}
+        {/* canView: owners see all; collaborators use permission matrix */}
+        {(() => {
+          const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators'] as Tab[])
+            .filter(t => {
+              if (t === 'collaborators') return !isCollaborator || canView('collaborators')
+              return canView(t)
+            })
+          return (
         <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl w-full sm:w-auto sm:inline-flex flex-wrap sm:flex-nowrap">
-          {(([
-            'details', 'claims', 'filing', 'correspondence',
-            ...(!isCollaborator ? ['collaborators'] : []),
-          ]) as Tab[]).map(t => (
+          {visibleTabs.map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -807,6 +824,8 @@ export default function PatentDetail() {
             </button>
           ))}
         </div>
+          ) // end visibleTabs return
+        })(/* canView IIFE */)}
 
         {/* ── DETAILS TAB ─────────────────────────────────────────────────────── */}
         {tab === 'details' && (
@@ -1696,7 +1715,7 @@ export default function PatentDetail() {
             {/* draftingSpec + showSpecDraft live at component level — no hooks inside IIFEs */}
             <div className="space-y-3">
               {/* ── Spec View Panel — shown when spec is uploaded and spec_draft exists ── */}
-              {computeStepStatus(patent)[3] && patent.spec_uploaded && patent.spec_draft && (
+              {computeStepStatus(patent)[3] && patent.spec_uploaded && patent.spec_draft && (!isCollaborator || (collabPerms.spec ?? false)) && (
                 <div className="bg-white rounded-xl border border-green-200 overflow-hidden">
                   <div className="px-5 py-3 border-b border-gray-100 bg-green-50 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -2245,7 +2264,7 @@ export default function PatentDetail() {
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
 
       {/* ── ASK PATTIE floating button ───────────────────────────────────────── */}
-      {patent && authToken && !showPattie && (
+      {patent && authToken && !showPattie && (!isCollaborator || (collabPerms.pattie ?? false)) && (
         <button
           onClick={() => setShowPattie(true)}
           className="

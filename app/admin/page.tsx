@@ -78,7 +78,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'people' | 'collabs' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'accounts' | 'connectors'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'people' | 'collabs' | 'roles' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'accounts' | 'connectors'>('overview')
   const [authToken, setAuthToken] = useState('')
   const [mfaWarning, setMfaWarning] = useState<'setup' | 'verify' | null>(null)
 
@@ -318,6 +318,7 @@ export default function AdminPage() {
     { key: 'patents', label: `Patents (${summary.total_patents})`, icon: '📋' },
     { key: 'people', label: 'People', icon: '👥' },
     { key: 'collabs', label: 'Collabs', icon: '🤝' },
+    { key: 'roles', label: 'Roles', icon: '🔐' },
     { key: 'ai-costs', label: 'AI Costs', icon: '🤖' },
     { key: 'activity', label: 'Activity', icon: '📡' },
     { key: 'connectors', label: 'Connectors', icon: '🔌' },
@@ -561,6 +562,11 @@ export default function AdminPage() {
           {/* ── COLLABORATOR INVITES ──────────────────────────────────── */}
           {activeSection === 'collabs' && (
             <AdminCollabsPanel authToken={authToken} />
+          )}
+
+          {/* ── ROLE PERMISSIONS ─────────────────────────────────────── */}
+          {activeSection === 'roles' && (
+            <AdminRolesPanel authToken={authToken} />
           )}
 
           {/* ── AI COSTS ─────────────────────────────────────────────────── */}
@@ -2181,4 +2187,165 @@ function AdminPeoplePanel({ authToken }: { authToken: string }) {
     setResendingId(null)
     if (res.ok) load()
   }
+}
+
+// ── Admin Role Permissions Matrix ─────────────────────────────────────────────
+
+const PERM_FEATURES: Array<{ key: string; label: string; description: string }> = [
+  { key: 'details',       label: 'Details',         description: 'Inventor info, filing dates, description' },
+  { key: 'claims',        label: 'Claims',          description: 'Full claims draft, scoring, refinement' },
+  { key: 'spec',          label: 'Specification',   description: 'Specification document view/download' },
+  { key: 'correspondence',label: 'Correspondence',  description: 'File uploads, USPTO letters, notes' },
+  { key: 'filing',        label: 'Filing',          description: 'Filing checklist, cover sheet, package' },
+  { key: 'collaborators', label: 'Collaborators',   description: 'View and manage collaborator invites' },
+  { key: 'pattie',        label: 'Pattie AI Chat',  description: 'Ask Pattie floating chat widget' },
+  { key: 'deadlines',     label: 'Deadlines',       description: 'Patent deadline tracking and alerts' },
+]
+
+const PERM_ROLES: Array<{ key: string; label: string; locked?: boolean }> = [
+  { key: 'co_inventor',  label: 'Co-Inventor', locked: true },
+  { key: 'legal_counsel',label: 'Legal Counsel' },
+  { key: 'agency',       label: 'Agency' },
+  { key: 'viewer',       label: 'Viewer' },
+]
+
+type PermMatrix = Record<string, Record<string, boolean>>
+
+function AdminRolesPanel({ authToken }: { authToken: string }) {
+  const [matrix, setMatrix] = React.useState<PermMatrix>({})
+  const [saved, setSaved] = React.useState<PermMatrix>({})
+  const [loading, setLoading] = React.useState(true)
+  const [saving, setSaving] = React.useState(false)
+  const [toast, setToast] = React.useState('')
+  const [error, setError] = React.useState('')
+
+  const isDirty = React.useMemo(
+    () => JSON.stringify(matrix) !== JSON.stringify(saved),
+    [matrix, saved]
+  )
+
+  React.useEffect(() => {
+    fetch('/api/admin/role-permissions', {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.matrix) { setMatrix(d.matrix); setSaved(d.matrix) }
+        else setError(d.error ?? 'Failed to load')
+        setLoading(false)
+      })
+  }, [authToken])
+
+  function toggle(role: string, feature: string) {
+    setMatrix(prev => ({
+      ...prev,
+      [role]: { ...(prev[role] ?? {}), [feature]: !(prev[role]?.[feature] ?? false) },
+    }))
+  }
+
+  async function save() {
+    setSaving(true)
+    const res = await fetch('/api/admin/role-permissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ matrix }),
+    })
+    const d = await res.json()
+    setSaving(false)
+    if (!res.ok) { setError(d.error ?? 'Save failed'); return }
+    setSaved(matrix)
+    setToast(`✅ Permissions saved — ${d.updated} rows updated`)
+    setTimeout(() => setToast(''), 4000)
+  }
+
+  if (loading) return <div className="text-sm text-gray-400 py-8 text-center">Loading permissions...</div>
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Role Permissions</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Control what each collaborator role can see. Co-Inventor is locked to full access.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {isDirty && (
+            <span className="text-xs text-amber-600 font-semibold bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
+              ● Unsaved changes
+            </span>
+          )}
+          <button
+            onClick={save}
+            disabled={saving || !isDirty}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+          >
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+
+      {toast && (
+        <div className="mb-4 px-4 py-2.5 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 font-medium">
+          {toast}
+        </div>
+      )}
+      {error && (
+        <div className="mb-4 px-4 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="text-left px-5 py-3 font-semibold text-gray-500 text-xs uppercase tracking-wider w-48">Feature</th>
+                {PERM_ROLES.map(role => (
+                  <th key={role.key} className="px-4 py-3 text-center font-semibold text-gray-700 text-xs uppercase tracking-wider">
+                    <div>{role.label}</div>
+                    {role.locked && <div className="text-[10px] text-gray-400 font-normal mt-0.5">always on</div>}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {PERM_FEATURES.map(feature => (
+                <tr key={feature.key} className="hover:bg-gray-50/50">
+                  <td className="px-5 py-3.5">
+                    <div className="font-medium text-gray-800 text-sm">{feature.label}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{feature.description}</div>
+                  </td>
+                  {PERM_ROLES.map(role => {
+                    const enabled = role.locked ? true : (matrix[role.key]?.[feature.key] ?? false)
+                    return (
+                      <td key={role.key} className="px-4 py-3.5 text-center">
+                        <button
+                          onClick={() => !role.locked && toggle(role.key, feature.key)}
+                          disabled={role.locked}
+                          aria-label={`${role.label} ${feature.label}: ${enabled ? 'on' : 'off'}`}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+                            enabled ? 'bg-indigo-600' : 'bg-gray-200'
+                          } ${role.locked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:opacity-90'}`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                              enabled ? 'translate-x-4' : 'translate-x-0.5'
+                            }`}
+                          />
+                        </button>
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p className="text-xs text-gray-400 mt-3">
+        Changes take effect immediately after saving. Collaborators who are currently viewing a patent will see changes on next page load.
+      </p>
+    </div>
+  )
 }
