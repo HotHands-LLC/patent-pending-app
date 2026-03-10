@@ -13,6 +13,39 @@ interface PattieChatDrawerProps {
   onClose: () => void
 }
 
+const STARTER_CHIPS = [
+  'How strong are my claims?',
+  "What's my next filing step?",
+  'Explain my spec in plain English',
+]
+
+/** PP logomark — circular monogram, matches brand indigo */
+function PattieAvatar({ size = 28 }: { size?: number }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: '#4f46e5',
+        color: '#fff',
+        fontSize: Math.round(size * 0.38),
+        fontWeight: 800,
+        letterSpacing: '-0.5px',
+        flexShrink: 0,
+        lineHeight: 1,
+        userSelect: 'none',
+      }}
+    >
+      PP
+    </span>
+  )
+}
+
 function TypingDots() {
   return (
     <div className="flex items-center gap-1 px-1 py-1">
@@ -33,12 +66,7 @@ export default function PattieChatDrawer({
   authToken,
   onClose,
 }: PattieChatDrawerProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'assistant',
-      content: `Hi! I'm Pattie 🦞 — your PatentPending assistant. I know everything about **${patentTitle}** and I'm here to help you understand your patent, your claims, and the filing process. What can I help you with?`,
-    },
-  ])
+  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState('')
@@ -46,7 +74,9 @@ export default function PattieChatDrawer({
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  // Auto-scroll to bottom on new messages
+  const isFirstMessage = messages.length === 0
+
+  // Auto-scroll to bottom on new content
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streaming])
@@ -56,8 +86,8 @@ export default function PattieChatDrawer({
     inputRef.current?.focus()
   }, [])
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim()
+  const sendMessage = useCallback(async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim()
     if (!text || streaming) return
 
     setInput('')
@@ -67,7 +97,7 @@ export default function PattieChatDrawer({
     setMessages(updatedMessages)
     setStreaming(true)
 
-    // Add empty assistant message to stream into
+    // Add empty assistant bubble to stream into
     setMessages(prev => [...prev, { role: 'assistant', content: '' }])
 
     abortRef.current = new AbortController()
@@ -129,7 +159,7 @@ export default function PattieChatDrawer({
       if (err instanceof Error && err.name === 'AbortError') return
       const msg = err instanceof Error ? err.message : 'Something went wrong. Try again.'
       setError(msg)
-      // Remove the empty assistant message on error
+      // Remove empty assistant bubble on error
       setMessages(prev => {
         const copy = [...prev]
         if (copy[copy.length - 1]?.role === 'assistant' && !copy[copy.length - 1].content) {
@@ -153,18 +183,13 @@ export default function PattieChatDrawer({
 
   const handleReset = () => {
     abortRef.current?.abort()
-    setMessages([
-      {
-        role: 'assistant',
-        content: `Hi! I'm Pattie 🦞 — your PatentPending assistant. I know everything about **${patentTitle}** and I'm here to help. What can I help you with?`,
-      },
-    ])
+    setMessages([])
     setInput('')
     setError('')
     setStreaming(false)
   }
 
-  // Render message content with basic markdown bold support
+  // Simple markdown bold renderer
   function renderContent(text: string) {
     const parts = text.split(/(\*\*[^*]+\*\*)/g)
     return parts.map((part, i) =>
@@ -176,7 +201,7 @@ export default function PattieChatDrawer({
 
   return (
     <>
-      {/* Backdrop overlay (mobile) */}
+      {/* Mobile backdrop */}
       <div
         className="fixed inset-0 bg-black/30 z-40 sm:hidden"
         onClick={onClose}
@@ -194,12 +219,12 @@ export default function PattieChatDrawer({
         aria-label="Pattie Chat"
         aria-modal="true"
       >
-        {/* Header */}
+        {/* ── Header ── */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🦞</span>
+          <div className="flex items-center gap-2.5">
+            <PattieAvatar size={34} />
             <div>
-              <div className="font-semibold text-[#1a1f36] text-sm leading-tight">Pattie</div>
+              <div className="font-semibold text-[#1a1f36] text-sm leading-tight">Pattie 🦞</div>
               <div className="text-xs text-gray-400 leading-tight">Your PatentPending assistant</div>
             </div>
           </div>
@@ -223,17 +248,50 @@ export default function PattieChatDrawer({
           </div>
         </div>
 
-        {/* Message list */}
+        {/* ── Message list ── */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+
+          {/* Greeting (always visible when no messages) */}
+          {isFirstMessage && (
+            <div className="flex justify-start items-end gap-2">
+              <PattieAvatar size={26} />
+              <div className="max-w-[85%] px-3 py-2 rounded-2xl rounded-bl-sm bg-gray-100 text-[#1a1f36] text-sm leading-relaxed">
+                <p>
+                  Hi! I&apos;m Pattie — your PatentPending assistant. I know{' '}
+                  <strong>{patentTitle}</strong> inside and out. Ask me anything about
+                  your claims, spec, or next steps.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Starter chips (first open only) ── */}
+          {isFirstMessage && !streaming && (
+            <div className="flex flex-wrap gap-2 pl-9 pt-1">
+              {STARTER_CHIPS.map(chip => (
+                <button
+                  key={chip}
+                  onClick={() => sendMessage(chip)}
+                  className="
+                    text-xs px-3 py-1.5 rounded-full
+                    border border-[#4f46e5] text-[#4f46e5]
+                    hover:bg-[#4f46e5] hover:text-white
+                    transition-colors font-medium
+                  "
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Conversation messages */}
           {messages.map((msg, idx) => (
             <div
               key={idx}
               className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}
             >
-              {/* Pattie avatar */}
-              {msg.role === 'assistant' && (
-                <span className="text-base shrink-0 mb-1">🦞</span>
-              )}
+              {msg.role === 'assistant' && <PattieAvatar size={26} />}
 
               <div
                 className={`
@@ -255,10 +313,10 @@ export default function PattieChatDrawer({
             </div>
           ))}
 
-          {/* Streaming indicator when no assistant bubble yet */}
+          {/* Standalone typing indicator (before first assistant bubble appears) */}
           {streaming && messages[messages.length - 1]?.role !== 'assistant' && (
             <div className="flex justify-start items-end gap-2">
-              <span className="text-base shrink-0 mb-1">🦞</span>
+              <PattieAvatar size={26} />
               <div className="bg-gray-100 text-[#1a1f36] px-3 py-2 rounded-2xl rounded-bl-sm">
                 <TypingDots />
               </div>
@@ -274,8 +332,8 @@ export default function PattieChatDrawer({
           <div ref={bottomRef} />
         </div>
 
-        {/* Input area */}
-        <div className="shrink-0 border-t border-gray-200 bg-white px-4 py-3">
+        {/* ── Input area ── */}
+        <div className="shrink-0 border-t border-gray-200 bg-white px-4 pt-3 pb-2">
           <div className="flex items-end gap-2">
             <textarea
               ref={inputRef}
@@ -290,8 +348,7 @@ export default function PattieChatDrawer({
                 text-sm text-[#1a1f36] placeholder-gray-400
                 focus:outline-none focus:ring-2 focus:ring-[#4f46e5]/30 focus:border-[#4f46e5]
                 disabled:opacity-60 disabled:cursor-not-allowed
-                min-h-[40px] max-h-[120px]
-                overflow-y-auto
+                min-h-[40px] max-h-[120px] overflow-y-auto
               "
               style={{ height: 'auto' }}
               onInput={e => {
@@ -301,7 +358,7 @@ export default function PattieChatDrawer({
               }}
             />
             <button
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={!input.trim() || streaming}
               aria-label="Send message"
               className="
@@ -314,7 +371,7 @@ export default function PattieChatDrawer({
               {streaming ? (
                 <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3V4a10 10 0 100 20v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
               ) : (
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -323,7 +380,9 @@ export default function PattieChatDrawer({
               )}
             </button>
           </div>
-          <p className="text-[10px] text-gray-400 mt-1.5 text-center">
+
+          {/* ── Disclaimer (persistent) ── */}
+          <p className="text-[10px] text-gray-400 mt-2 mb-1 text-center leading-tight">
             Pattie is an AI assistant, not a licensed attorney. Always verify with a qualified professional.
           </p>
         </div>
