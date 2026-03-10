@@ -78,7 +78,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'accounts' | 'connectors'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'users' | 'collabs' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'accounts' | 'connectors'>('overview')
   const [authToken, setAuthToken] = useState('')
   const [mfaWarning, setMfaWarning] = useState<'setup' | 'verify' | null>(null)
 
@@ -317,6 +317,7 @@ export default function AdminPage() {
     { key: 'accounts', label: 'Accounts', icon: '👥' },
     { key: 'patents', label: `Patents (${summary.total_patents})`, icon: '📋' },
     { key: 'users', label: `Users (${summary.total_users})`, icon: '👤' },
+    { key: 'collabs', label: 'Collabs', icon: '🤝' },
     { key: 'ai-costs', label: 'AI Costs', icon: '🤖' },
     { key: 'activity', label: 'Activity', icon: '📡' },
     { key: 'connectors', label: 'Connectors', icon: '🔌' },
@@ -557,6 +558,11 @@ export default function AdminPage() {
               users={stats.user_table}
               authToken={authToken}
             />
+          )}
+
+          {/* ── COLLABORATOR INVITES ──────────────────────────────────── */}
+          {activeSection === 'collabs' && (
+            <AdminCollabsPanel authToken={authToken} />
           )}
 
           {/* ── AI COSTS ─────────────────────────────────────────────────── */}
@@ -1764,6 +1770,179 @@ function AdminConnectorsPanel({ authToken }: { authToken: string }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Admin Collaborator Invites Panel ─────────────────────────────────────────
+
+interface CollabRow {
+  id: string
+  patent_id: string
+  patent_title: string
+  invited_email: string
+  role: string
+  ownership_pct: number
+  accepted_at: string | null
+  created_at: string
+  status: 'pending' | 'expired' | 'active' | 'ghost'
+}
+
+const COLLAB_STATUS_BADGE: Record<string, { label: string; cls: string; icon: string }> = {
+  active:  { label: 'Active',   cls: 'bg-green-100 text-green-700',  icon: '✅' },
+  pending: { label: 'Pending',  cls: 'bg-amber-100 text-amber-700',  icon: '🟡' },
+  expired: { label: 'Expired',  cls: 'bg-red-100 text-red-600',      icon: '🔴' },
+  ghost:   { label: 'Ghost',    cls: 'bg-orange-100 text-orange-700', icon: '⚠️' },
+}
+
+const ROLE_LABELS_ADMIN: Record<string, string> = {
+  co_inventor: 'Co-Inventor',
+  counsel: 'Counsel',
+  attorney: 'Attorney',
+  viewer: 'Viewer',
+  owner: 'Owner',
+}
+
+function AdminCollabsPanel({ authToken }: { authToken: string }) {
+  const [collabs, setCollabs] = React.useState<CollabRow[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState('')
+  const [resendingId, setResendingId] = React.useState<string | null>(null)
+  const [resendMsg, setResendMsg] = React.useState<Record<string, string>>({})
+  const [filter, setFilter] = React.useState<'all' | 'active' | 'pending' | 'expired' | 'ghost'>('all')
+
+  const load = React.useCallback(async () => {
+    setLoading(true)
+    const res = await fetch('/api/admin/collabs', {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+    const d = await res.json()
+    if (!res.ok) { setError(d.error ?? 'Failed to load'); setLoading(false); return }
+    setCollabs(d.collabs ?? [])
+    setLoading(false)
+  }, [authToken])
+
+  React.useEffect(() => { load() }, [load])
+
+  async function resend(c: CollabRow) {
+    setResendingId(c.id)
+    const res = await fetch(`/api/patents/${c.patent_id}/resend-invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ collaborator_id: c.id }),
+    })
+    const d = await res.json()
+    setResendMsg(prev => ({ ...prev, [c.id]: res.ok ? `✅ Resent to ${c.invited_email}` : `❌ ${d.error}` }))
+    setTimeout(() => setResendMsg(prev => { const copy = { ...prev }; delete copy[c.id]; return copy }), 5000)
+    setResendingId(null)
+    if (res.ok) load()
+  }
+
+  function formatDate(s: string | null) {
+    if (!s) return '—'
+    return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+  }
+
+  const filtered = filter === 'all' ? collabs : collabs.filter(c => c.status === filter)
+  const counts = { all: collabs.length, active: 0, pending: 0, expired: 0, ghost: 0 }
+  collabs.forEach(c => { counts[c.status]++ })
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-gray-900">Collaborator Invites ({collabs.length})</h1>
+        <button onClick={load} className="text-xs text-indigo-600 hover:underline">↻ Refresh</button>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {(['all', 'active', 'pending', 'expired', 'ghost'] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
+              filter === f
+                ? 'bg-indigo-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {f === 'all' ? `All (${counts.all})` : `${COLLAB_STATUS_BADGE[f]?.icon} ${f.charAt(0).toUpperCase() + f.slice(1)} (${counts[f]})`}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div className="text-sm text-gray-400 py-8 text-center">Loading...</div>}
+      {error && <div className="text-sm text-red-500 py-4">{error}</div>}
+
+      {!loading && !error && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Patent</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Role</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Invited</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-gray-400">No collaborator invites found.</td>
+                  </tr>
+                )}
+                {filtered.map(c => {
+                  const badge = COLLAB_STATUS_BADGE[c.status]
+                  const canResend = c.status === 'expired' || c.status === 'ghost'
+                  return (
+                    <tr key={c.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-800">{c.invited_email}</div>
+                        {resendMsg[c.id] && (
+                          <div className={`mt-1 text-xs ${resendMsg[c.id].startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>
+                            {resendMsg[c.id]}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 max-w-[180px] truncate" title={c.patent_title}>
+                        {c.patent_title}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-semibold">
+                          {ROLE_LABELS_ADMIN[c.role] ?? c.role}
+                        </span>
+                        {c.ownership_pct > 0 && (
+                          <span className="ml-1 text-gray-400">{c.ownership_pct}%</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-full font-semibold ${badge.cls}`}>
+                          {badge.icon} {badge.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">{formatDate(c.created_at)}</td>
+                      <td className="px-4 py-3">
+                        {canResend && (
+                          <button
+                            onClick={() => resend(c)}
+                            disabled={resendingId === c.id}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 px-2.5 py-1 rounded border border-indigo-200 hover:bg-indigo-50 transition-colors disabled:opacity-50 font-medium"
+                          >
+                            {resendingId === c.id ? '...' : 'Resend →'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -162,11 +162,25 @@ export async function GET(
 
   const { data: collaborators } = await supabaseService
     .from('patent_collaborators')
-    .select('id, invited_email, role, ownership_pct, accepted_at, created_at')
+    .select('id, invited_email, role, ownership_pct, accepted_at, created_at, user_id')
     .eq('patent_id', patentId)
     .order('created_at', { ascending: false })
 
-  return NextResponse.json({ collaborators: collaborators ?? [] })
+  // Ghost detection: for each accepted row, check if user has ever signed in via admin API
+  const enriched = await Promise.all(
+    (collaborators ?? []).map(async (c) => {
+      let is_ghost = false
+      if (c.accepted_at && c.user_id) {
+        const { data: authData } = await supabaseService.auth.admin.getUserById(c.user_id)
+        is_ghost = !authData?.user || !authData.user.last_sign_in_at
+      } else if (c.accepted_at && !c.user_id) {
+        is_ghost = true
+      }
+      return { ...c, is_ghost }
+    })
+  )
+
+  return NextResponse.json({ collaborators: enriched })
 }
 
 /**

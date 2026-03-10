@@ -54,14 +54,28 @@ export async function POST(
     // Fetch collaborator
     const { data: collab } = await supabaseService
       .from('patent_collaborators')
-      .select('id, invited_email, role, ownership_pct, accepted_at')
+      .select('id, invited_email, role, ownership_pct, accepted_at, user_id')
       .eq('id', collaborator_id)
       .eq('patent_id', patentId)
       .single()
 
     if (!collab) return NextResponse.json({ error: 'Collaborator not found' }, { status: 404 })
+
+    // Ghost check: accepted but user has never signed in → allow resend
     if (collab.accepted_at) {
-      return NextResponse.json({ error: 'This collaborator has already accepted' }, { status: 409 })
+      let isGhost = false
+      if (collab.user_id) {
+        const { data: authData } = await supabaseService.auth.admin.getUserById(collab.user_id)
+        // Ghost = accepted + auth account exists but never signed in
+        isGhost = !authData?.user || !authData.user.last_sign_in_at
+      } else {
+        isGhost = true // accepted but no user_id at all
+      }
+      if (!isGhost) {
+        return NextResponse.json({ error: 'This collaborator has already accepted and signed in' }, { status: 409 })
+      }
+      // Ghost: clear accepted state so they can re-onboard properly
+      console.log(`[resend-invite] Ghost detected for ${collab.invited_email} — clearing accepted state`)
     }
 
     // Regenerate token + reset created_at (so 24h window restarts from now)
@@ -72,7 +86,9 @@ export async function POST(
       .from('patent_collaborators')
       .update({
         invite_token: newToken,
-        created_at: new Date().toISOString(), // reset window
+        accepted_at: null,  // clear ghost/stale accept state so invite can be re-consumed
+        user_id: null,       // unlink ghost user so fresh accept links properly
+        created_at: new Date().toISOString(), // reset expiry window
         updated_at: new Date().toISOString(),
       })
       .eq('id', collaborator_id)

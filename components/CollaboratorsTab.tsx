@@ -8,6 +8,7 @@ export interface Collaborator {
   ownership_pct: number
   accepted_at: string | null
   created_at: string
+  is_ghost?: boolean  // accepted but never signed in
 }
 
 interface CollaboratorsTabProps {
@@ -159,6 +160,7 @@ export default function CollaboratorsTab({
             {collaborators.map(c => {
               const pending = !c.accepted_at
               const expired = pending && isExpired(c.created_at)
+              const needsResend = (pending && expired) || c.is_ghost
               return (
                 <div key={c.id} className="px-5 py-4">
                   <div className="flex items-center gap-4">
@@ -174,8 +176,10 @@ export default function CollaboratorsTab({
                         {c.ownership_pct > 0 && (
                           <span className="text-xs text-gray-400">{c.ownership_pct}% ownership</span>
                         )}
-                        {c.accepted_at ? (
-                          <span className="text-xs text-green-600 font-medium">✓ Accepted</span>
+                        {c.is_ghost ? (
+                          <span className="text-xs text-orange-600 font-medium" title="Account created but user has never signed in">⚠️ Ghost — never signed in</span>
+                        ) : c.accepted_at ? (
+                          <span className="text-xs text-green-600 font-medium">✓ Active</span>
                         ) : expired ? (
                           <span className="text-xs text-red-500 font-medium">⏰ Expired</span>
                         ) : (
@@ -186,7 +190,7 @@ export default function CollaboratorsTab({
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      {pending && expired && (
+                      {needsResend && (
                         <button
                           onClick={() => resendInvite(c.id, c.invited_email)}
                           disabled={resendingId === c.id}
