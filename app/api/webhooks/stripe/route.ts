@@ -12,6 +12,69 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// ── Tier mapping ─────────────────────────────────────────────────────────────
+// Maps Stripe subscription.status → internal patent_profiles.subscription_status
+// past_due is kept as 'pro' — grace period, do not downgrade mid-cycle
+function stripeTierFromStatus(stripeStatus: string): 'pro' | 'free' {
+  if (stripeStatus === 'active' || stripeStatus === 'past_due') return 'pro'
+  // canceled, unpaid, incomplete_expired, incomplete, trialing (edge case) → free
+  return 'free'
+}
+
+// ── Subscription updated ─────────────────────────────────────────────────────
+async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+  const customerId = typeof subscription.customer === 'string'
+    ? subscription.customer
+    : subscription.customer.id
+
+  const newTier = stripeTierFromStatus(subscription.status)
+  const periodEnd = subscription.current_period_end
+    ? new Date(subscription.current_period_end * 1000).toISOString()
+    : null
+
+  const { data, error } = await supabase
+    .from('patent_profiles')
+    .update({
+      subscription_status: newTier,
+      subscription_period_end: periodEnd,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('stripe_customer_id', customerId)
+    .select('id, email')
+    .single()
+
+  if (error) {
+    console.error('[webhook/sub.updated] profile update failed:', JSON.stringify(error), 'customer:', customerId)
+    return
+  }
+  console.log(`[webhook/sub.updated] user ${data?.email ?? data?.id} → ${newTier} (stripe: ${subscription.status})`)
+}
+
+// ── Subscription deleted ─────────────────────────────────────────────────────
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+  const customerId = typeof subscription.customer === 'string'
+    ? subscription.customer
+    : subscription.customer.id
+
+  const { data, error } = await supabase
+    .from('patent_profiles')
+    .update({
+      subscription_status: 'free',
+      subscription_period_end: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('stripe_customer_id', customerId)
+    .select('id, email')
+    .single()
+
+  if (error) {
+    console.error('[webhook/sub.deleted] profile update failed:', JSON.stringify(error), 'customer:', customerId)
+    return
+  }
+  console.log(`[webhook/sub.deleted] user ${data?.email ?? data?.id} → free (subscription cancelled)`)
+}
+
+// ── Main handler ─────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const sig = req.headers.get('stripe-signature')
   if (!sig) {
@@ -34,6 +97,18 @@ export async function POST(req: NextRequest) {
   // 3. Parse event from raw body
   const event = JSON.parse(rawBody) as Stripe.Event
 
+  // ── Route by event type ───────────────────────────────────────────────────
+  if (event.type === 'customer.subscription.updated') {
+    await handleSubscriptionUpdated(event.data.object as Stripe.Subscription)
+    return NextResponse.json({ received: true })
+  }
+
+  if (event.type === 'customer.subscription.deleted') {
+    await handleSubscriptionDeleted(event.data.object as Stripe.Subscription)
+    return NextResponse.json({ received: true })
+  }
+
+  // ── checkout.session.completed — unchanged ────────────────────────────────
   if (event.type !== 'checkout.session.completed') {
     return NextResponse.json({ received: true })
   }
