@@ -5,6 +5,7 @@
 
 import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage } from 'pdf-lib'
 import { USPTO_FEES } from '@/lib/uspto-fees'
+import { sanitizeForPdf } from '@/lib/pdf-sanitize'
 
 // ── Page constants ────────────────────────────────────────────────────────────
 const PTS_PER_INCH = 72
@@ -36,16 +37,21 @@ function drawText(ctx: DrawCtx, text: string, x: number, yTop: number, opts: {
   const font = opts.font ?? ctx.regular
   const [r, g, b] = opts.color ?? [0, 0, 0]
   const y = toY(ctx, yTop)
-  
-  // Truncate to maxWidth if needed
-  let str = text || ''
+
+  // ── WinAnsi safety: sanitize ALL text before touching pdf-lib ────────────────
+  // StandardFonts (Helvetica, etc.) use WinAnsiEncoding (codepoints 0–255 only).
+  // Any character outside that range throws: WinAnsi cannot encode "X" (0xNNNN)
+  // sanitizeForPdf maps common symbols to ASCII and strips the rest.
+  let str = sanitizeForPdf(text)
+
+  // Truncate to maxWidth — use '...' not '…' (U+2026 is also non-WinAnsi)
   if (opts.maxWidth && font.widthOfTextAtSize(str, size) > opts.maxWidth) {
-    while (str.length > 0 && font.widthOfTextAtSize(str + '…', size) > opts.maxWidth) {
+    while (str.length > 0 && font.widthOfTextAtSize(str + '...', size) > opts.maxWidth) {
       str = str.slice(0, -1)
     }
-    str = str + '…'
+    str = str + '...'
   }
-  
+
   ctx.page.drawText(str, {
     x: MARGIN_X + x,
     y,
@@ -84,10 +90,12 @@ function sectionHeader(ctx: DrawCtx, text: string, yTop: number) {
     height: 14,
     color: rgb(0.12, 0.14, 0.22),
   })
+  // drawText applies sanitizeForPdf internally
   drawText(ctx, text, 4, yTop + 1, { size: 8, font: ctx.bold, color: [1, 1, 1] })
 }
 
 function labeledField(ctx: DrawCtx, label: string, value: string, x: number, w: number, yTop: number) {
+  // drawText applies sanitizeForPdf internally — label and value both covered
   drawText(ctx, label.toUpperCase(), x, yTop, { size: 6.5, font: ctx.bold, color: [0.4, 0.4, 0.4] })
   drawText(ctx, value, x, yTop + 11, { size: 9, font: ctx.regular, maxWidth: w - 4 })
   drawLine(ctx, x, x + w, yTop + 12)
@@ -100,7 +108,7 @@ function checkbox(ctx: DrawCtx, checked: boolean, x: number, yTop: number) {
     color: checked ? rgb(0.12, 0.14, 0.22) : rgb(1, 1, 1),
   })
   if (checked) {
-    // Use 'X' — WinAnsiEncoding (Helvetica/StandardFonts) cannot encode Unicode '✓' (U+2713)
+    // 'X' is WinAnsi-safe (codepoint 88); drawText also sanitizes as backup
     drawText(ctx, 'X', x + 1, yTop + 1, { size: 7, font: ctx.bold, color: [1, 1, 1] })
   }
 }
@@ -113,8 +121,8 @@ export async function buildCoverSheetPdf(
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   doc.setProducer('PatentPending.app')
-  doc.setCreator('PatentPending.app — patentpending.app')
-  doc.setTitle(`ADS Cover Sheet — ${patent.title ?? 'Patent Application'}`)
+  doc.setCreator('PatentPending.app -- patentpending.app')
+  doc.setTitle(sanitizeForPdf(`ADS Cover Sheet -- ${patent.title ?? 'Patent Application'}`))
   doc.setSubject('USPTO Application Data Sheet (37 CFR 1.76)')
   doc.setKeywords(['patent', 'USPTO', 'ADS', 'provisional'])
 
@@ -128,28 +136,30 @@ export async function buildCoverSheetPdf(
 
   const ctx: DrawCtx = { page, y: 0, bold, regular, italic }
 
-  // ── Extract data ────────────────────────────────────────────────────────────
-  const title = (patent.title as string) ?? ''
-  const provisionalNum = (patent.provisional_number as string) ?? ''
-  const filingDate = (patent.filing_date as string) ?? ''
-  const inventors = (patent.inventors as string[]) ?? []
+  // ── Extract + sanitize data ──────────────────────────────────────────────────
+  // sanitizeForPdf applied here as a first pass so downstream interpolations are safe.
+  // drawText also calls sanitizeForPdf internally as a final safety net.
+  const title         = sanitizeForPdf((patent.title as string) ?? '')
+  const provisionalNum = sanitizeForPdf((patent.provisional_number as string) ?? '')
+  const filingDate    = (patent.filing_date as string) ?? ''
+  const inventors     = (patent.inventors as string[]) ?? []
 
-  const firstName  = (profile?.name_first as string) ?? ''
-  const middleName = (profile?.name_middle as string) ?? ''
-  const lastName   = (profile?.name_last as string) ?? ''
-  const fullName   = [firstName, middleName, lastName].filter(Boolean).join(' ')
-  const inventorName = fullName || inventors[0] || ''
+  const firstName   = sanitizeForPdf((profile?.name_first as string) ?? '')
+  const middleName  = sanitizeForPdf((profile?.name_middle as string) ?? '')
+  const lastName    = sanitizeForPdf((profile?.name_last as string) ?? '')
+  const fullName    = [firstName, middleName, lastName].filter(Boolean).join(' ')
+  const inventorName = fullName || sanitizeForPdf(inventors[0] ?? '')
 
-  const address1   = (profile?.address_line_1 as string) ?? ''
-  const city       = (profile?.city as string) ?? ''
-  const state      = (profile?.state as string) ?? ''
-  const zip        = (profile?.zip as string) ?? ''
-  const country    = (profile?.country as string) ?? 'US'
-  const phone      = (profile?.phone as string) ?? ''
-  const email      = (profile?.email as string) ?? ''
-  const customerNum = (profile?.uspto_customer_number as string) ?? ''
-  const assigneeName = (profile?.default_assignee_name as string) ?? ''
-  const assigneeAddr = (profile?.default_assignee_address as string) ?? ''
+  const address1    = sanitizeForPdf((profile?.address_line_1 as string) ?? '')
+  const city        = sanitizeForPdf((profile?.city as string) ?? '')
+  const state       = sanitizeForPdf((profile?.state as string) ?? '')
+  const zip         = sanitizeForPdf((profile?.zip as string) ?? '')
+  const country     = sanitizeForPdf((profile?.country as string) ?? 'US')
+  const phone       = sanitizeForPdf((profile?.phone as string) ?? '')
+  const email       = sanitizeForPdf((profile?.email as string) ?? '')
+  const customerNum = sanitizeForPdf((profile?.uspto_customer_number as string) ?? '')
+  const assigneeName = sanitizeForPdf((profile?.default_assignee_name as string) ?? '')
+  const assigneeAddr = sanitizeForPdf((profile?.default_assignee_address as string) ?? '')
   const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
   const todayLong = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
   const signature = `/${inventorName}/`
@@ -167,10 +177,11 @@ export async function buildCoverSheetPdf(
   y += 12
   drawLine(ctx, 0, CONTENT_W, y, 1.5)
   y += 6
-  drawText(ctx, `Generated ${todayLong} by PatentPending.app  ·  File at patentcenter.uspto.gov`, 0, y, {
+  drawText(ctx, `Generated ${todayLong} by PatentPending.app  -  File at patentcenter.uspto.gov`, 0, y, {
     size: 7, font: italic, color: [0.5, 0.5, 0.5]
   })
-  drawText(ctx, '⚠ DRAFT — Review all fields before filing', 300, y, {
+  // ⚠ was U+26A0 — replaced with ASCII '(!) DRAFT' to avoid WinAnsi crash
+  drawText(ctx, '(!) DRAFT -- Review all fields before filing', 300, y, {
     size: 7, font: bold, color: [0.7, 0.4, 0]
   })
   y += 16
@@ -182,7 +193,7 @@ export async function buildCoverSheetPdf(
   y += 24
   labeledField(ctx, 'Application Number', 'Assigned by USPTO upon filing', 0, 200, y)
   labeledField(ctx, 'Filing Date', 'Assigned by USPTO', 210, 140, y)
-  labeledField(ctx, 'Customer Number', customerNum || '—', 360, CONTENT_W - 360, y)
+  labeledField(ctx, 'Customer Number', customerNum || '--', 360, CONTENT_W - 360, y)
   y += 24
   labeledField(ctx, 'Attorney Docket Number', '(optional)', 0, 200, y)
   y += 28
@@ -190,7 +201,7 @@ export async function buildCoverSheetPdf(
   // ── Section 2: Inventor Information ─────────────────────────────────────────
   sectionHeader(ctx, '2. INVENTOR INFORMATION', y)
   y += 20
-  drawText(ctx, 'Inventor 1 — First Named Inventor', 0, y, { size: 7.5, font: bold, color: [0.3, 0.3, 0.3] })
+  drawText(ctx, 'Inventor 1 -- First Named Inventor', 0, y, { size: 7.5, font: bold, color: [0.3, 0.3, 0.3] })
   y += 12
   const third = (CONTENT_W - 8) / 3
   labeledField(ctx, 'Given Name', firstName, 0, third, y)
@@ -226,18 +237,18 @@ export async function buildCoverSheetPdf(
   labeledField(ctx, 'Postal Code', zip, CONTENT_W / 2 + 4 + q + 4, q - 4, y)
   y += 28
 
-  // ── Section 4: Entity Status ─────────────────────────────────────────────────
+  // ── Section 4: Application Type / Entity Status ──────────────────────────────
   sectionHeader(ctx, '4. APPLICATION TYPE / ENTITY STATUS', y)
   y += 20
   checkbox(ctx, true, 0, y)
   drawText(ctx, 'Provisional Application under 35 U.S.C. 111(b)', 14, y, { size: 9, font: regular })
   y += 18
-  drawText(ctx, 'Entity Status — check one:', 0, y, { size: 7.5, font: bold, color: [0.3, 0.3, 0.3] })
+  drawText(ctx, 'Entity Status -- check one:', 0, y, { size: 7.5, font: bold, color: [0.3, 0.3, 0.3] })
   y += 12
   const entityRows = [
-    { key: 'micro', label: `Micro Entity — 37 CFR 1.29  ·  ~${USPTO_FEES.provisional.micro} provisional fee` },
-    { key: 'small', label: `Small Entity — 37 CFR 1.27  ·  ~$${USPTO_FEES.provisional.small} provisional fee` },
-    { key: 'large', label: `Undiscounted (Large Entity)  ·  ~$${USPTO_FEES.provisional.large} provisional fee` },
+    { label: `Micro Entity -- 37 CFR 1.29  -  ~$${USPTO_FEES.provisional.micro} provisional fee` },
+    { label: `Small Entity -- 37 CFR 1.27  -  ~$${USPTO_FEES.provisional.small} provisional fee` },
+    { label: `Undiscounted (Large Entity)  -  ~$${USPTO_FEES.provisional.large} provisional fee` },
   ]
   for (const row of entityRows) {
     checkbox(ctx, false, 0, y)
@@ -252,8 +263,8 @@ export async function buildCoverSheetPdf(
   const filingDateFmt = filingDate
     ? new Date(filingDate + 'T00:00:00').toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
     : ''
-  labeledField(ctx, 'Prior Application Number', provisionalNum || '—', 0, 200, y)
-  labeledField(ctx, 'Filing Date', filingDateFmt || '—', 210, 140, y)
+  labeledField(ctx, 'Prior Application Number', provisionalNum || '--', 0, 200, y)
+  labeledField(ctx, 'Filing Date', filingDateFmt || '--', 210, 140, y)
   labeledField(ctx, 'Relationship', 'Priority/Benefit Claim', 360, CONTENT_W - 360, y)
   y += 24
   drawText(ctx, 'If this IS the provisional, leave blank. Reference this app when filing the non-provisional.', 0, y, {
@@ -264,8 +275,8 @@ export async function buildCoverSheetPdf(
   // ── Section 6: Assignee ──────────────────────────────────────────────────────
   sectionHeader(ctx, '6. ASSIGNEE INFORMATION (IF ANY)', y)
   y += 20
-  labeledField(ctx, 'Assignee Name / Organization', assigneeName || '—', 0, CONTENT_W / 2, y)
-  labeledField(ctx, 'Assignee Address', assigneeAddr || '—', CONTENT_W / 2 + 4, CONTENT_W / 2 - 4, y)
+  labeledField(ctx, 'Assignee Name / Organization', assigneeName || '--', 0, CONTENT_W / 2, y)
+  labeledField(ctx, 'Assignee Address', assigneeAddr || '--', CONTENT_W / 2 + 4, CONTENT_W / 2 - 4, y)
   y += 28
 
   // ── Section 7: Signature ─────────────────────────────────────────────────────
@@ -279,16 +290,16 @@ export async function buildCoverSheetPdf(
   labeledField(ctx, 'Date', today, CONTENT_W / 2 + 4, CONTENT_W / 2 - 4, y)
   y += 24
   labeledField(ctx, 'Typed or Printed Name', inventorName, 0, CONTENT_W / 2, y)
-  labeledField(ctx, 'Registration Number (Attorney/Agent)', 'N/A — Pro Se Filer', CONTENT_W / 2 + 4, CONTENT_W / 2 - 4, y)
+  labeledField(ctx, 'Registration Number (Attorney/Agent)', 'N/A -- Pro Se Filer', CONTENT_W / 2 + 4, CONTENT_W / 2 - 4, y)
   y += 30
 
   // ── Footer ──────────────────────────────────────────────────────────────────
   drawLine(ctx, 0, CONTENT_W, y, 0.5)
   y += 6
-  drawText(ctx, `Form PTO/AIA/14  ·  Generated by PatentPending.app  ·  ${todayLong}`, 0, y, {
+  drawText(ctx, `Form PTO/AIA/14  -  Generated by PatentPending.app  -  ${todayLong}`, 0, y, {
     size: 7, font: regular, color: [0.5, 0.5, 0.5]
   })
-  drawText(ctx, 'File at patentcenter.uspto.gov  ·  PatentPending.app is not a law firm.', 0, y + 10, {
+  drawText(ctx, 'File at patentcenter.uspto.gov  -  PatentPending.app is not a law firm.', 0, y + 10, {
     size: 7, font: regular, color: [0.5, 0.5, 0.5]
   })
 
