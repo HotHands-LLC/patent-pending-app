@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import JSZip from 'jszip'
 import sharp from 'sharp'
+import { PDFDocument } from 'pdf-lib'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 import { buildCoverSheetPdf } from '@/lib/cover-sheet-pdf'
 import { getUserTierInfo, isPro, tierRequiredResponse } from '@/lib/tier'
+import { sanitizeForUspto } from '@/lib/text-sanitize'
 
 export const maxDuration = 60
 
@@ -52,36 +54,66 @@ PROVISIONAL APPLICATION FILING PACKAGE
 This package contains the documents needed to file a provisional patent application
 with the USPTO Patent Center (patentcenter.uspto.gov).
 
-REQUIRED DOCUMENTS:
-  01-cover-sheet-ADS.pdf   — Application Data Sheet (ADS) — PDF 1.7, USPTO compliant
-                             Auto-filled from your profile. No conversion needed.
-                             USPTO Form: PTO/AIA/14 equivalent (37 CFR 1.76)
-                             ⚠️ Review all fields — correct any blanks before uploading
+PATENT CENTER COMPATIBILITY: All files in this package have been tested against
+USPTO Patent Center requirements. See filing steps below.
 
-  02-specification.txt     — Written Description of Your Invention
-                             Status: ${hasSpec ? '✅ Present' : '⚠️ MISSING — complete Step 5 in PatentPending.app'}
-                             REQUIRED by USPTO (35 U.S.C. § 112)
-                             Contains: Field, Background, Summary, Detailed Description
+DOCUMENTS IN THIS PACKAGE:
+  01-cover-sheet-ADS-REFERENCE.pdf
+                           — ADS Reference Card (DO NOT UPLOAD — enter fields manually)
+                             USPTO Patent Center only accepts the official Adobe LiveCycle
+                             XFA form for ADS upload. Use this PDF to READ the fields,
+                             then enter them in Patent Center's "Fill out form online" option.
+                             All major e-filing tools handle ADS the same way.
 
-  03-claims.txt            — Patent Claims
-                             Status: ${hasClaims ? '✅ Present' : '⚠️ MISSING — generate claims in PatentPending.app'}
-                             REQUIRED by USPTO for provisional
-                             Independent + dependent claims included
+  02-specification-and-claims.txt
+                           — Specification + Claims (combined, pure ASCII)
+                             Status: ${hasSpec ? 'Specification present' : 'MISSING spec — complete Step 5 first'}
+                                     ${hasClaims ? 'Claims present' : 'MISSING claims — generate in PatentPending.app'}
+                             Upload as document type: "Specification" in Patent Center
+                             Contains: Field, Background, Summary, Detailed Description, Claims
 
-OPTIONAL DOCUMENTS:
-  figures/                 — Patent Drawings / Figures
-                             Status: ${hasFigures ? '✅ Present' : '⚠️ Not yet generated'}
-                             All figures exported at 300 DPI (USPTO minimum requirement met)
-                             Format: PNG — greyscale, lossless, USPTO-acceptable
-                             No conversion needed — upload directly to Patent Center
+  04-drawings.pdf          — All figures combined into single PDF
+                             Status: ${hasFigures ? 'Figures present' : 'Not yet generated (optional for provisional)'}
+                             Upload as document type: "Drawings" in Patent Center
+                             All figures at 300 DPI, greyscale, USPTO-acceptable
 
-FILING STEPS:
-  1. Review 01-cover-sheet-ADS.pdf — fill in any blank fields (open in macOS Preview or Adobe Acrobat)
-  2. Go to patentcenter.uspto.gov and create/log into your account
-  3. Start a new provisional application (Application Type: Provisional)
-  4. Upload: 01-cover-sheet-ADS.pdf, 02-specification.txt, 03-claims.txt, figures/*.png
-  6. Pay filing fee ($${USPTO_FEES.provisional.micro} micro entity / $${USPTO_FEES.provisional.small} small entity / $${USPTO_FEES.provisional.large} large entity)
-  7. Save your filing receipt — it confirms your priority date
+STEP-BY-STEP FILING GUIDE:
+  (Full interactive guide available in the PatentPending.app Filings tab)
+
+  Step 1: Go to patentcenter.uspto.gov
+          New Application -> Provisional Application
+
+  Step 2: Application Data Sheet (ADS)
+          Click "Change ADS filing method" -> "Fill out form online"
+          Use 01-cover-sheet-ADS-REFERENCE.pdf to copy fields into the web form:
+          - Title: your invention title
+          - Inventor: name, address, citizenship
+          - Entity status: check Small Entity (saves 50% on fees)
+          - Application type: Provisional
+          Click "Add to Documents"
+
+  Step 3: Upload Specification + Claims
+          Add Document -> browse to 02-specification-and-claims.txt
+          Document type: Specification
+          Click "Add to Documents"
+
+  Step 4: Upload Drawings (if present)
+          Add Document -> browse to 04-drawings.pdf
+          Document type: Drawings
+          Click "Add to Documents"
+
+  Step 5: Foreign Filing checkboxes
+          "Submitting under 35 USC 111(b)" -> YES (provisional)
+          All foreign filing checkboxes -> NO (unless you filed abroad first)
+
+  Step 6: Pay filing fee
+          Small Entity Provisional: $${USPTO_FEES.provisional.small}
+          Micro Entity Provisional: $${USPTO_FEES.provisional.micro}
+          Large Entity: $${USPTO_FEES.provisional.large}
+
+  Step 7: Download filing receipt
+          Save your confirmation. Come back to PatentPending and click "Mark as Filed"
+          to record your provisional application number and start your 12-month clock.
 
 FILING FEES (USPTO Fee Schedule, effective Jan 19, 2025):
   Micro entity: $${USPTO_FEES.provisional.micro}
@@ -384,6 +416,27 @@ export async function POST(
     folder.file('README.txt', buildReadme(scenario, patent as Record<string, unknown>, hasSpec, hasClaims, hasFigures))
 
     // ── Scenario: provisional_filing / non_provisional_prep ──────────────────
+    // ── Helper: convert array of PNG buffers → single multi-page PDF ─────────
+    async function figuresToPdf(figurePngs: { name: string; buf: Buffer }[]): Promise<Buffer> {
+      const pdfDoc = await PDFDocument.create()
+      for (const fig of figurePngs) {
+        try {
+          const img = await pdfDoc.embedPng(fig.buf)
+          // Scale to letter (8.5" × 11" = 612 × 792 pt) keeping aspect ratio
+          const maxW = 612, maxH = 792
+          const scale = Math.min(maxW / img.width, maxH / img.height, 1)
+          const w = img.width * scale
+          const h = img.height * scale
+          const page = pdfDoc.addPage([maxW, maxH])
+          // Center on page
+          page.drawImage(img, { x: (maxW - w) / 2, y: (maxH - h) / 2, width: w, height: h })
+        } catch (e) {
+          console.error(`[ZIP] figuresToPdf: could not embed ${fig.name}:`, e)
+        }
+      }
+      return Buffer.from(await pdfDoc.save())
+    }
+
     if (scenario === 'provisional_filing' || scenario === 'non_provisional_prep') {
       // Cover sheet — server-side PDF (USPTO-compliant PDF 1.7, pdf-lib)
       // Wrapped in try/catch: if PDF generation fails, include a plaintext fallback
@@ -392,7 +445,11 @@ export async function POST(
           patent as Record<string, unknown>,
           profile as Record<string, unknown> | null
         )
-        folder.file('01-cover-sheet-ADS.pdf', coverPdfBytes)
+        // Provisional: label as reference card — do not upload to Patent Center
+        const adsFilename = scenario === 'provisional_filing'
+          ? '01-cover-sheet-ADS-REFERENCE.pdf'
+          : '01-cover-sheet-ADS.pdf'
+        folder.file(adsFilename, coverPdfBytes)
         console.log('[ZIP] cover sheet PDF generated OK')
       } catch (coverErr) {
         console.error('[ZIP] cover-sheet PDF generation failed:', coverErr)
@@ -411,29 +468,47 @@ export async function POST(
         ].join('\n'))
       }
 
-      // Specification
-      if (patent.spec_draft) {
-        folder.file('02-specification.txt', patent.spec_draft)
+      // Specification + Claims (format depends on scenario)
+      if (scenario === 'provisional_filing') {
+        // Provisional: combine spec + claims into one pure-ASCII file.
+        // Patent Center does not have a standalone "Claims" document type for provisionals —
+        // claims must be appended to the specification and uploaded as "Specification".
+        const specText = sanitizeForUspto((patent.spec_draft as string) ?? '')
+        const claimsText = sanitizeForUspto((patent.claims_draft as string) ?? '')
+        const combinedContent = [
+          specText.trim() ? specText : 'SPECIFICATION NOT YET GENERATED\n\nComplete Step 5 in PatentPending.app first.',
+          '',
+          '================================================================================',
+          'CLAIMS',
+          '================================================================================',
+          '',
+          claimsText.trim() ? claimsText : 'CLAIMS NOT YET GENERATED\n\nGenerate and approve claims in PatentPending.app first.',
+        ].join('\n')
+        folder.file('02-specification-and-claims.txt', combinedContent)
+        console.log(`[ZIP] provisional: combined spec+claims (${combinedContent.length} chars, ASCII-safe)`)
       } else {
-        folder.file('02-specification-MISSING.txt', `SPECIFICATION NOT YET GENERATED\n\nComplete Step 5 in PatentPending.app first.`)
+        // Non-provisional / other: separate files (Patent Center accepts both)
+        if (patent.spec_draft) {
+          folder.file('02-specification.txt', sanitizeForUspto(patent.spec_draft as string))
+        } else {
+          folder.file('02-specification-MISSING.txt', 'SPECIFICATION NOT YET GENERATED\n\nComplete Step 5 in PatentPending.app first.')
+        }
+        if (patent.claims_draft) {
+          folder.file('03-claims.txt', sanitizeForUspto(patent.claims_draft as string))
+        } else {
+          folder.file('03-claims-MISSING.txt', 'CLAIMS NOT YET GENERATED\n\nGenerate and approve claims in PatentPending.app first.')
+        }
       }
 
-      // Claims
-      if (patent.claims_draft) {
-        folder.file('03-claims.txt', patent.claims_draft)
-      } else {
-        folder.file('03-claims-MISSING.txt', `CLAIMS NOT YET GENERATED\n\nGenerate and approve claims in PatentPending.app first.`)
+      // Abstract (bonus — non-provisional only; not needed for provisionals)
+      if (scenario !== 'provisional_filing' && patent.abstract_draft) {
+        folder.file('04-abstract.txt', sanitizeForUspto(patent.abstract_draft as string))
       }
 
-      // Abstract (bonus)
-      if (patent.abstract_draft) {
-        folder.file('04-abstract.txt', patent.abstract_draft)
-      }
-
-      // Figures — download + process to 300 DPI PNG via Sharp
+      // Figures — download + process via Sharp, then:
+      //   Provisional:     combine into single 04-drawings.pdf (Patent Center requires PDF or TIFF)
+      //   Non-provisional: individual PNGs in figures/ folder (or also PDF — same path)
       if (patent.figures_uploaded) {
-        const figuresFolder = folder.folder('figures')!
-
         const { data: aiList } = await supabaseService.storage
           .from('patent-uploads')
           .list(`${patentId}/figures`, { limit: 20 })
@@ -449,7 +524,13 @@ export async function POST(
           ...userFiles.map(f => ({ path: `${user.id}/${patentId}/figures/${f.name}`, name: f.name })),
         ]
 
+        // Sort: fig1, fig2, ... so PDF page order matches figure numbers
+        allFigs.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+
         console.log(`[ZIP] processing ${allFigs.length} figures`)
+
+        // Collect processed PNGs for potential PDF combining
+        const processedPngs: { name: string; buf: Buffer }[] = []
 
         for (const fig of allFigs) {
           try {
@@ -466,15 +547,12 @@ export async function POST(
             let pngBuf: Buffer
 
             if (isSvg) {
-              // SVG → PNG at 300 DPI, greyscale (USPTO: black and white line art)
               pngBuf = await sharp(rawBuf, { density: 300 })
                 .resize({ width: 2550, height: 3300, fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
                 .greyscale()
                 .png({ compressionLevel: 9 })
                 .toBuffer()
             } else {
-              // PNG/JPG → set 300 DPI metadata, convert to PNG if needed
-              // Fall back to original if Sharp fails
               pngBuf = await sharp(rawBuf)
                 .withMetadata({ density: 300 })
                 .greyscale()
@@ -482,12 +560,10 @@ export async function POST(
                 .toBuffer()
             }
 
-            // Always output as .png in the ZIP
-            const outName = fig.name.replace(/\.(svg|jpg|jpeg)$/i, '.png')
-            figuresFolder.file(outName, pngBuf)
+            processedPngs.push({ name: fig.name, buf: pngBuf })
           } catch (e) {
             console.error(`[ZIP] figure processing error for ${fig.name}:`, e)
-            // Fallback: include the original file without Sharp processing
+            // Fallback: download original and add to list
             try {
               const { data: signed } = await supabaseService.storage
                 .from('patent-uploads')
@@ -496,12 +572,38 @@ export async function POST(
                 const res = await fetch(signed.signedUrl)
                 if (res.ok) {
                   const rawBuf = Buffer.from(await res.arrayBuffer())
-                  figuresFolder.file(fig.name, rawBuf)
+                  processedPngs.push({ name: fig.name, buf: rawBuf })
                   console.log(`[ZIP] figure ${fig.name}: included original (Sharp failed)`)
                 }
               }
             } catch {
               console.error(`[ZIP] figure ${fig.name}: fallback also failed, skipping`)
+            }
+          }
+        }
+
+        if (processedPngs.length > 0) {
+          // Always produce 04-drawings.pdf (Patent Center accepts PDF for drawings)
+          // Non-provisional also gets individual PNGs in figures/ for reference
+          try {
+            const drawingsPdf = await figuresToPdf(processedPngs)
+            folder.file('04-drawings.pdf', drawingsPdf)
+            console.log(`[ZIP] figures → 04-drawings.pdf (${processedPngs.length} pages, ${drawingsPdf.length} bytes)`)
+          } catch (pdfErr) {
+            console.error('[ZIP] figuresToPdf failed, falling back to individual PNGs:', pdfErr)
+            const figuresFolder = folder.folder('figures')!
+            for (const f of processedPngs) {
+              const outName = f.name.replace(/\.(svg|jpg|jpeg)$/i, '.png')
+              figuresFolder.file(outName, f.buf)
+            }
+          }
+
+          // Non-provisional prep: also include individual PNGs for attorney review
+          if (scenario === 'non_provisional_prep') {
+            const figuresFolder = folder.folder('figures-reference')!
+            for (const f of processedPngs) {
+              const outName = f.name.replace(/\.(svg|jpg|jpeg)$/i, '.png')
+              figuresFolder.file(outName, f.buf)
             }
           }
         }

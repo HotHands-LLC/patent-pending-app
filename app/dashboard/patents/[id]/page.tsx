@@ -18,6 +18,7 @@ import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 import Arc3Modal from '@/components/Arc3Modal'
 import DownloadPackageModal from '@/components/DownloadPackageModal'
 import MarkFiledModal from '@/components/MarkFiledModal'
+import FilingGuide from '@/components/FilingGuide'
 import EnhancementTab from '@/components/EnhancementTab'
 import PattieChatDrawer from '@/components/PattieChatDrawer'
 import { USPTO_FEES } from '@/lib/uspto-fees'
@@ -1870,6 +1871,16 @@ export default function PatentDetail() {
                 📦 Download Filing Package
               </button>
             </div>
+
+            {/* USPTO Patent Center Filing Guide — shown when not yet filed */}
+            {patent.filing_status !== 'provisional_filed' && patent.filing_status !== 'nonprov_filed' && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <FilingGuide
+                  patent={patent}
+                  hasDownloadedZip={false}
+                />
+              </div>
+            )}
 
             {/* What's Next guidance card */}
             {(() => {
