@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getUserTierInfo, tierRequiredResponse, marketplaceLimitResponse } from '@/lib/tier'
 
 const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -55,6 +56,31 @@ export async function POST(
 
   if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
   if (patent.owner_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // ── Tier gate: Marketplace requires Pro ─────────────────────────────────
+  const tierInfo = await getUserTierInfo(user.id)
+  if (tierInfo.subscription_status === 'free' && !tierInfo.is_attorney) {
+    return tierRequiredResponse('marketplace_list')
+  }
+  // Attorney accounts cannot list on Marketplace (no Stripe, no commission structure)
+  if (tierInfo.is_attorney) {
+    return NextResponse.json({
+      error: 'Attorney accounts cannot activate Marketplace listings. Please use a standard Pro account.',
+      code: 'ATTORNEY_NOT_ELIGIBLE',
+    }, { status: 403 })
+  }
+  // Pro accounts: cap at 1 active listing
+  if (tierInfo.subscription_status === 'pro') {
+    const { count: activeListings } = await supabaseService
+      .from('patents')
+      .select('id', { count: 'exact', head: true })
+      .eq('owner_id', user.id)
+      .eq('arc3_active', true)
+    if ((activeListings ?? 0) >= 1) {
+      return marketplaceLimitResponse()
+    }
+  }
+  // complimentary: unlimited listings — no cap check
 
   // Check for existing agreement
   const { data: existing } = await supabaseService

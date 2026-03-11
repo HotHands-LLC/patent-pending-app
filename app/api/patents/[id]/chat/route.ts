@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getUserTierInfo, isPro, tierRequiredResponse } from '@/lib/tier'
 
 export const maxDuration = 60
 
@@ -79,6 +80,17 @@ export async function POST(
   if (patent.owner_id !== user.id) {
     console.log('[pattie/chat] Forbidden — patent owner mismatch')
     return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })
+  }
+
+  // ── Tier gate: Pattie requires Pro ───────────────────────────────────────
+  const tierInfo = await getUserTierInfo(user.id)
+  if (!isPro(tierInfo, { isOwner: true, feature: 'pattie' })) {
+    return new Response(JSON.stringify({
+      error: 'This feature requires PatentPending Pro.',
+      code: 'TIER_REQUIRED',
+      requiredTier: 'pro',
+      feature: 'pattie',
+    }), { status: 403 })
   }
 
   console.log('[pattie/chat] Patent fetched:', patent.title)

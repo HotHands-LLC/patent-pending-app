@@ -1,4 +1,5 @@
 'use client'
+import React from 'react'
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -18,6 +19,11 @@ interface Profile {
   comp_reason: string | null
   created_at: string
   uspto_customer_number: string | null
+  is_attorney: boolean
+  bar_number: string | null
+  firm_name: string | null
+  bar_state: string | null
+  attorney_tos_accepted_at: string | null
 }
 
 interface Contact {
@@ -326,10 +332,12 @@ export default function ProfilePage() {
   if (!profile) return null
 
   const isPro = profile.subscription_status === 'pro' || profile.subscription_status === 'complimentary'
-  const tierLabel = profile.subscription_status === 'pro' ? 'Pro'
+  const tierLabel = profile.is_attorney ? '⚖ Attorney'
+    : profile.subscription_status === 'pro' ? 'Pro'
     : profile.subscription_status === 'complimentary' ? 'Complimentary'
     : 'Free'
-  const tierColor = profile.subscription_status === 'pro' ? 'bg-amber-100 text-amber-800 border-amber-300'
+  const tierColor = profile.is_attorney ? 'bg-teal-100 text-teal-800 border-teal-300'
+    : profile.subscription_status === 'pro' ? 'bg-amber-100 text-amber-800 border-amber-300'
     : profile.subscription_status === 'complimentary' ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
     : 'bg-gray-100 text-gray-600 border-gray-200'
 
@@ -431,7 +439,7 @@ export default function ProfilePage() {
               )}
             </div>
 
-            {profile.subscription_status === 'free' && (
+            {profile.subscription_status === 'free' && !profile.is_attorney && (
               <>
                 {/* Task 4: feature comparison table */}
                 <div className="mb-5 overflow-hidden rounded-xl border border-gray-200">
@@ -516,6 +524,33 @@ export default function ProfilePage() {
         </section>
       </div>
 
+      {/* ── Section E: Patent Professional / Attorney Mode ──────────────────── */}
+      <div className="max-w-3xl mx-auto px-4 pb-4">
+        <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+            <h2 className="text-sm font-bold text-[#1a1f36] uppercase tracking-wider">
+              {profile.is_attorney ? '⚖ Attorney Account' : 'Patent Professional?'}
+            </h2>
+          </div>
+          <div className="px-6 py-5">
+            {profile.is_attorney ? (
+              <div className="space-y-2">
+                <p className="text-sm text-teal-700 font-medium">Attorney mode is active on your account.</p>
+                {profile.firm_name && <p className="text-sm text-gray-600">Firm: <strong>{profile.firm_name}</strong></p>}
+                {profile.bar_number && <p className="text-sm text-gray-600">Bar #: <strong>{profile.bar_number}</strong></p>}
+                {profile.bar_state && <p className="text-sm text-gray-600">Bar state: <strong>{profile.bar_state}</strong></p>}
+                <p className="text-xs text-gray-400 mt-3">
+                  Attorney accounts get basic Pro access on patents you own (Pattie, claims refinement, ZIP download).
+                  Correspondence logging is always enabled. Marketplace listing is not available.
+                </p>
+              </div>
+            ) : (
+              <AttorneySetupForm authToken={authToken ?? ''} onComplete={() => window.location.reload()} />
+            )}
+          </div>
+        </section>
+      </div>
+
       {/* Contact modals */}
       {(editingContact || showAddContact) && (
         <ContactModal
@@ -525,5 +560,93 @@ export default function ProfilePage() {
         />
       )}
     </div>
+  )
+}
+
+// ── AttorneySetupForm — inline component ─────────────────────────────────────
+function AttorneySetupForm({ authToken, onComplete }: { authToken: string; onComplete: () => void }) {
+  const [expanded, setExpanded] = React.useState(false)
+  const [firmName, setFirmName] = React.useState('')
+  const [barNumber, setBarNumber] = React.useState('')
+  const [barState, setBarState] = React.useState('')
+  const [tosAccepted, setTosAccepted] = React.useState(false)
+  const [saving, setSaving] = React.useState(false)
+  const [err, setErr] = React.useState('')
+
+  if (!expanded) {
+    return (
+      <div>
+        <p className="text-sm text-gray-600 mb-3">
+          If you're a licensed patent attorney or agent, enable Attorney Mode to get basic Pro access on patents you own — Pattie, claims refinement, and filing ZIP — at no charge.
+        </p>
+        <button
+          onClick={() => setExpanded(true)}
+          className="px-4 py-2 border border-teal-300 text-teal-700 rounded-lg text-sm font-semibold hover:bg-teal-50 transition-colors"
+        >
+          Set up Attorney Mode →
+        </button>
+      </div>
+    )
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault()
+    if (!tosAccepted) { setErr('You must accept the ethics acknowledgment.'); return }
+    setSaving(true); setErr('')
+    const res = await fetch('/api/profile/attorney', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ tos_accepted: true, firm_name: firmName, bar_number: barNumber, bar_state: barState }),
+    })
+    setSaving(false)
+    if (res.ok) { onComplete() }
+    else { const j = await res.json().catch(() => ({})); setErr(j.error ?? 'Failed to save') }
+  }
+
+  return (
+    <form onSubmit={handleSave} className="space-y-4 max-w-md">
+      <div>
+        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Firm / Practice Name</label>
+        <input type="text" value={firmName} onChange={e => setFirmName(e.target.value)}
+          placeholder="e.g., Smith IP Law Group (optional)"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Bar Number (optional)</label>
+          <input type="text" value={barNumber} onChange={e => setBarNumber(e.target.value)}
+            placeholder="e.g., 12345"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Bar State (optional)</label>
+          <input type="text" value={barState} onChange={e => setBarState(e.target.value)}
+            placeholder="e.g., TX"
+            maxLength={2}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 uppercase" />
+        </div>
+      </div>
+      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input type="checkbox" checked={tosAccepted} onChange={e => setTosAccepted(e.target.checked)}
+            className="mt-0.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+          <span className="text-xs text-gray-600">
+            I confirm I am a licensed patent attorney, patent agent, or legal professional. This account is for managing client relationships.
+            PatentPending.app is not a law firm and no attorney-client relationship is formed between me and PatentPending.app.
+          </span>
+        </label>
+      </div>
+      {err && <p className="text-xs text-red-600">⚠️ {err}</p>}
+      <div className="flex gap-3">
+        <button type="submit" disabled={saving || !tosAccepted}
+          className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-semibold hover:bg-teal-700 disabled:opacity-50 transition-colors">
+          {saving ? 'Saving…' : 'Enable Attorney Mode'}
+        </button>
+        <button type="button" onClick={() => setExpanded(false)}
+          className="px-4 py-2 border border-gray-200 text-gray-500 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+          Cancel
+        </button>
+      </div>
+    </form>
   )
 }

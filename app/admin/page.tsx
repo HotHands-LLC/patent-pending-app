@@ -34,6 +34,7 @@ interface AdminStats {
     email_confirmed: boolean;
     require_2fa: boolean;
     subscription_status: string;
+    is_attorney?: boolean;
   }>
   recent_usage: Array<{
     id: string; user_id: string; patent_id: string; action: string;
@@ -1315,6 +1316,7 @@ function AdminAccountsPanel({ authToken }: { authToken: string }) {
     pro: 'bg-indigo-100 text-indigo-700',
     cancelled: 'bg-red-100 text-red-600',
     complimentary: 'bg-amber-100 text-amber-700',
+    attorney: 'bg-teal-100 text-teal-700',
   }
 
   if (loading) return <div className="text-gray-400 text-sm">Loading accounts…</div>
@@ -1350,6 +1352,9 @@ function AdminAccountsPanel({ authToken }: { authToken: string }) {
                   <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${TIER_BADGE[a.subscription_status] ?? 'bg-gray-100 text-gray-600'}`}>
                     {a.subscription_status}
                   </span>
+                  {a.is_attorney && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-100 text-teal-700">⚖ Atty</span>
+                  )}
                 </td>
                 <td className="py-3 pr-4 text-xs text-gray-500">
                   {a.subscription_period_end ? new Date(a.subscription_period_end).toLocaleDateString() : '—'}

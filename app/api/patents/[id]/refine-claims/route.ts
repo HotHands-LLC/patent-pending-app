@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { createClient } from '@supabase/supabase-js'
+import { getUserTierInfo, isPro, tierRequiredResponse } from '@/lib/tier'
 import { getUserTier, isTierPro } from '@/lib/subscription'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
 
@@ -61,6 +62,13 @@ export async function POST(
 
   if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
   if (patent.owner_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // ── Tier gate ───────────────────────────────────────────────────────────
+  const tierInfo = await getUserTierInfo(user.id)
+  if (!isPro(tierInfo, { isOwner: true, feature: 'claims_edit' })) {
+    return tierRequiredResponse('claims_edit')
+  }
+
   if (!patent.claims_draft) return NextResponse.json({ error: 'No claims draft to refine' }, { status: 400 })
   if (patent.claims_status === 'refining') {
     return NextResponse.json({ error: 'A refinement pass is already in progress' }, { status: 409 })

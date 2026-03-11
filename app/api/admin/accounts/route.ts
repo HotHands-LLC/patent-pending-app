@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseService
     .from('patent_profiles')
-    .select('id, email, full_name, company, role, subscription_status, subscription_period_end, comp_reason, comp_granted_by, comp_granted_at, created_at, is_internal')
+    .select('id, email, full_name, company, role, subscription_status, subscription_period_end, comp_reason, comp_granted_by, comp_granted_at, created_at, is_internal, is_attorney')
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

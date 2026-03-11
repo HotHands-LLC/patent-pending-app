@@ -13,6 +13,7 @@ import {
   CORRESPONDENCE_TYPE_LABELS, CORRESPONDENCE_TYPE_COLORS
 } from '@/lib/supabase'
 import type { ClaimsScore } from '@/lib/claims-score'
+import UpgradeModal from '@/components/UpgradeModal'
 import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 import Arc3Modal from '@/components/Arc3Modal'
 import DownloadPackageModal from '@/components/DownloadPackageModal'
@@ -237,6 +238,8 @@ export default function PatentDetail() {
   const [ownerId, setOwnerId] = useState('')
   const [authToken, setAuthToken] = useState('')
   const [isPro, setIsPro] = useState(false)
+  const [isAttorney, setIsAttorney] = useState(false)
+  const [upgradeFeature, setUpgradeFeature] = useState<string | null>(null)
   const [figureUrls, setFigureUrls] = useState<Array<{ number: number; label: string; filename: string; url: string }>>([])
   const [figuresLoaded, setFiguresLoaded] = useState(false)
   const [userEmail, setUserEmail] = useState('')
@@ -283,7 +286,7 @@ export default function PatentDetail() {
       supabase.from('patent_deadlines').select('*').eq('patent_id', id).order('due_date', { ascending: true }),
       supabase.from('patent_correspondence').select('*').eq('patent_id', id).order('correspondence_date', { ascending: false }),
       supabase.from('patents').select('*').order('title'),
-      supabase.from('patent_profiles').select('subscription_status,subscription_period_end').eq('id', user.id).single(),
+      supabase.from('patent_profiles').select('subscription_status,subscription_period_end,is_attorney').eq('id', user.id).single(),
     ])
 
     // Determine Pro status from fresh DB read (not stale session token)
@@ -292,6 +295,7 @@ export default function PatentDetail() {
     const proActive = status === 'complimentary' ||
       (status === 'pro' && (!periodEnd || new Date(periodEnd) > new Date()))
     setIsPro(proActive)
+    setIsAttorney(profileData?.is_attorney ?? false)
 
     if (!p) { router.push('/dashboard/patents'); return }
 
@@ -1526,7 +1530,7 @@ export default function PatentDetail() {
                         })
                         const d = await res.json()
                         if (!res.ok) {
-                          if (res.status === 403 && d.upgrade_url) { window.location.href = d.upgrade_url; return }
+                          if (res.status === 403 && d.code === 'TIER_REQUIRED') { setUpgradeFeature(d.feature ?? 'claims_edit'); return }
                           showToast(d.error ?? 'Failed')
                         } else {
                           showToast('🔬 Deep Research started — 8–12 min, we\'ll email you when done')
@@ -1554,7 +1558,7 @@ export default function PatentDetail() {
                           })
                           const d = await res.json()
                           if (!res.ok) {
-                            if (res.status === 403 && d.upgrade_url) { window.location.href = d.upgrade_url; return }
+                            if (res.status === 403 && d.code === 'TIER_REQUIRED') { setUpgradeFeature(d.feature ?? 'claims_edit'); return }
                             showToast(d.error ?? 'Failed')
                           } else {
                             showToast("✨ Refinement started — we'll email you when done (~2-3 min)")
@@ -2121,7 +2125,7 @@ export default function PatentDetail() {
                           })
                           const d = await res.json()
                           if (!res.ok) {
-                            if (res.status === 403 && d.upgrade_url) { window.location.href = d.upgrade_url; return }
+                            if (res.status === 403 && d.code === 'TIER_REQUIRED') { setUpgradeFeature(d.feature ?? 'claims_edit'); return }
                             showToast(d.error ?? 'Failed to start figure generation')
                           } else {
                             showToast('✨ Generating figures — check back in 60 seconds')
@@ -2497,6 +2501,7 @@ export default function PatentDetail() {
           onClose={() => setShowPattie(false)}
           canEdit={canWrite}
           patentStatus={patent.status}
+          onTierRequired={(feature) => { setShowPattie(false); setUpgradeFeature(feature) }}
         />
       )}
     </div>

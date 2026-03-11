@@ -13,6 +13,7 @@ interface PattieChatDrawerProps {
   onClose: () => void
   canEdit?: boolean      // prereq gate for future Pattie write mode (Prompt 8)
   patentStatus?: string  // drives status-aware chips and system prompt addendum
+  onTierRequired?: (feature: string) => void
 }
 
 const STARTER_CHIPS_DEFAULT = [
@@ -73,6 +74,7 @@ export default function PattieChatDrawer({
   patentTitle,
   authToken,
   onClose,
+  onTierRequired,
   canEdit = false,
   patentStatus,
 }: PattieChatDrawerProps) {
@@ -132,6 +134,10 @@ export default function PattieChatDrawer({
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
+        if (res.status === 403 && errData.code === 'TIER_REQUIRED') {
+          onTierRequired?.(errData.feature ?? 'pattie')
+          return
+        }
         throw new Error(errData.error ?? `Error ${res.status}`)
       }
 

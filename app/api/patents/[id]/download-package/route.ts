@@ -4,6 +4,7 @@ import JSZip from 'jszip'
 import sharp from 'sharp'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 import { buildCoverSheetPdf } from '@/lib/cover-sheet-pdf'
+import { getUserTierInfo, isPro, tierRequiredResponse } from '@/lib/tier'
 
 export const maxDuration = 60
 
@@ -340,6 +341,12 @@ export async function POST(
 
   if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
   if (patent.owner_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // ── Tier gate: zip download requires Pro ────────────────────────────────────
+  const tierInfo = await getUserTierInfo(user.id)
+  if (!isPro(tierInfo, { isOwner: true, feature: 'zip_download' })) {
+    return tierRequiredResponse('zip_download')
+  }
 
   // ── Hard block: claims required for filing packages (not assignment templates) ──
   if (scenario !== 'assignment') {

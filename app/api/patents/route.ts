@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { buildEmail, sendEmail } from '@/lib/email'
+import { getUserTierInfo, getPatentLimit, countUserPatents, patentLimitResponse } from '@/lib/tier'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
 
@@ -55,6 +56,14 @@ export async function POST(req: NextRequest) {
 
   if (!title || typeof title !== 'string') {
     return NextResponse.json({ error: 'title is required' }, { status: 400 })
+  }
+
+  // ── Patent count gate ───────────────────────────────────────────────────
+  const tierInfo = await getUserTierInfo(user.id)
+  const limit = getPatentLimit(tierInfo)
+  const currentCount = await countUserPatents(user.id)
+  if (currentCount >= limit) {
+    return patentLimitResponse(currentCount, limit)
   }
 
   // ── 1. Duplicate detection ──────────────────────────────────────────────

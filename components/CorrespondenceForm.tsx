@@ -1,6 +1,6 @@
 'use client'
 import { useRef, useState } from 'react'
-import { supabase, Patent, CORRESPONDENCE_TYPE_LABELS } from '@/lib/supabase'
+import { Patent, CORRESPONDENCE_TYPE_LABELS } from '@/lib/supabase'
 
 interface Props {
   patents: Patent[]
@@ -9,6 +9,7 @@ interface Props {
   authToken?: string
   onSuccess: () => void
   onCancel: () => void
+  onTierRequired?: () => void
 }
 
 const ATTACHMENT_ACCEPT = '.pdf,.txt,.docx,.doc,.png,.jpg,.jpeg'
@@ -19,7 +20,7 @@ function formatBytes(b: number) {
   return `${(b / 1048576).toFixed(1)}MB`
 }
 
-export default function CorrespondenceForm({ patents, preselectedPatentId, ownerId, authToken, onSuccess, onCancel }: Props) {
+export default function CorrespondenceForm({ patents, preselectedPatentId, ownerId, authToken, onSuccess, onCancel, onTierRequired }: Props) {
   const today = new Date().toISOString().split('T')[0]
   const fileRef = useRef<HTMLInputElement>(null)
   const [saving, setSaving] = useState(false)
@@ -93,9 +94,26 @@ export default function CorrespondenceForm({ patents, preselectedPatentId, owner
       attachments: attachments.length ? attachments : [],
     }
 
-    const { error } = await supabase.from('patent_correspondence').insert([payload])
+    // ── POST to server-side route (tier-gated) ──────────────────────────────
+    const res = await fetch('/api/correspondence', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    })
     setSaving(false)
-    if (!error) onSuccess()
+    if (res.ok) {
+      onSuccess()
+    } else {
+      const json = await res.json().catch(() => ({}))
+      if (res.status === 403 && json.code === 'TIER_REQUIRED') {
+        onTierRequired?.()
+      } else {
+        console.error('[CorrespondenceForm] save error:', json.error)
+      }
+    }
   }
 
   return (
