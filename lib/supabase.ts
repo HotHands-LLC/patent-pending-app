@@ -26,7 +26,13 @@ export type Patent = {
   updated_at: string
   // Phase 2+ fields (optional — only present after payment/intake)
   current_phase?: number | null         // 1–7 filing phases
-  filing_status?: string | null         // 'draft' | 'approved' | 'filed'
+  filing_status?: string | null         // 'draft' | 'approved' | 'filed' | 'provisional_filed' | 'nonprov_pending' | 'nonprov_filed' | 'abandoned'
+  // Post-filing fields (cont.30 — 10A)
+  provisional_filed_at?: string | null    // ISO timestamptz — when user confirmed filing at USPTO
+  provisional_app_number?: string | null  // USPTO application number entered by user (e.g. 63/123,456)
+  provisional_filed_by?: string | null    // uuid of user who marked filed
+  nonprov_deadline_at?: string | null     // provisional_filed_at + 12 months (set by mark-filed route)
+  filing_receipt_url?: string | null      // Supabase Storage signed URL for uploaded filing receipt PDF
   claims_status?: 'pending' | 'generating' | 'complete' | 'failed' | 'refining' | 'refined' | null
   claims_draft_pre_refine?: string | null
   claims_draft?: string | null

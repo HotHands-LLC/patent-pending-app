@@ -17,6 +17,7 @@ import UpgradeModal from '@/components/UpgradeModal'
 import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 import Arc3Modal from '@/components/Arc3Modal'
 import DownloadPackageModal from '@/components/DownloadPackageModal'
+import MarkFiledModal from '@/components/MarkFiledModal'
 import PattieChatDrawer from '@/components/PattieChatDrawer'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 
@@ -257,6 +258,7 @@ export default function PatentDetail() {
   const [showPattie, setShowPattie] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
+  const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
   // Inline title editing
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -1344,6 +1346,18 @@ export default function PatentDetail() {
         )}
 
         {/* Marketplace activation modal */}
+        {showMarkFiledModal && patent && authToken && (
+          <MarkFiledModal
+            patent={patent}
+            authToken={authToken}
+            onClose={() => setShowMarkFiledModal(false)}
+            onFiled={(updated) => {
+              setPatent(prev => prev ? { ...prev, ...updated } : null)
+              setShowMarkFiledModal(false)
+            }}
+          />
+        )}
+
         {showDownloadModal && patent && authToken && (
           <DownloadPackageModal
             patent={patent}
@@ -1818,8 +1832,34 @@ export default function PatentDetail() {
             {/* 9-step progress tracker */}
             <FilingProgressTracker patent={patent} patentId={patent.id} />
 
-            {/* Download Filing Package CTA */}
-            <div className="flex justify-end">
+            {/* Download Filing Package + Mark as Filed CTAs */}
+            <div className="flex items-center justify-end gap-3 flex-wrap">
+              {/* Mark as Filed — shown when not yet filed */}
+              {patent.filing_status !== 'provisional_filed' &&
+               patent.filing_status !== 'nonprov_filed' && (
+                <button
+                  onClick={() => setShowMarkFiledModal(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 border-2 border-[#1a1f36] text-[#1a1f36] rounded-xl text-sm font-semibold hover:bg-[#1a1f36]/5 transition-colors"
+                >
+                  📬 Mark as Filed
+                </button>
+              )}
+
+              {/* Already filed confirmation badge */}
+              {patent.filing_status === 'provisional_filed' && patent.provisional_filed_at && (
+                <div className="flex items-center gap-2 px-4 py-2.5 bg-green-50 border border-green-200 rounded-xl text-sm text-green-800">
+                  <span>✅ Filed</span>
+                  <span className="text-green-600 font-mono text-xs">
+                    {patent.provisional_app_number}
+                  </span>
+                  {patent.nonprov_deadline_at && (
+                    <span className="text-xs text-green-700 ml-1">
+                      · Non-prov due {new Date(patent.nonprov_deadline_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  )}
+                </div>
+              )}
+
               <button
                 onClick={() => setShowDownloadModal(true)}
                 className="flex items-center gap-2 px-4 py-2.5 bg-[#1a1f36] text-white rounded-xl text-sm font-semibold hover:bg-[#2d3561] transition-colors shadow-sm"

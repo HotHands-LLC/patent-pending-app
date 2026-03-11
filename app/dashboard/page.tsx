@@ -225,18 +225,42 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-3">
                 {patents.map((p) => {
-                  const deadline = p.provisional_deadline
-                  const days = deadline ? getDaysUntil(deadline) : null
+                  // Non-prov countdown takes priority once filed; fall back to provisional deadline
+                  const isFiled = p.filing_status === 'provisional_filed' || p.filing_status === 'nonprov_filed'
+                  const deadlineStr = isFiled && p.nonprov_deadline_at
+                    ? p.nonprov_deadline_at.split('T')[0]
+                    : p.provisional_deadline
+                  const days = deadlineStr ? getDaysUntil(deadlineStr) : null
+
+                  // Color coding: green >180d, yellow 90-180d, orange 30-90d, red <30d
+                  function nonprovBadgeClass(d: number): string {
+                    if (d <= 0)   return 'bg-red-100 text-red-700'
+                    if (d <= 30)  return 'bg-red-100 text-red-700'
+                    if (d <= 90)  return 'bg-orange-100 text-orange-700'
+                    if (d <= 180) return 'bg-yellow-100 text-yellow-700'
+                    return 'bg-green-100 text-green-700'
+                  }
+
                   return (
                     <Link key={p.id} href={`/dashboard/patents/${p.id}`}
                       className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors gap-2 min-h-[44px]">
                       <div className="min-w-0">
                         <div className="text-sm font-medium text-[#1a1f36] truncate">{p.title}</div>
-                        <div className="text-xs text-gray-400 capitalize">{p.status.replace('_', ' ')} · {p.provisional_number || 'No app #'}</div>
+                        <div className="text-xs text-gray-400 capitalize">
+                          {isFiled && p.provisional_app_number
+                            ? `Filed · ${p.provisional_app_number}`
+                            : `${p.status.replace('_', ' ')} · ${p.provisional_number || 'No app #'}`
+                          }
+                        </div>
                       </div>
                       {days !== null && (
-                        <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${getUrgencyBadge(days)}`}>
-                          {days <= 0 ? 'OVERDUE' : `${days}d`}
+                        <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${isFiled ? nonprovBadgeClass(days) : getUrgencyBadge(days)}`}>
+                          {days <= 0
+                            ? 'OVERDUE'
+                            : isFiled
+                              ? `NP ${days}d`
+                              : `${days}d`
+                          }
                         </span>
                       )}
                     </Link>
