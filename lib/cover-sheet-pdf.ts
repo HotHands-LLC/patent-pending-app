@@ -166,7 +166,10 @@ function sectionBar(ctx: Ctx, text: string, yTop: number): void {
     height: HDR_BAR_H,
     color:  C_NAVY,
   })
-  dt(ctx, text, FIELD_PAD_X, yTop + 2.5, { sz: SZ_HDR_BAR, font: ctx.bold, color: C_HDR_TXT })
+  dt(ctx, text, FIELD_PAD_X, yTop + 2.5, {
+    sz: SZ_HDR_BAR, font: ctx.bold, color: C_HDR_TXT,
+    maxW: CONTENT_W - FIELD_PAD_X * 2,
+  })
 }
 
 /**
@@ -425,7 +428,7 @@ export async function buildCoverSheetPdf(
   // ════════════════════════════════════════════════════════════════════════════
   // SECTION 5: ASSIGNEE INFORMATION
   // ════════════════════════════════════════════════════════════════════════════
-  sectionBar(ctx, '5. ASSIGNEE INFORMATION  (if applicable — leave blank if inventor is sole owner)', y)
+  sectionBar(ctx, '5. ASSIGNEE INFORMATION  (leave blank if inventor is sole owner)', y)
   y += HDR_AFTER
 
   field(ctx, 'Assignee / Organization Name',  assigneeNm || '--',  0,      COL2_W, y)
@@ -435,7 +438,7 @@ export async function buildCoverSheetPdf(
   // ════════════════════════════════════════════════════════════════════════════
   // SECTION 6: SIGNATURE
   // ════════════════════════════════════════════════════════════════════════════
-  sectionBar(ctx, '6. SIGNATURE OF APPLICANT  (37 CFR 1.4(d)(2) — typed /Name/ is a valid S-signature)', y)
+  sectionBar(ctx, '6. SIGNATURE OF APPLICANT  (37 CFR 1.4(d)(2) -- typed /Name/ is a valid S-signature)', y)
   y += HDR_AFTER
 
   field(ctx, 'Applicant Signature (S-signature)',  signature, 0,      COL2_W, y)
