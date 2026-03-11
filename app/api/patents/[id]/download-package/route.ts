@@ -53,9 +53,9 @@ This package contains the documents needed to file a provisional patent applicat
 with the USPTO Patent Center (patentcenter.uspto.gov).
 
 REQUIRED DOCUMENTS:
-  01-cover-sheet.pdf       — Application Data Sheet (ADS) — PDF 1.7, USPTO compliant
+  01-cover-sheet-ADS.pdf   — Application Data Sheet (ADS) — PDF 1.7, USPTO compliant
                              Auto-filled from your profile. No conversion needed.
-                             USPTO Form: PTO/AIA/14 (37 CFR 1.76)
+                             USPTO Form: PTO/AIA/14 equivalent (37 CFR 1.76)
                              ⚠️ Review all fields — correct any blanks before uploading
 
   02-specification.txt     — Written Description of Your Invention
@@ -76,10 +76,10 @@ OPTIONAL DOCUMENTS:
                              No conversion needed — upload directly to Patent Center
 
 FILING STEPS:
-  1. Review 01-cover-sheet.pdf — fill in any blank fields (open in Adobe Acrobat or Preview)
+  1. Review 01-cover-sheet-ADS.pdf — fill in any blank fields (open in macOS Preview or Adobe Acrobat)
   2. Go to patentcenter.uspto.gov and create/log into your account
   3. Start a new provisional application (Application Type: Provisional)
-  4. Upload: 01-cover-sheet.pdf, 02-specification.txt, 03-claims.txt, figures/*.png
+  4. Upload: 01-cover-sheet-ADS.pdf, 02-specification.txt, 03-claims.txt, figures/*.png
   6. Pay filing fee ($${USPTO_FEES.provisional.micro} micro entity / $${USPTO_FEES.provisional.small} small entity / $${USPTO_FEES.provisional.large} large entity)
   7. Save your filing receipt — it confirms your priority date
 
@@ -142,7 +142,7 @@ A non-provisional is the full patent application that can result in a granted pa
    patent attorney or agent (USPTO.gov/patent-attorney-or-agent-search).
 
 REQUIRED DOCUMENTS:
-  01-cover-sheet.pdf       — Application Data Sheet (ADS) — PDF 1.7, USPTO compliant
+  01-cover-sheet-ADS.pdf   — Application Data Sheet (ADS) — PDF 1.7, USPTO compliant
                              Auto-filled. Must reference your provisional app number.
                              ⚠️ Confirm "Prior Application Number" field is correct
 
@@ -392,7 +392,7 @@ export async function POST(
           patent as Record<string, unknown>,
           profile as Record<string, unknown> | null
         )
-        folder.file('01-cover-sheet.pdf', coverPdfBytes)
+        folder.file('01-cover-sheet-ADS.pdf', coverPdfBytes)
         console.log('[ZIP] cover sheet PDF generated OK')
       } catch (coverErr) {
         console.error('[ZIP] cover-sheet PDF generation failed:', coverErr)

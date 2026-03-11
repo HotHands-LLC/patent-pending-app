@@ -1,450 +1,460 @@
-// lib/cover-sheet-pdf.ts
-// USPTO Application Data Sheet (ADS) — server-side PDF generator
-// Uses pdf-lib (pure JS, no native deps, Vercel-compatible)
-// Output: PDF 1.7 compliant — USPTO accepts PDF 1.4–1.7
+/**
+ * lib/cover-sheet-pdf.ts
+ *
+ * USPTO Application Data Sheet (ADS) — PTO/AIA/14
+ * Server-side PDF generator using pdf-lib (pure JS, Vercel-compatible).
+ *
+ * APPROACH: Faithful pdf-lib reconstruction of PTO/AIA/14 layout.
+ * The official form is Adobe LiveCycle XFA — requires proprietary Adobe runtime
+ * and cannot be filled by any standard PDF library (pdf-lib, PyMuPDF, pypdf,
+ * pdfjs). This generator reconstructs the form layout using the exact section
+ * numbering, field labels, and OMB metadata from the official form.
+ *
+ * All text values pass through sanitizeForPdf() — WinAnsiEncoding only (0-255).
+ * Field labels are ALL-CAPS inline. Section bars are dark navy.
+ * Grid cells use light borders to match the official form visual style.
+ *
+ * Function signature is stable — callers do not need to change.
+ * Output: PDF 1.7 — USPTO Patent Center accepts PDF 1.4–1.7.
+ */
 
-import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage } from 'pdf-lib'
-import { USPTO_FEES } from '@/lib/uspto-fees'
+import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage, RGB } from 'pdf-lib'
 import { sanitizeForPdf } from '@/lib/pdf-sanitize'
 
-// ── Page geometry ─────────────────────────────────────────────────────────────
+// ── Page geometry (Letter) ────────────────────────────────────────────────────
 const PTS_PER_INCH = 72
-const PAGE_W       = 8.5 * PTS_PER_INCH   // 612pt
-const PAGE_H       = 11  * PTS_PER_INCH   // 792pt
-const MARGIN_X     = 0.75 * PTS_PER_INCH  // 54pt — left/right margin
-const MARGIN_TOP   = 0.75 * PTS_PER_INCH  // 54pt — top margin
-const CONTENT_W    = PAGE_W - MARGIN_X * 2 // 504pt usable width
+const PAGE_W       = 8.5 * PTS_PER_INCH   // 612 pt
+const PAGE_H       = 11  * PTS_PER_INCH   // 792 pt
+const MARGIN_X     = 0.75 * PTS_PER_INCH  // 54 pt (left + right)
+const MARGIN_TOP   = 0.5 * PTS_PER_INCH   // 36 pt top — tighter than 9C to fit all sections
+const CONTENT_W    = PAGE_W - MARGIN_X * 2 // 504 pt usable width
 
-// ── Layout constants (all x-values are relative to MARGIN_X) ─────────────────
-//
-// Section header bar
-const HDR_H         = 16   // section header bar height (pt)
-const HDR_TXT_X     = 6    // text x-indent inside header bar
-const HDR_TXT_SIZE  = 8    // section title font size
+// ── Colours ───────────────────────────────────────────────────────────────────
+const C_NAVY    = rgb(0.12, 0.14, 0.22)   // section header bars
+const C_HDR_TXT = rgb(1,    1,    1)      // white text on navy
+const C_LABEL   = rgb(0.38, 0.38, 0.38)  // field labels (small caps)
+const C_BORDER  = rgb(0.65, 0.65, 0.65)  // grid cell borders
+const C_NOTE    = rgb(0.50, 0.50, 0.50)  // footnotes / italic notes
+const C_WARN    = rgb(0.65, 0.35, 0.0)   // orange draft warning
+const C_BLACK   = rgb(0,    0,    0)
 
-// Field grid
-const FIELD_LABEL_SIZE = 6.5   // all-caps tiny label (e.g. "GIVEN NAME")
-const FIELD_VALUE_SIZE = 9     // field value text
-const FIELD_LABEL_DY   = 0     // label y-offset from row top
-const FIELD_VALUE_DY   = 11    // value y-offset from row top (below label)
-const FIELD_LINE_DY    = 12    // underline y-offset from row top
+// ── Typography ────────────────────────────────────────────────────────────────
+const SZ_HEADER_TITLE = 13    // "APPLICATION DATA SHEET"
+const SZ_HDR_BAR      = 7.5  // section bar text
+const SZ_SUBHDR       = 7    // sub-section label (e.g. "INVENTOR 1")
+const SZ_FIELD_LABEL  = 6    // tiny ALL-CAPS label above underline
+const SZ_FIELD_VALUE  = 8.5  // filled value
+const SZ_BODY         = 8.5  // checkbox labels, inline text
+const SZ_NOTE         = 6.5  // footnotes, disclaimers
+const SZ_FOOTER       = 6    // bottom-of-page footer
 
-// Font sizes for non-field text
-const FONT_BODY    = 9    // checkbox labels, inline text
-const FONT_MEDIUM  = 7.5  // sub-section headings
-const FONT_SMALL   = 7    // notes, disclaimers, footer
+// ── Layout rhythm ─────────────────────────────────────────────────────────────
+const HDR_BAR_H       = 13   // section header bar height
+const HDR_AFTER       = 14   // y-advance after entering a section bar
+const FIELD_ROW_H     = 16   // standard labeled-field row
+const FIELD_LABEL_DY  = 1    // label y within row (from row top)
+const FIELD_VALUE_DY  = 9    // value y within row
+const FIELD_LINE_DY   = 11   // underline y within row
+const FIELD_PAD_X     = 3    // left padding inside a cell
+const CHECKBOX_H      = 11   // checkbox row height
+const NOTE_H          = 10   // note / instruction row height
+const SEC_GAP         = 7    // gap before next section bar
+const SUB_GAP         = 6    // gap after sub-header line
 
-// Vertical rhythm — y-advance amounts
-// Tuned so all 7 sections + header + footer fit within ~684pt usable height
-const SECTION_AFTER   = 17   // y advance after entering a section (past header bar)
-const FIELD_ROW_H     = 18   // standard field row height
-const FIELD_ROW_SM    = 16   // compact field row (checkbox-adjacent fields)
-const CHECKBOX_ROW_H  = 12   // checkbox item row height
-const NOTE_ROW_H      = 13   // note / instruction line height
-const SECTION_END_GAP =  8   // extra gap before next section bar
-const SUBSECTION_GAP  =  8   // gap after a sub-header within a section
+// ── Column grid ───────────────────────────────────────────────────────────────
+const COL_GAP   = 4                           // gap between columns
+const COL2_W    = (CONTENT_W - COL_GAP) / 2   // ~250 pt
+const COL2_X2   = COL2_W + COL_GAP            // ~254 pt
 
-// Column grid — three-up and two-up layouts
-// COL2: 50/50 split (two equal halves)
-const COL_GAP  = 6                          // gap between adjacent columns
-const COL2_W   = (CONTENT_W - COL_GAP) / 2  // ~249pt per half
-const COL2_X2  = COL2_W + COL_GAP           // start of right half (~255pt)
+const COL3_W    = (CONTENT_W - COL_GAP * 2) / 3  // ~165 pt
+const COL3_X2   = COL3_W + COL_GAP
+const COL3_X3   = (COL3_W + COL_GAP) * 2
 
-// COL3: equal thirds
-const COL3_W   = (CONTENT_W - COL_GAP * 2) / 3  // ~164pt per third
-const COL3_X2  = COL3_W + COL_GAP                // start of 2nd third (~170pt)
-const COL3_X3  = (COL3_W + COL_GAP) * 2          // start of 3rd third (~340pt)
+// Section 5 (Prior App) column widths
+const S5_C1W    = 200
+const S5_C2X    = S5_C1W + COL_GAP
+const S5_C2W    = 130
+const S5_C3X    = S5_C2X + S5_C2W + COL_GAP
+const S5_C3W    = CONTENT_W - S5_C3X
 
-// Section 5 special: App# / Date / Relationship
-const S5_COL1_W = 210   // Application Number field width
-const S5_COL2_X = S5_COL1_W + COL_GAP        // 216
-const S5_COL2_W = 140   // Filing Date field width
-const S5_COL3_X = S5_COL2_X + S5_COL2_W + COL_GAP  // 362
-const S5_COL3_W = CONTENT_W - S5_COL3_X      // remainder
+// Section 6 (App Info) column widths
+const S6_C1W    = 160   // entity status block
+const S6_C2X    = S6_C1W + COL_GAP
+const S6_C2W    = CONTENT_W - S6_C2X
 
-// ── Drawing helpers ───────────────────────────────────────────────────────────
-
-interface DrawCtx {
-  page: PDFPage
-  bold: PDFFont
+// ── Drawing context ───────────────────────────────────────────────────────────
+interface Ctx {
+  page:    PDFPage
+  bold:    PDFFont
   regular: PDFFont
-  italic: PDFFont
+  italic:  PDFFont
 }
 
-/** Convert a y-from-top offset to pdf-lib's bottom-origin y coordinate */
 function toY(yFromTop: number): number {
   return PAGE_H - MARGIN_TOP - yFromTop
 }
 
-/**
- * Draw text at position (MARGIN_X + x, toY(yTop)).
- * Applies sanitizeForPdf to ALL text — WinAnsiEncoding safety net.
- * Truncates to maxWidth using '...' (not U+2026 ellipsis).
- */
-function drawText(ctx: DrawCtx, text: string, x: number, yTop: number, opts: {
-  size?: number
-  font?: PDFFont
-  color?: [number, number, number]
-  maxWidth?: number
-} = {}) {
-  const size  = opts.size  ?? FONT_BODY
+function dt(
+  ctx: Ctx,
+  raw: string,
+  x: number,
+  yTop: number,
+  opts: { sz?: number; font?: PDFFont; color?: RGB; maxW?: number } = {}
+) {
+  const sz    = opts.sz    ?? SZ_BODY
   const font  = opts.font  ?? ctx.regular
-  const [r, g, b] = opts.color ?? [0, 0, 0]
-
-  // WinAnsi safety — sanitize before every drawText call
-  let str = sanitizeForPdf(text)
-
-  if (opts.maxWidth && font.widthOfTextAtSize(str, size) > opts.maxWidth) {
-    while (str.length > 0 && font.widthOfTextAtSize(str + '...', size) > opts.maxWidth) {
+  const color = opts.color ?? C_BLACK
+  let str = sanitizeForPdf(raw)
+  if (opts.maxW && font.widthOfTextAtSize(str, sz) > opts.maxW) {
+    while (str.length > 0 && font.widthOfTextAtSize(str + '...', sz) > opts.maxW) {
       str = str.slice(0, -1)
     }
-    str = str + '...'
+    str += '...'
   }
-
   ctx.page.drawText(str, {
-    x: MARGIN_X + x,
-    y: toY(yTop),
-    size,
+    x:     MARGIN_X + x,
+    y:     toY(yTop),
+    size:  sz,
     font,
-    color: rgb(r, g, b),
+    color,
   })
 }
 
-function drawHRule(ctx: DrawCtx, x1: number, x2: number, yTop: number, thickness = 0.5) {
+function hRule(ctx: Ctx, x1: number, x2: number, yTop: number, thick = 0.4, color = C_BORDER) {
   ctx.page.drawLine({
     start: { x: MARGIN_X + x1, y: toY(yTop) },
     end:   { x: MARGIN_X + x2, y: toY(yTop) },
-    thickness,
-    color: rgb(0.3, 0.3, 0.3),
+    thickness: thick,
+    color,
+  })
+}
+
+function vRule(ctx: Ctx, x: number, y1Top: number, y2Top: number, thick = 0.4) {
+  ctx.page.drawLine({
+    start: { x: MARGIN_X + x, y: toY(y1Top) },
+    end:   { x: MARGIN_X + x, y: toY(y2Top) },
+    thickness: thick,
+    color: C_BORDER,
   })
 }
 
 /**
- * Dark navy section header bar spanning full content width.
- * Returns y-advance needed to clear the bar (caller adds SECTION_AFTER).
+ * Cell border: draws a box around a field cell.
+ * xRel, yTop are relative to MARGIN_X and MARGIN_TOP.
  */
-function sectionHeader(ctx: DrawCtx, text: string, yTop: number): void {
+function cellBorder(ctx: Ctx, xRel: number, yTop: number, w: number, h: number) {
+  ctx.page.drawRectangle({
+    x:           MARGIN_X + xRel,
+    y:           toY(yTop + h),
+    width:       w,
+    height:      h,
+    borderColor: C_BORDER,
+    borderWidth: 0.4,
+    color:       rgb(1, 1, 1),
+  })
+}
+
+/**
+ * Section header bar — full content width, navy background, white text.
+ * yTop: top of bar. Advances to SECTION_AFTER below bar.
+ */
+function sectionBar(ctx: Ctx, text: string, yTop: number): void {
   ctx.page.drawRectangle({
     x:      MARGIN_X,
-    y:      toY(yTop + HDR_H),
+    y:      toY(yTop + HDR_BAR_H),
     width:  CONTENT_W,
-    height: HDR_H,
-    color:  rgb(0.12, 0.14, 0.22),
+    height: HDR_BAR_H,
+    color:  C_NAVY,
   })
-  drawText(ctx, text, HDR_TXT_X, yTop + 2, {
-    size:  HDR_TXT_SIZE,
-    font:  ctx.bold,
-    color: [1, 1, 1],
+  dt(ctx, text, FIELD_PAD_X, yTop + 2.5, { sz: SZ_HDR_BAR, font: ctx.bold, color: C_HDR_TXT })
+}
+
+/**
+ * Labeled field with cell border, label, value, and underline.
+ * Returns nothing — caller advances y by FIELD_ROW_H.
+ */
+function field(ctx: Ctx, label: string, value: string, x: number, w: number, yTop: number) {
+  cellBorder(ctx, x, yTop, w, FIELD_ROW_H)
+  dt(ctx, label.toUpperCase(), x + FIELD_PAD_X, yTop + FIELD_LABEL_DY, {
+    sz: SZ_FIELD_LABEL, font: ctx.bold, color: C_LABEL,
+  })
+  dt(ctx, value, x + FIELD_PAD_X, yTop + FIELD_VALUE_DY, {
+    sz: SZ_FIELD_VALUE, font: ctx.regular, maxW: w - FIELD_PAD_X * 2,
   })
 }
 
 /**
- * Labeled form field: all-caps label + value + underline.
- * x, w — position and width within the content area.
- * yTop  — top of the label text.
+ * Checkbox row — small bordered box with optional 'X' fill, then label text.
  */
-function labeledField(
-  ctx: DrawCtx,
-  label: string,
-  value: string,
-  x: number,
-  w: number,
-  yTop: number
-): void {
-  drawText(ctx, label.toUpperCase(), x, yTop + FIELD_LABEL_DY, {
-    size:  FIELD_LABEL_SIZE,
-    font:  ctx.bold,
-    color: [0.4, 0.4, 0.4],
-  })
-  drawText(ctx, value, x, yTop + FIELD_VALUE_DY, {
-    size:     FIELD_VALUE_SIZE,
-    font:     ctx.regular,
-    maxWidth: w - 4,
-  })
-  drawHRule(ctx, x, x + w, yTop + FIELD_LINE_DY)
-}
-
-/**
- * Checkbox square with optional filled 'X'.
- * x, yTop — position of the box.
- */
-function checkbox(ctx: DrawCtx, checked: boolean, x: number, yTop: number): void {
+function cbRow(ctx: Ctx, checked: boolean, label: string, x: number, yTop: number, labelW?: number) {
+  const BOX = 7
+  // Draw box
   ctx.page.drawRectangle({
     x:           MARGIN_X + x,
-    y:           toY(yTop + 8),
-    width:       8,
-    height:      8,
-    borderColor: rgb(0.3, 0.3, 0.3),
+    y:           toY(yTop + BOX + 1),
+    width:       BOX,
+    height:      BOX,
+    borderColor: C_BORDER,
     borderWidth: 0.5,
-    color:       checked ? rgb(0.12, 0.14, 0.22) : rgb(1, 1, 1),
+    color:       checked ? C_NAVY : rgb(1, 1, 1),
   })
   if (checked) {
-    // 'X' is WinAnsi-safe (codepoint 88); drawText sanitizes as backup
-    drawText(ctx, 'X', x + 1, yTop + 1, {
-      size:  7,
-      font:  ctx.bold,
-      color: [1, 1, 1],
-    })
+    // 'X' is codepoint 88 — always WinAnsi-safe
+    dt(ctx, 'X', x + 1, yTop + 2, { sz: 6, font: ctx.bold, color: C_HDR_TXT })
   }
+  dt(ctx, label, x + BOX + 3, yTop + 1.5, {
+    sz: SZ_BODY, font: ctx.regular, maxW: labelW,
+  })
 }
 
-// ── Main PDF builder ──────────────────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────────────────
 
 export async function buildCoverSheetPdf(
   patent:  Record<string, unknown>,
   profile: Record<string, unknown> | null
 ): Promise<Uint8Array> {
+
   const doc = await PDFDocument.create()
   doc.setProducer('PatentPending.app')
-  doc.setCreator('PatentPending.app -- patentpending.app')
-  doc.setTitle(sanitizeForPdf(`ADS Cover Sheet -- ${patent.title ?? 'Patent Application'}`))
-  doc.setSubject('USPTO Application Data Sheet (37 CFR 1.76)')
-  doc.setKeywords(['patent', 'USPTO', 'ADS', 'provisional'])
+  doc.setCreator('PatentPending.app — patentpending.app')
+  doc.setTitle(sanitizeForPdf(`ADS -- ${patent.title ?? 'Patent Application'}`))
+  doc.setSubject('USPTO Application Data Sheet 37 CFR 1.76 (PTO/AIA/14 equivalent)')
+  doc.setKeywords(['USPTO', 'ADS', 'Application Data Sheet', 'PTO/AIA/14', 'patent'])
 
   const page = doc.addPage([PAGE_W, PAGE_H])
-
   const [bold, regular, italic] = await Promise.all([
     doc.embedFont(StandardFonts.HelveticaBold),
     doc.embedFont(StandardFonts.Helvetica),
     doc.embedFont(StandardFonts.HelveticaOblique),
   ])
+  const ctx: Ctx = { page, bold, regular, italic }
 
-  const ctx: DrawCtx = { page, bold, regular, italic }
+  // ── Extract + sanitize data ────────────────────────────────────────────────
+  const title         = sanitizeForPdf((patent.title          as string) ?? '')
+  const provNum       = sanitizeForPdf((patent.provisional_number as string) ?? (patent.provisional_app_number as string) ?? '')
+  const filingDateRaw = (patent.filing_date as string) ?? (patent.provisional_filed_at as string) ?? ''
+  const inventors     = (patent.inventors as string[]) ?? []
 
-  // ── Extract + sanitize all data fields ──────────────────────────────────────
-  const title          = sanitizeForPdf((patent.title as string) ?? '')
-  const provisionalNum = sanitizeForPdf((patent.provisional_number as string) ?? '')
-  const filingDate     = (patent.filing_date as string) ?? ''
-  const inventors      = (patent.inventors as string[]) ?? []
+  const p = profile ?? {}
+  const nameFirst  = sanitizeForPdf((p.name_first  as string) ?? '')
+  const nameMid    = sanitizeForPdf((p.name_middle  as string) ?? '')
+  const nameLast   = sanitizeForPdf((p.name_last    as string) ?? '')
+  const addr1      = sanitizeForPdf((p.address_line_1 as string) ?? '')
+  const city       = sanitizeForPdf((p.city         as string) ?? '')
+  const state      = sanitizeForPdf((p.state        as string) ?? '')
+  const zip        = sanitizeForPdf((p.zip          as string) ?? '')
+  const country    = sanitizeForPdf((p.country      as string) ?? 'US')
+  const phone      = sanitizeForPdf((p.phone        as string) ?? '')
+  const email      = sanitizeForPdf((p.email        as string) ?? '')
+  const custNum    = sanitizeForPdf((p.uspto_customer_number   as string) ?? '')
+  const assigneeNm = sanitizeForPdf((p.default_assignee_name   as string) ?? '')
+  const assigneeAd = sanitizeForPdf((p.default_assignee_address as string) ?? '')
 
-  const firstName    = sanitizeForPdf((profile?.name_first as string) ?? '')
-  const middleName   = sanitizeForPdf((profile?.name_middle as string) ?? '')
-  const lastName     = sanitizeForPdf((profile?.name_last as string) ?? '')
-  const inventorName = [firstName, middleName, lastName].filter(Boolean).join(' ')
+  const inventorName = [nameFirst, nameMid, nameLast].filter(Boolean).join(' ')
                     || sanitizeForPdf(inventors[0] ?? '')
 
-  const address1     = sanitizeForPdf((profile?.address_line_1 as string) ?? '')
-  const city         = sanitizeForPdf((profile?.city as string) ?? '')
-  const state        = sanitizeForPdf((profile?.state as string) ?? '')
-  const zip          = sanitizeForPdf((profile?.zip as string) ?? '')
-  const country      = sanitizeForPdf((profile?.country as string) ?? 'US')
-  const phone        = sanitizeForPdf((profile?.phone as string) ?? '')
-  const email        = sanitizeForPdf((profile?.email as string) ?? '')
-  const customerNum  = sanitizeForPdf((profile?.uspto_customer_number as string) ?? '')
-  const assigneeName = sanitizeForPdf((profile?.default_assignee_name as string) ?? '')
-  const assigneeAddr = sanitizeForPdf((profile?.default_assignee_address as string) ?? '')
+  const today     = new Date().toLocaleDateString('en-US',
+    { month: '2-digit', day: '2-digit', year: 'numeric' })
+  const todayLong = new Date().toLocaleDateString('en-US',
+    { year: 'numeric', month: 'long', day: 'numeric' })
 
-  const today    = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
-  const todayLong = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-  const signature = `/${inventorName}/`
-
-  // ── Header ──────────────────────────────────────────────────────────────────
-  let y = 0
-
-  // Agency name — flush left, small caps style
-  drawText(ctx, 'UNITED STATES PATENT AND TRADEMARK OFFICE', 0, y + 10, {
-    size: FIELD_LABEL_SIZE + 1,
-    font: bold,
-    color: [0.12, 0.14, 0.22],
-  })
-  y += 16
-
-  // Form title — flush left
-  drawText(ctx, 'APPLICATION DATA SHEET', 0, y + 10, { size: 13, font: bold })
-  y += 14
-
-  // Sub-title line — flush left, smaller
-  drawText(ctx, '37 CFR 1.76  -  Form PTO/AIA/14', 0, y + 4, {
-    size: FONT_SMALL,
-    font: italic,
-    color: [0.4, 0.4, 0.4],
-  })
-  y += 12
-
-  drawHRule(ctx, 0, CONTENT_W, y, 1.5)
-  y += 6
-
-  // Meta line — flush left; draft warning right-aligned within content area
-  drawText(ctx, `Generated ${todayLong} by PatentPending.app  -  File at patentcenter.uspto.gov`, 0, y, {
-    size: FONT_SMALL,
-    font: italic,
-    color: [0.5, 0.5, 0.5],
-  })
-  drawText(ctx, '(!) DRAFT -- Review all fields before filing', 290, y, {
-    size: FONT_SMALL,
-    font: bold,
-    color: [0.7, 0.4, 0],
-  })
-  y += NOTE_ROW_H
-
-  // ── Section 1: Application Information ──────────────────────────────────────
-  sectionHeader(ctx, '1. APPLICATION INFORMATION', y)
-  y += SECTION_AFTER
-
-  labeledField(ctx, 'Title of Invention', title, 0, CONTENT_W, y)
-  y += FIELD_ROW_H
-
-  labeledField(ctx, 'Application Number', 'Assigned by USPTO upon filing', 0, S5_COL1_W, y)
-  labeledField(ctx, 'Filing Date',        'Assigned by USPTO',             S5_COL2_X, S5_COL2_W, y)
-  labeledField(ctx, 'Customer Number',    customerNum || '--',             S5_COL3_X, S5_COL3_W, y)
-  y += FIELD_ROW_H
-
-  labeledField(ctx, 'Attorney Docket Number', '(optional)', 0, COL2_W, y)
-  y += FIELD_ROW_H + SECTION_END_GAP
-
-  // ── Section 2: Inventor Information ─────────────────────────────────────────
-  sectionHeader(ctx, '2. INVENTOR INFORMATION', y)
-  y += SECTION_AFTER
-
-  drawText(ctx, 'Inventor 1 -- First Named Inventor', 0, y, {
-    size: FONT_MEDIUM,
-    font: bold,
-    color: [0.3, 0.3, 0.3],
-  })
-  y += SUBSECTION_GAP
-
-  // Three-column: Given / Middle / Family
-  labeledField(ctx, 'Given Name',  firstName,  0,       COL3_W, y)
-  labeledField(ctx, 'Middle Name', middleName, COL3_X2, COL3_W, y)
-  labeledField(ctx, 'Family Name', lastName,   COL3_X3, COL3_W, y)
-  y += FIELD_ROW_H
-
-  // Two-column: Address / City
-  labeledField(ctx, 'Street Address', address1, 0,      COL2_W, y)
-  labeledField(ctx, 'City',           city,     COL2_X2, COL2_W, y)
-  y += FIELD_ROW_H
-
-  // Three-column: State / ZIP / Country
-  labeledField(ctx, 'State',       state,   0,       COL3_W, y)
-  labeledField(ctx, 'Postal Code', zip,     COL3_X2, COL3_W, y)
-  labeledField(ctx, 'Country',     country, COL3_X3, COL3_W, y)
-  y += FIELD_ROW_H
-
-  // Two-column: Phone / Email
-  labeledField(ctx, 'Telephone', phone, 0,      COL2_W, y)
-  labeledField(ctx, 'Email',     email, COL2_X2, COL2_W, y)
-  y += FIELD_ROW_H
-
-  labeledField(ctx, 'Citizenship', 'United States', 0, COL2_W, y)
-  y += FIELD_ROW_H + SECTION_END_GAP
-
-  // ── Section 3: Correspondence Information ────────────────────────────────────
-  sectionHeader(ctx, '3. CORRESPONDENCE INFORMATION', y)
-  y += SECTION_AFTER
-
-  labeledField(ctx, 'Given Name',  firstName, 0,      COL2_W, y)
-  labeledField(ctx, 'Family Name', lastName,  COL2_X2, COL2_W, y)
-  y += FIELD_ROW_H
-
-  labeledField(ctx, 'Organization / Firm Name', 'Pro Se (self-represented)', 0, CONTENT_W, y)
-  y += FIELD_ROW_H
-
-  labeledField(ctx, 'Street Address', address1, 0, CONTENT_W, y)
-  y += FIELD_ROW_H
-
-  // Three-column: City / State / ZIP
-  labeledField(ctx, 'City',        city,  0,       COL3_W, y)
-  labeledField(ctx, 'State',       state, COL3_X2, COL3_W, y)
-  labeledField(ctx, 'Postal Code', zip,   COL3_X3, COL3_W, y)
-  y += FIELD_ROW_H + SECTION_END_GAP
-
-  // ── Section 4: Application Type / Entity Status ──────────────────────────────
-  sectionHeader(ctx, '4. APPLICATION TYPE / ENTITY STATUS', y)
-  y += SECTION_AFTER
-
-  checkbox(ctx, true, 0, y)
-  drawText(ctx, 'Provisional Application under 35 U.S.C. 111(b)', 14, y, {
-    size: FONT_BODY,
-    font: regular,
-  })
-  y += CHECKBOX_ROW_H + 2
-
-  drawText(ctx, 'Entity Status -- check one:', 0, y, {
-    size: FONT_MEDIUM,
-    font: bold,
-    color: [0.3, 0.3, 0.3],
-  })
-  y += SUBSECTION_GAP
-
-  const entityRows = [
-    `Micro Entity -- 37 CFR 1.29  -  ~$${USPTO_FEES.provisional.micro} provisional fee`,
-    `Small Entity -- 37 CFR 1.27  -  ~$${USPTO_FEES.provisional.small} provisional fee`,
-    `Undiscounted (Large Entity)  -  ~$${USPTO_FEES.provisional.large} provisional fee`,
-  ]
-  for (const row of entityRows) {
-    checkbox(ctx, false, 0, y)
-    drawText(ctx, row, 14, y, { size: FONT_BODY, font: regular })
-    y += CHECKBOX_ROW_H
-  }
-  y += SECTION_END_GAP
-
-  // ── Section 5: Prior-Filed Applications ──────────────────────────────────────
-  sectionHeader(ctx, '5. PRIOR-FILED APPLICATIONS (DOMESTIC BENEFIT / FOREIGN PRIORITY)', y)
-  y += SECTION_AFTER
-
-  const filingDateFmt = filingDate
-    ? new Date(filingDate + 'T00:00:00').toLocaleDateString('en-US', {
-        month: '2-digit', day: '2-digit', year: 'numeric',
-      })
+  const filingDateFmt = filingDateRaw
+    ? new Date((filingDateRaw.includes('T') ? filingDateRaw : filingDateRaw + 'T00:00:00'))
+        .toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
     : ''
 
-  labeledField(ctx, 'Prior Application Number', provisionalNum || '--',    0,        S5_COL1_W, y)
-  labeledField(ctx, 'Filing Date',              filingDateFmt  || '--',    S5_COL2_X, S5_COL2_W, y)
-  labeledField(ctx, 'Relationship',             'Priority/Benefit Claim', S5_COL3_X, S5_COL3_W, y)
+  const signature = `/${inventorName}/`
+
+  // ── Running y cursor ────────────────────────────────────────────────────────
+  let y = 0
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // FORM HEADER
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // Top row: form ID left, OMB right
+  dt(ctx, 'PTO/AIA/14 (Equivalent)', 0, y + 8, { sz: SZ_NOTE, font: bold, color: C_LABEL })
+  dt(ctx, 'OMB 0651-0032', CONTENT_W - 70, y + 8, { sz: SZ_NOTE, font: ctx.regular, color: C_LABEL })
+  y += 11
+
+  // Form title — large and bold
+  dt(ctx, 'APPLICATION DATA SHEET', 0, y + 11, { sz: SZ_HEADER_TITLE, font: bold })
+  y += 14
+
+  // Sub-title
+  dt(ctx, '37 CFR 1.76  |  Form PTO/AIA/14  |  Provisional Application', 0, y + 6, {
+    sz: SZ_NOTE + 0.5, font: italic, color: C_NOTE,
+  })
+  y += 9
+
+  // Thin rule
+  hRule(ctx, 0, CONTENT_W, y, 1.0, rgb(0.25, 0.28, 0.4))
+  y += 4
+
+  // Meta row: generated date left, draft warning right
+  dt(ctx, `Generated ${todayLong}  |  PatentPending.app`, 0, y + 1, {
+    sz: SZ_NOTE, font: italic, color: C_NOTE,
+  })
+  dt(ctx, 'DRAFT -- Review all fields before filing', CONTENT_W - 160, y + 1, {
+    sz: SZ_NOTE, font: bold, color: C_WARN,
+  })
+  y += NOTE_H
+
+  // ── Docket / App number header row ──────────────────────────────────────────
+  const HDR_ROW_H = FIELD_ROW_H - 2
+  field(ctx, 'Attorney Docket Number',
+    sanitizeForPdf((patent.docket_number as string) ?? '(leave blank for pro se)'),
+    0, COL2_W, y)
+  field(ctx, 'Application Number (assigned by USPTO)',
+    sanitizeForPdf((patent.provisional_app_number as string) ?? 'Assigned upon filing'),
+    COL2_X2, COL2_W, y)
+  y += HDR_ROW_H + SEC_GAP
+
+  // ── Title of Invention (near top — mirrors official form position) ───────────
+  field(ctx, 'Title of Invention', title, 0, CONTENT_W, y)
+  y += FIELD_ROW_H + SEC_GAP
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SECTION 1: INVENTOR INFORMATION
+  // ════════════════════════════════════════════════════════════════════════════
+  sectionBar(ctx, '1. INVENTOR INFORMATION  (First Named Inventor)', y)
+  y += HDR_AFTER
+
+  // Name row — three columns
+  field(ctx, 'Given Name (First)',  nameFirst,  0,       COL3_W, y)
+  field(ctx, 'Middle Name',         nameMid,    COL3_X2, COL3_W, y)
+  field(ctx, 'Family Name (Last)',  nameLast,   COL3_X3, COL3_W, y)
   y += FIELD_ROW_H
 
-  drawText(
-    ctx,
-    'If this IS the provisional, leave blank. Reference this app number when filing the non-provisional.',
-    0, y,
-    { size: FONT_SMALL, font: italic, color: [0.5, 0.5, 0.5] }
-  )
-  y += NOTE_ROW_H + SECTION_END_GAP
-
-  // ── Section 6: Assignee ──────────────────────────────────────────────────────
-  sectionHeader(ctx, '6. ASSIGNEE INFORMATION (IF ANY)', y)
-  y += SECTION_AFTER
-
-  labeledField(ctx, 'Assignee Name / Organization', assigneeName || '--', 0,      COL2_W, y)
-  labeledField(ctx, 'Assignee Address',              assigneeAddr || '--', COL2_X2, COL2_W, y)
-  y += FIELD_ROW_H + SECTION_END_GAP
-
-  // ── Section 7: Signature ─────────────────────────────────────────────────────
-  sectionHeader(ctx, '7. SIGNATURE OF APPLICANT OR REPRESENTATIVE', y)
-  y += SECTION_AFTER
-
-  drawText(
-    ctx,
-    'Under 37 CFR 1.4(d)(2), a typed /Name/ signature satisfies electronic signature requirements.',
-    0, y,
-    { size: FONT_SMALL, font: italic, color: [0.4, 0.4, 0.4] }
-  )
-  y += NOTE_ROW_H
-
-  labeledField(ctx, 'Applicant Signature (typed)', signature, 0,      COL2_W, y)
-  labeledField(ctx, 'Date',                        today,     COL2_X2, COL2_W, y)
+  // Address row
+  field(ctx, 'Mailing Address',  addr1, 0,      COL2_W, y)
+  field(ctx, 'City',             city,  COL2_X2, COL2_W, y)
   y += FIELD_ROW_H
 
-  labeledField(ctx, 'Typed or Printed Name',                inventorName,       0,      COL2_W, y)
-  labeledField(ctx, 'Registration Number (Attorney/Agent)', 'N/A -- Pro Se',    COL2_X2, COL2_W, y)
-  y += FIELD_ROW_H + SECTION_END_GAP
+  // State / Zip / Country
+  field(ctx, 'State',        state,   0,       COL3_W, y)
+  field(ctx, 'Postal Code',  zip,     COL3_X2, COL3_W, y)
+  field(ctx, 'Country',      country, COL3_X3, COL3_W, y)
+  y += FIELD_ROW_H
+
+  // Phone / Email
+  field(ctx, 'Telephone',  phone, 0,      COL2_W, y)
+  field(ctx, 'Email',      email, COL2_X2, COL2_W, y)
+  y += FIELD_ROW_H
+
+  // Citizenship / Residence
+  field(ctx, 'Citizenship',                'United States', 0,      COL2_W, y)
+  field(ctx, 'USPTO Customer Number (opt)', custNum || '--', COL2_X2, COL2_W, y)
+  y += FIELD_ROW_H + SEC_GAP
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SECTION 2: CORRESPONDENCE INFORMATION
+  // ════════════════════════════════════════════════════════════════════════════
+  sectionBar(ctx, '2. CORRESPONDENCE INFORMATION', y)
+  y += HDR_AFTER
+
+  field(ctx, 'Applicant Name / Firm Name',
+    inventorName ? `${inventorName} (Pro Se)` : 'Pro Se (self-represented)',
+    0, CONTENT_W, y)
+  y += FIELD_ROW_H
+
+  field(ctx, 'Mailing Address', addr1, 0, CONTENT_W, y)
+  y += FIELD_ROW_H
+
+  field(ctx, 'City',  city,  0,       COL3_W, y)
+  field(ctx, 'State', state, COL3_X2, COL3_W, y)
+  field(ctx, 'ZIP',   zip,   COL3_X3, COL3_W, y)
+  y += FIELD_ROW_H
+
+  field(ctx, 'Telephone', phone, 0,      COL2_W, y)
+  field(ctx, 'Email',     email, COL2_X2, COL2_W, y)
+  y += FIELD_ROW_H + SEC_GAP
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SECTION 3: APPLICATION INFORMATION
+  // ════════════════════════════════════════════════════════════════════════════
+  sectionBar(ctx, '3. APPLICATION INFORMATION', y)
+  y += HDR_AFTER
+
+  // Application type — checkbox row
+  dt(ctx, 'Application Type:', 0, y + 1, { sz: SZ_SUBHDR, font: bold, color: C_LABEL })
+  y += SUB_GAP
+
+  cbRow(ctx, true,  'Provisional Application  (35 U.S.C. 111(b))', 0, y, CONTENT_W - 20)
+  y += CHECKBOX_H
+  cbRow(ctx, false, 'Nonprovisional (35 U.S.C. 111(a))',            0, y, CONTENT_W - 20)
+  y += CHECKBOX_H
+  cbRow(ctx, false, 'PCT International Application',                 0, y, CONTENT_W - 20)
+  y += CHECKBOX_H + 3
+
+  // Entity status — left block
+  dt(ctx, 'Entity Status (check one):', 0, y + 1, { sz: SZ_SUBHDR, font: bold, color: C_LABEL })
+  y += SUB_GAP
+
+  // Draw entity status cells side by side with checked state
+  const ENT_W = (CONTENT_W - COL_GAP * 2) / 3
+  const ENT_X2 = ENT_W + COL_GAP
+  const ENT_X3 = (ENT_W + COL_GAP) * 2
+
+  cellBorder(ctx, 0,      y, ENT_W, CHECKBOX_H + 4)
+  cellBorder(ctx, ENT_X2, y, ENT_W, CHECKBOX_H + 4)
+  cellBorder(ctx, ENT_X3, y, ENT_W, CHECKBOX_H + 4)
+
+  cbRow(ctx, true,  'Micro Entity (37 CFR 1.29)',          2,          y + 1)
+  cbRow(ctx, false, 'Small Entity (37 CFR 1.27)',           ENT_X2 + 2, y + 1)
+  cbRow(ctx, false, 'Undiscounted (Large Entity)',           ENT_X3 + 2, y + 1)
+  y += CHECKBOX_H + 6 + SEC_GAP
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SECTION 4: PRIOR-FILED APPLICATIONS
+  // ════════════════════════════════════════════════════════════════════════════
+  sectionBar(ctx, '4. PRIOR-FILED APPLICATIONS / DOMESTIC BENEFIT  (37 CFR 1.78)', y)
+  y += HDR_AFTER
+
+  field(ctx, 'Prior Application Number',  provNum || '--',             0,       S5_C1W, y)
+  field(ctx, 'Filing Date',               filingDateFmt || '--',       S5_C2X,  S5_C2W, y)
+  field(ctx, 'Relationship / Status',     'Provisional filed',         S5_C3X,  S5_C3W, y)
+  y += FIELD_ROW_H
+
+  dt(ctx,
+    'If filing the provisional: leave Application Number blank (assigned by USPTO). ' +
+    'When filing the non-provisional, reference this provisional number above.',
+    0, y + 1, { sz: SZ_NOTE, font: italic, color: C_NOTE })
+  y += NOTE_H + SEC_GAP
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SECTION 5: ASSIGNEE INFORMATION
+  // ════════════════════════════════════════════════════════════════════════════
+  sectionBar(ctx, '5. ASSIGNEE INFORMATION  (if applicable — leave blank if inventor is sole owner)', y)
+  y += HDR_AFTER
+
+  field(ctx, 'Assignee / Organization Name',  assigneeNm || '--',  0,      COL2_W, y)
+  field(ctx, 'Assignee Mailing Address',       assigneeAd || '--',  COL2_X2, COL2_W, y)
+  y += FIELD_ROW_H + SEC_GAP
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SECTION 6: SIGNATURE
+  // ════════════════════════════════════════════════════════════════════════════
+  sectionBar(ctx, '6. SIGNATURE OF APPLICANT  (37 CFR 1.4(d)(2) — typed /Name/ is a valid S-signature)', y)
+  y += HDR_AFTER
+
+  field(ctx, 'Applicant Signature (S-signature)',  signature, 0,      COL2_W, y)
+  field(ctx, 'Date',                               today,     COL2_X2, COL2_W, y)
+  y += FIELD_ROW_H
+
+  field(ctx, 'Printed Name',                              inventorName,    0,      COL2_W, y)
+  field(ctx, 'Registration Number (Attorney/Agent only)', 'N/A -- Pro Se', COL2_X2, COL2_W, y)
+  y += FIELD_ROW_H + SEC_GAP
 
   // ── Footer ──────────────────────────────────────────────────────────────────
-  drawHRule(ctx, 0, CONTENT_W, y, 0.5)
-  y += 6
-
-  drawText(ctx, `Form PTO/AIA/14  -  Generated by PatentPending.app  -  ${todayLong}`, 0, y, {
-    size: FONT_SMALL,
-    font: regular,
-    color: [0.5, 0.5, 0.5],
+  hRule(ctx, 0, CONTENT_W, y, 0.5, C_NOTE)
+  y += 5
+  dt(ctx, `Form PTO/AIA/14 equivalent  |  Generated ${todayLong} by PatentPending.app`, 0, y, {
+    sz: SZ_FOOTER, font: regular, color: C_NOTE,
   })
-  drawText(ctx, 'File at patentcenter.uspto.gov  -  PatentPending.app is not a law firm.', 0, y + 10, {
-    size: FONT_SMALL,
-    font: regular,
-    color: [0.5, 0.5, 0.5],
+  dt(ctx, 'patentcenter.uspto.gov  |  PatentPending.app is not a law firm. Not legal advice.', 0, y + 8, {
+    sz: SZ_FOOTER, font: regular, color: C_NOTE,
   })
 
-  // ── Finalize ────────────────────────────────────────────────────────────────
-  const pdfBytes = await doc.save()
-  return pdfBytes
+  return doc.save()
 }
