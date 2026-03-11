@@ -94,8 +94,8 @@ export default function DownloadPackageModal({ patent, authToken, onClose }: Dow
         body: JSON.stringify({ scenario: selected }),
       })
       if (!res.ok) {
-        const j = await res.json()
-        setError(j.error || 'Download failed — please try again.')
+        const errorData = await res.json().catch(() => ({}))
+        setError(errorData.error || `Server error ${res.status} — please try again`)
         return
       }
       const blob = await res.blob()
@@ -261,8 +261,8 @@ export default function DownloadPackageModal({ patent, authToken, onClose }: Dow
                   headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
                   body: JSON.stringify({ scenario: selected }),
                 })
-                const json = await res.json()
-                if (!res.ok) { setError(json.error || 'Email failed — please try again.'); return }
+                const json = await res.json().catch(() => ({}))
+                if (!res.ok) { setError(json.error || `Email failed (${res.status}) — please try again`); return }
                 setEmailSent(true)
               } catch {
                 setError('Network error — please try again.')

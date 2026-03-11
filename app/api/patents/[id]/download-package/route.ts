@@ -315,182 +315,234 @@ export async function POST(
 ) {
   const { id: patentId } = await params
 
-  // ── Auth ────────────────────────────────────────────────────────────────────
-  const auth = req.headers.get('authorization')
-  const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null
-  if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: { user } } = await getUserClient(token).auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  // ── Parse body ──────────────────────────────────────────────────────────────
-  let scenario: Scenario = 'provisional_filing'
   try {
-    const body = await req.json()
-    if (['provisional_filing', 'assignment', 'non_provisional_prep'].includes(body.scenario)) {
-      scenario = body.scenario
-    }
-  } catch { /* default to provisional_filing */ }
+    // ── Auth ────────────────────────────────────────────────────────────────────
+    const auth = req.headers.get('authorization')
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // ── Fetch patent ────────────────────────────────────────────────────────────
-  const { data: patent } = await supabaseService
-    .from('patents')
-    .select('id, owner_id, title, inventors, provisional_number, application_number, filing_date, spec_draft, claims_draft, abstract_draft, spec_uploaded, figures_uploaded, cover_sheet_acknowledged')
-    .eq('id', patentId)
-    .single()
+    const { data: { user } } = await getUserClient(token).auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
-  if (patent.owner_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    // ── Parse body ──────────────────────────────────────────────────────────────
+    let scenario: Scenario = 'provisional_filing'
+    try {
+      const body = await req.json()
+      if (['provisional_filing', 'assignment', 'non_provisional_prep'].includes(body.scenario)) {
+        scenario = body.scenario
+      }
+    } catch { /* default to provisional_filing */ }
 
-  // ── Tier gate: zip download requires Pro ────────────────────────────────────
-  const tierInfo = await getUserTierInfo(user.id)
-  if (!isPro(tierInfo, { isOwner: true, feature: 'zip_download' })) {
-    return tierRequiredResponse('zip_download')
-  }
+    console.log(`[ZIP] user=${user.id} patent=${patentId} scenario=${scenario}`)
 
-  // ── Hard block: claims required for filing packages (not assignment templates) ──
-  if (scenario !== 'assignment') {
-    if (!patent.claims_draft || (patent.claims_draft as string).trim().length === 0) {
-      return NextResponse.json({
-        error: 'Cannot generate filing package: no claims on record. Generate and approve claims in PatentPending first.',
-        code: 'NO_CLAIMS',
-      }, { status: 400 })
-    }
-  }
+    // ── Fetch patent ────────────────────────────────────────────────────────────
+    const { data: patent } = await supabaseService
+      .from('patents')
+      .select('id, owner_id, title, inventors, provisional_number, application_number, filing_date, spec_draft, claims_draft, abstract_draft, spec_uploaded, figures_uploaded, cover_sheet_acknowledged')
+      .eq('id', patentId)
+      .single()
 
-  // ── Fetch user profile for cover sheet ─────────────────────────────────────
-  const { data: profile } = await supabaseService
-    .from('patent_profiles')
-    .select('name_first, name_middle, name_last, address_line_1, city, state, zip, country, phone, email, uspto_customer_number, default_assignee_name, default_assignee_address')
-    .eq('id', user.id)
-    .single()
+    if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
+    if (patent.owner_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  // ── Build ZIP ───────────────────────────────────────────────────────────────
-  const zip = new JSZip()
-  const dateStr = new Date().toISOString().split('T')[0]
-  const folderName = `${slugify(patent.title ?? 'patent')}-${scenario.replace(/_/g, '-')}-${dateStr}`
-  const folder = zip.folder(folderName)!
-
-  const hasSpec = !!(patent.spec_draft)
-  const hasClaims = !!(patent.claims_draft)
-  const hasFigures = !!(patent.figures_uploaded)
-
-  // ── README ──────────────────────────────────────────────────────────────────
-  folder.file('README.txt', buildReadme(scenario, patent as Record<string, unknown>, hasSpec, hasClaims, hasFigures))
-
-  // ── Scenario: provisional_filing / non_provisional_prep ────────────────────
-  if (scenario === 'provisional_filing' || scenario === 'non_provisional_prep') {
-    // Cover sheet — server-side PDF (USPTO-compliant PDF 1.7, pdf-lib)
-    const coverPdfBytes = await buildCoverSheetPdf(
-      patent as Record<string, unknown>,
-      profile as Record<string, unknown> | null
-    )
-    folder.file('01-cover-sheet.pdf', coverPdfBytes)
-
-    // Specification
-    if (patent.spec_draft) {
-      folder.file('02-specification.txt', patent.spec_draft)
-    } else {
-      folder.file('02-specification-MISSING.txt', `SPECIFICATION NOT YET GENERATED\n\nComplete Step 5 in PatentPending.app first.`)
+    // ── Tier gate: zip download requires Pro ──────────────────────────────────
+    const tierInfo = await getUserTierInfo(user.id)
+    console.log(`[ZIP] tier=${tierInfo.subscription_status} is_attorney=${tierInfo.is_attorney}`)
+    if (!isPro(tierInfo, { isOwner: true, feature: 'zip_download' })) {
+      return tierRequiredResponse('zip_download')
     }
 
-    // Claims
-    if (patent.claims_draft) {
-      folder.file('03-claims.txt', patent.claims_draft)
-    } else {
-      folder.file('03-claims-MISSING.txt', `CLAIMS NOT YET GENERATED\n\nGenerate and approve claims in PatentPending.app first.`)
+    // ── Hard block: claims required for filing packages (not assignment templates) ──
+    if (scenario !== 'assignment') {
+      console.log(`[ZIP] claims value: ${JSON.stringify(patent.claims_draft)?.slice(0, 200)}`)
+      if (!patent.claims_draft || (patent.claims_draft as string).trim().length === 0) {
+        return NextResponse.json({
+          error: 'Cannot generate filing package: no claims on record. Generate and approve claims in PatentPending first.',
+          code: 'NO_CLAIMS',
+        }, { status: 400 })
+      }
     }
 
-    // Abstract (bonus)
-    if (patent.abstract_draft) {
-      folder.file('04-abstract.txt', patent.abstract_draft)
-    }
+    // ── Fetch user profile for cover sheet ───────────────────────────────────
+    const { data: profile } = await supabaseService
+      .from('patent_profiles')
+      .select('name_first, name_middle, name_last, address_line_1, city, state, zip, country, phone, email, uspto_customer_number, default_assignee_name, default_assignee_address')
+      .eq('id', user.id)
+      .single()
 
-    // Figures — download + process to 300 DPI PNG via Sharp
-    if (patent.figures_uploaded) {
-      const figuresFolder = folder.folder('figures')!
+    // ── Build ZIP ─────────────────────────────────────────────────────────────
+    const zip = new JSZip()
+    const dateStr = new Date().toISOString().split('T')[0]
+    const folderName = `${slugify(patent.title ?? 'patent')}-${scenario.replace(/_/g, '-')}-${dateStr}`
+    const folder = zip.folder(folderName)!
 
-      const { data: aiList } = await supabaseService.storage
-        .from('patent-uploads')
-        .list(`${patentId}/figures`, { limit: 20 })
-      const aiFiles = (aiList ?? []).filter(f => f.name.match(/^fig\d+\.(svg|png|jpg|jpeg)$/i))
+    const hasSpec = !!(patent.spec_draft)
+    const hasClaims = !!(patent.claims_draft)
+    const hasFigures = !!(patent.figures_uploaded)
 
-      const { data: userList } = await supabaseService.storage
-        .from('patent-uploads')
-        .list(`${user.id}/${patentId}/figures`, { limit: 20 })
-      const userFiles = (userList ?? []).filter(f => f.name.match(/\.(svg|png|jpg|jpeg)$/i))
+    // ── README ────────────────────────────────────────────────────────────────
+    folder.file('README.txt', buildReadme(scenario, patent as Record<string, unknown>, hasSpec, hasClaims, hasFigures))
 
-      const allFigs = [
-        ...aiFiles.map(f => ({ path: `${patentId}/figures/${f.name}`, name: f.name })),
-        ...userFiles.map(f => ({ path: `${user.id}/${patentId}/figures/${f.name}`, name: f.name })),
-      ]
+    // ── Scenario: provisional_filing / non_provisional_prep ──────────────────
+    if (scenario === 'provisional_filing' || scenario === 'non_provisional_prep') {
+      // Cover sheet — server-side PDF (USPTO-compliant PDF 1.7, pdf-lib)
+      // Wrapped in try/catch: if PDF generation fails, include a plaintext fallback
+      try {
+        const coverPdfBytes = await buildCoverSheetPdf(
+          patent as Record<string, unknown>,
+          profile as Record<string, unknown> | null
+        )
+        folder.file('01-cover-sheet.pdf', coverPdfBytes)
+        console.log('[ZIP] cover sheet PDF generated OK')
+      } catch (coverErr) {
+        console.error('[ZIP] cover-sheet PDF generation failed:', coverErr)
+        // Fallback: plaintext ADS placeholder — user can fill in manually
+        folder.file('01-cover-sheet-FALLBACK.txt', [
+          'COVER SHEET (ADS) — GENERATION FAILED',
+          '',
+          `Title: ${patent.title ?? ''}`,
+          `Provisional Number: ${patent.provisional_number ?? ''}`,
+          `Filing Date: ${patent.filing_date ?? ''}`,
+          '',
+          'The PDF generator encountered an error. Please fill in the ADS manually at:',
+          'https://patentcenter.uspto.gov (use form PTO/AIA/14)',
+          '',
+          `Error: ${coverErr instanceof Error ? coverErr.message : String(coverErr)}`,
+        ].join('\n'))
+      }
 
-      for (const fig of allFigs) {
-        try {
-          const { data: signed } = await supabaseService.storage
-            .from('patent-uploads')
-            .createSignedUrl(fig.path, 300)
-          if (!signed?.signedUrl) continue
+      // Specification
+      if (patent.spec_draft) {
+        folder.file('02-specification.txt', patent.spec_draft)
+      } else {
+        folder.file('02-specification-MISSING.txt', `SPECIFICATION NOT YET GENERATED\n\nComplete Step 5 in PatentPending.app first.`)
+      }
 
-          const res = await fetch(signed.signedUrl)
-          if (!res.ok) continue
-          const rawBuf = Buffer.from(await res.arrayBuffer())
+      // Claims
+      if (patent.claims_draft) {
+        folder.file('03-claims.txt', patent.claims_draft)
+      } else {
+        folder.file('03-claims-MISSING.txt', `CLAIMS NOT YET GENERATED\n\nGenerate and approve claims in PatentPending.app first.`)
+      }
 
-          const isSvg = fig.name.toLowerCase().endsWith('.svg')
-          let pngBuf: Buffer
+      // Abstract (bonus)
+      if (patent.abstract_draft) {
+        folder.file('04-abstract.txt', patent.abstract_draft)
+      }
 
-          if (isSvg) {
-            // SVG → PNG at 300 DPI, greyscale (USPTO: black and white line art)
-            pngBuf = await sharp(rawBuf, { density: 300 })
-              .resize({ width: 2550, height: 3300, fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
-              .greyscale()
-              .png({ compressionLevel: 9 })
-              .toBuffer()
-          } else {
-            // PNG/JPG → set 300 DPI metadata, convert to PNG if needed
-            pngBuf = await sharp(rawBuf)
-              .withMetadata({ density: 300 })
-              .greyscale()
-              .png({ compressionLevel: 9 })
-              .toBuffer()
+      // Figures — download + process to 300 DPI PNG via Sharp
+      if (patent.figures_uploaded) {
+        const figuresFolder = folder.folder('figures')!
+
+        const { data: aiList } = await supabaseService.storage
+          .from('patent-uploads')
+          .list(`${patentId}/figures`, { limit: 20 })
+        const aiFiles = (aiList ?? []).filter(f => f.name.match(/^fig\d+\.(svg|png|jpg|jpeg)$/i))
+
+        const { data: userList } = await supabaseService.storage
+          .from('patent-uploads')
+          .list(`${user.id}/${patentId}/figures`, { limit: 20 })
+        const userFiles = (userList ?? []).filter(f => f.name.match(/\.(svg|png|jpg|jpeg)$/i))
+
+        const allFigs = [
+          ...aiFiles.map(f => ({ path: `${patentId}/figures/${f.name}`, name: f.name })),
+          ...userFiles.map(f => ({ path: `${user.id}/${patentId}/figures/${f.name}`, name: f.name })),
+        ]
+
+        console.log(`[ZIP] processing ${allFigs.length} figures`)
+
+        for (const fig of allFigs) {
+          try {
+            const { data: signed } = await supabaseService.storage
+              .from('patent-uploads')
+              .createSignedUrl(fig.path, 300)
+            if (!signed?.signedUrl) continue
+
+            const res = await fetch(signed.signedUrl)
+            if (!res.ok) continue
+            const rawBuf = Buffer.from(await res.arrayBuffer())
+
+            const isSvg = fig.name.toLowerCase().endsWith('.svg')
+            let pngBuf: Buffer
+
+            if (isSvg) {
+              // SVG → PNG at 300 DPI, greyscale (USPTO: black and white line art)
+              pngBuf = await sharp(rawBuf, { density: 300 })
+                .resize({ width: 2550, height: 3300, fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+                .greyscale()
+                .png({ compressionLevel: 9 })
+                .toBuffer()
+            } else {
+              // PNG/JPG → set 300 DPI metadata, convert to PNG if needed
+              // Fall back to original if Sharp fails
+              pngBuf = await sharp(rawBuf)
+                .withMetadata({ density: 300 })
+                .greyscale()
+                .png({ compressionLevel: 9 })
+                .toBuffer()
+            }
+
+            // Always output as .png in the ZIP
+            const outName = fig.name.replace(/\.(svg|jpg|jpeg)$/i, '.png')
+            figuresFolder.file(outName, pngBuf)
+          } catch (e) {
+            console.error(`[ZIP] figure processing error for ${fig.name}:`, e)
+            // Fallback: include the original file without Sharp processing
+            try {
+              const { data: signed } = await supabaseService.storage
+                .from('patent-uploads')
+                .createSignedUrl(fig.path, 300)
+              if (signed?.signedUrl) {
+                const res = await fetch(signed.signedUrl)
+                if (res.ok) {
+                  const rawBuf = Buffer.from(await res.arrayBuffer())
+                  figuresFolder.file(fig.name, rawBuf)
+                  console.log(`[ZIP] figure ${fig.name}: included original (Sharp failed)`)
+                }
+              }
+            } catch {
+              console.error(`[ZIP] figure ${fig.name}: fallback also failed, skipping`)
+            }
           }
-
-          // Always output as .png in the ZIP
-          const outName = fig.name.replace(/\.(svg|jpg|jpeg)$/i, '.png')
-          figuresFolder.file(outName, pngBuf)
-        } catch (e) {
-          console.error(`[download-package] figure processing error for ${fig.name}:`, e)
-          // Skip failed figures — don't abort ZIP
         }
       }
     }
+
+    // ── Scenario: assignment ──────────────────────────────────────────────────
+    if (scenario === 'assignment') {
+      folder.file('01-assignment-agreement-TEMPLATE.txt', buildAssignmentTemplate(patent as Record<string, unknown>))
+      folder.file('02-inventor-declaration-TEMPLATE.txt', buildDeclarationTemplate(patent as Record<string, unknown>))
+    }
+
+    // ── Generate ZIP buffer ───────────────────────────────────────────────────
+    // Use 'arraybuffer' type — returns plain ArrayBuffer (not ArrayBufferLike),
+    // which is a valid BlobPart without TypeScript narrowing issues.
+    const zipArrayBuffer = await zip.generateAsync({
+      type: 'arraybuffer',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 },
+    })
+
+    console.log(`[ZIP] generated OK — ${zipArrayBuffer.byteLength} bytes`)
+
+    const zipBlob = new Blob([zipArrayBuffer], { type: 'application/zip' })
+    const filename = `${folderName}.zip`
+
+    return new Response(zipBlob, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': String(zipArrayBuffer.byteLength),
+        'Cache-Control': 'no-store',
+      },
+    })
+
+  } catch (error) {
+    console.error('[ZIP] unhandled error:', error)
+    return NextResponse.json({
+      error: `Failed to generate ZIP package: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      code: 'ZIP_ERROR',
+    }, { status: 500 })
   }
-
-  // ── Scenario: assignment ────────────────────────────────────────────────────
-  if (scenario === 'assignment') {
-    folder.file('01-assignment-agreement-TEMPLATE.txt', buildAssignmentTemplate(patent as Record<string, unknown>))
-    folder.file('02-inventor-declaration-TEMPLATE.txt', buildDeclarationTemplate(patent as Record<string, unknown>))
-  }
-
-  // ── Generate ZIP buffer ─────────────────────────────────────────────────────
-  // Use 'arraybuffer' type — returns plain ArrayBuffer (not ArrayBufferLike),
-  // which is a valid BlobPart without TypeScript narrowing issues.
-  const zipArrayBuffer = await zip.generateAsync({
-    type: 'arraybuffer',
-    compression: 'DEFLATE',
-    compressionOptions: { level: 6 },
-  })
-
-  const zipBlob = new Blob([zipArrayBuffer], { type: 'application/zip' })
-  const filename = `${folderName}.zip`
-
-  return new Response(zipBlob, {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-      'Content-Length': String(zipArrayBuffer.byteLength),
-      'Cache-Control': 'no-store',
-    },
-  })
 }

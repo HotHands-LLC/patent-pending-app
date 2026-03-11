@@ -100,7 +100,8 @@ function checkbox(ctx: DrawCtx, checked: boolean, x: number, yTop: number) {
     color: checked ? rgb(0.12, 0.14, 0.22) : rgb(1, 1, 1),
   })
   if (checked) {
-    drawText(ctx, '✓', x + 1, yTop + 1, { size: 7, font: ctx.bold, color: [1, 1, 1] })
+    // Use 'X' — WinAnsiEncoding (Helvetica/StandardFonts) cannot encode Unicode '✓' (U+2713)
+    drawText(ctx, 'X', x + 1, yTop + 1, { size: 7, font: ctx.bold, color: [1, 1, 1] })
   }
 }
 
