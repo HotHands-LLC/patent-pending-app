@@ -50,7 +50,7 @@ const SZ_FOOTER       = 6    // bottom-of-page footer
 
 // ── Layout rhythm ─────────────────────────────────────────────────────────────
 const HDR_BAR_H       = 13   // section header bar height
-const HDR_AFTER       = 14   // y-advance after entering a section bar
+const HDR_AFTER       = 19   // y-advance after bar (bar is 13pt; 6pt clearance before first label)
 const FIELD_ROW_H     = 16   // standard labeled-field row
 const FIELD_LABEL_DY  = 1    // label y within row (from row top)
 const FIELD_VALUE_DY  = 9    // value y within row
