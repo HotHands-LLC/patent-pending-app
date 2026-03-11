@@ -52,7 +52,7 @@ export function isPro(
   // Full Pro and Complimentary always pass
   if (info.subscription_status === 'pro' || info.subscription_status === 'complimentary') return true
   // Attorney gets basic Pro on their OWN patents (not marketplace)
-  if (info.is_attorney && context?.isOwner && context?.feature !== 'marketplace_list') return true
+  if (info.is_attorney && context?.isOwner) return true
   return false
 }
 

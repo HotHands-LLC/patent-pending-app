@@ -59,18 +59,14 @@ export async function POST(
 
   // ── Tier gate: Marketplace requires Pro ─────────────────────────────────
   const tierInfo = await getUserTierInfo(user.id)
-  if (tierInfo.subscription_status === 'free' && !tierInfo.is_attorney) {
+  // Free accounts blocked from Marketplace
+  if (tierInfo.subscription_status === 'free') {
     return tierRequiredResponse('marketplace_list')
   }
-  // Attorney accounts cannot list on Marketplace (no Stripe, no commission structure)
-  if (tierInfo.is_attorney) {
-    return NextResponse.json({
-      error: 'Attorney accounts cannot activate Marketplace listings. Please use a standard Pro account.',
-      code: 'ATTORNEY_NOT_ELIGIBLE',
-    }, { status: 403 })
-  }
-  // Pro accounts: cap at 1 active listing
-  if (tierInfo.subscription_status === 'pro') {
+  // Pro accounts + attorney owners: cap at 1 active listing
+  // Attorney who owns this patent can list — collaborator-on-someone-else's is blocked by owner check above
+  // complimentary: skips cap check entirely (unlimited listings)
+  if (tierInfo.subscription_status === 'pro' || tierInfo.is_attorney) {
     const { count: activeListings } = await supabaseService
       .from('patents')
       .select('id', { count: 'exact', head: true })
