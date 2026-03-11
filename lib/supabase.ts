@@ -60,6 +60,7 @@ export type Patent = {
   is_locked?: boolean
   patent_number?: string | null
   ownership_verified?: boolean
+  entity_status?: 'micro' | 'small' | 'large' | null  // cont.30 10C
 }
 
 export type PatentDeadline = {

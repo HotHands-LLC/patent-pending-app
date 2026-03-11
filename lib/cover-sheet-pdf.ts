@@ -236,6 +236,12 @@ export async function buildCoverSheetPdf(
   // ── Extract + sanitize data ────────────────────────────────────────────────
   const title         = sanitizeForPdf((patent.title          as string) ?? '')
   const provNum       = sanitizeForPdf((patent.provisional_number as string) ?? (patent.provisional_app_number as string) ?? '')
+
+  // Entity status — reads from patent.entity_status (default: 'micro')
+  const rawEntity  = ((patent.entity_status as string) ?? 'micro').toLowerCase()
+  const isMicro    = rawEntity.includes('micro')
+  const isSmall    = rawEntity.includes('small')
+  const isLarge    = rawEntity.includes('large') || rawEntity.includes('undiscounted')
   const filingDateRaw = (patent.filing_date as string) ?? (patent.provisional_filed_at as string) ?? ''
   const inventors     = (patent.inventors as string[]) ?? []
 
@@ -404,10 +410,16 @@ export async function buildCoverSheetPdf(
   cellBorder(ctx, ENT_X2, y, ENT_W, CHECKBOX_H + 4)
   cellBorder(ctx, ENT_X3, y, ENT_W, CHECKBOX_H + 4)
 
-  cbRow(ctx, true,  'Micro Entity (37 CFR 1.29)',          2,          y + 1)
-  cbRow(ctx, false, 'Small Entity (37 CFR 1.27)',           ENT_X2 + 2, y + 1)
-  cbRow(ctx, false, 'Undiscounted (Large Entity)',           ENT_X3 + 2, y + 1)
-  y += CHECKBOX_H + 6 + SEC_GAP
+  cbRow(ctx, isMicro, 'Micro Entity (37 CFR 1.29)',     2,          y + 1)
+  cbRow(ctx, isSmall, 'Small Entity (37 CFR 1.27)',      ENT_X2 + 2, y + 1)
+  cbRow(ctx, isLarge, 'Undiscounted (Large Entity)',     ENT_X3 + 2, y + 1)
+  y += CHECKBOX_H + 6
+
+  // Helper note — plain ASCII, grey, small
+  dt(ctx, 'Entity status set in patent details. Log in to change before filing.', 0, y + 1, {
+    sz: SZ_NOTE, font: ctx.italic, color: C_NOTE,
+  })
+  y += NOTE_H + SEC_GAP
 
   // ════════════════════════════════════════════════════════════════════════════
   // SECTION 4: PRIOR-FILED APPLICATIONS
