@@ -247,15 +247,16 @@ export async function POST(
       size: 6.5, font: regular, color: [0.5, 0.5, 0.5],
     })
 
-    const pdfBytes = await doc.save()
+    const pdfBytes  = await doc.save()
+    const pdfBuffer = Buffer.from(pdfBytes)
     const filename  = `oath-declaration-${patentId.slice(0, 8)}.pdf`
 
-    return new Response(pdfBytes, {
+    return new Response(pdfBuffer, {
       status: 200,
       headers: {
         'Content-Type':        'application/pdf',
         'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length':      String(pdfBytes.byteLength),
+        'Content-Length':      String(pdfBuffer.byteLength),
         'Cache-Control':       'no-store',
       },
     })
