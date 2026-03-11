@@ -1118,9 +1118,13 @@ const AUTH_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   no_account: { label: '∅ No Account', cls: 'bg-red-100 text-red-600' },
 }
 
-function AdminUsersPanel({ users, authToken }: { users: UserRow[]; authToken: string }) {
+function AdminUsersPanel({ users: initialUsers, authToken }: { users: UserRow[]; authToken: string }) {
+  const [users, setUsers] = React.useState<UserRow[]>(initialUsers)
   const [actionMsg, setActionMsg] = React.useState<Record<string, string>>({})
   const [running, setRunning] = React.useState<string | null>(null)
+
+  // Keep in sync if parent prop changes (e.g. on re-fetch)
+  React.useEffect(() => { setUsers(initialUsers) }, [initialUsers])
 
   async function doAction(userId: string, email: string, action: string) {
     const key = `${userId}-${action}`
@@ -1133,6 +1137,35 @@ function AdminUsersPanel({ users, authToken }: { users: UserRow[]; authToken: st
     const d = await res.json()
     setActionMsg(prev => ({ ...prev, [userId]: res.ok ? `✅ ${d.message}` : `❌ ${d.error}` }))
     setTimeout(() => setActionMsg(prev => { const copy = { ...prev }; delete copy[userId]; return copy }), 5000)
+    setRunning(null)
+  }
+
+  /** Force-confirm: dedicated route that confirms email AND upserts patent_profiles */
+  async function forceConfirm(userId: string, email: string) {
+    const key = `${userId}-force_confirm`
+    setRunning(key)
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/force-confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({}),
+      })
+      const d = await res.json()
+      if (res.ok && d.user) {
+        // Optimistically update this row to show Confirmed badge
+        setUsers(prev => prev.map(u =>
+          u.id === userId
+            ? { ...u, auth_status: 'confirmed' as const, email_confirmed: true }
+            : u
+        ))
+        setActionMsg(prev => ({ ...prev, [userId]: `✅ ${d.message}` }))
+      } else {
+        setActionMsg(prev => ({ ...prev, [userId]: `❌ ${d.error ?? 'Failed'}` }))
+      }
+    } catch (err) {
+      setActionMsg(prev => ({ ...prev, [userId]: `❌ Network error` }))
+    }
+    setTimeout(() => setActionMsg(prev => { const copy = { ...prev }; delete copy[userId]; return copy }), 6000)
     setRunning(null)
   }
 
@@ -1198,20 +1231,20 @@ function AdminUsersPanel({ users, authToken }: { users: UserRow[]; authToken: st
                             color="amber"
                           />
                         )}
-                        {/* Pending — resend confirm or manual confirm */}
+                        {/* Pending — force confirm (email + profile), resend, or manual confirm */}
                         {u.auth_status === 'pending' && (
                           <>
+                            <ActionButton
+                              label="Force Confirm"
+                              loading={running === `${u.id}-force_confirm`}
+                              onClick={() => forceConfirm(u.id, u.email)}
+                              color="green"
+                            />
                             <ActionButton
                               label="Resend Confirm"
                               loading={running === `${u.id}-resend_confirmation`}
                               onClick={() => doAction(u.id, u.email, 'resend_confirmation')}
                               color="blue"
-                            />
-                            <ActionButton
-                              label="Manual Confirm"
-                              loading={running === `${u.id}-manual_confirm`}
-                              onClick={() => doAction(u.id, u.email, 'manual_confirm')}
-                              color="green"
                             />
                             <ActionButton
                               label="Resend Invite"
