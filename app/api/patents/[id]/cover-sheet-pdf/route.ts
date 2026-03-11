@@ -34,7 +34,7 @@ export async function GET(
   // ── Fetch patent ───────────────────────────────────────────────────────────
   const { data: patent } = await serviceClient
     .from('patents')
-    .select('id, owner_id, title, inventors, provisional_number, application_number, filing_date, spec_draft, claims_draft')
+    .select('id, owner_id, title, inventors, provisional_number, application_number, filing_date, spec_draft, claims_draft, entity_status, provisional_app_number, provisional_filed_at')
     .eq('id', patentId)
     .single()
 

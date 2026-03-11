@@ -125,7 +125,7 @@ export async function POST(
   // ── Fetch patent ────────────────────────────────────────────────────────────
   const { data: patent } = await supabaseService
     .from('patents')
-    .select('id, owner_id, title, inventors, provisional_number, application_number, filing_date, provisional_deadline, non_provisional_deadline, spec_draft, claims_draft, abstract_draft, spec_uploaded, figures_uploaded')
+    .select('id, owner_id, title, inventors, provisional_number, application_number, filing_date, provisional_deadline, non_provisional_deadline, spec_draft, claims_draft, abstract_draft, spec_uploaded, figures_uploaded, entity_status, provisional_app_number, provisional_filed_at')
     .eq('id', patentId)
     .single()
 
