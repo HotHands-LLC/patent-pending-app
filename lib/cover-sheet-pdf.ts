@@ -49,8 +49,8 @@ const SZ_NOTE         = 6.5  // footnotes, disclaimers
 const SZ_FOOTER       = 6    // bottom-of-page footer
 
 // ── Layout rhythm ─────────────────────────────────────────────────────────────
-const HDR_BAR_H       = 13   // section header bar height
-const HDR_AFTER       = 19   // y-advance after bar (bar is 13pt; 6pt clearance before first label)
+const HDR_BAR_H       = 15   // section header bar height (15pt fits 7.5pt font with 3.4pt top margin)
+const HDR_AFTER       = 22   // y-advance after bar (15pt bar + 7pt clearance before first label)
 const FIELD_ROW_H     = 16   // standard labeled-field row
 const FIELD_LABEL_DY  = 1    // label y within row (from row top)
 const FIELD_VALUE_DY  = 9    // value y within row
@@ -166,7 +166,8 @@ function sectionBar(ctx: Ctx, text: string, yTop: number): void {
     height: HDR_BAR_H,
     color:  C_NAVY,
   })
-  dt(ctx, text, FIELD_PAD_X, yTop + 2.5, {
+  // textY=9 ensures ascenders (5.6pt) don't clip bar top — baseline at 9pt, text top at ~3.4pt
+  dt(ctx, text, FIELD_PAD_X, yTop + 9, {
     sz: SZ_HDR_BAR, font: ctx.bold, color: C_HDR_TXT,
     maxW: CONTENT_W - FIELD_PAD_X * 2,
   })
