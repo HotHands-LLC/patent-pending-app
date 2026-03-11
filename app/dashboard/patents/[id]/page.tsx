@@ -18,6 +18,7 @@ import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 import Arc3Modal from '@/components/Arc3Modal'
 import DownloadPackageModal from '@/components/DownloadPackageModal'
 import MarkFiledModal from '@/components/MarkFiledModal'
+import EnhancementTab from '@/components/EnhancementTab'
 import PattieChatDrawer from '@/components/PattieChatDrawer'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 
@@ -38,7 +39,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'correspondence' | 'collaborators' | 'leads'
+type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -865,9 +866,11 @@ export default function PatentDetail() {
         {(() => {
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
-          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads'] as Tab[])
+          const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'enhancement', 'correspondence', 'collaborators', 'leads'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
+              if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               return canView(t)
@@ -2328,6 +2331,15 @@ export default function PatentDetail() {
               )
             })()}
           </div>
+        )}
+
+        {/* ── ENHANCEMENT TAB ─────────────────────────────────────────────────── */}
+        {tab === 'enhancement' && patent && authToken && (
+          <EnhancementTab
+            patent={patent}
+            authToken={authToken}
+            onNavigate={(t) => setTab(t as Tab)}
+          />
         )}
 
         {/* ── CORRESPONDENCE TAB ──────────────────────────────────────────────── */}
