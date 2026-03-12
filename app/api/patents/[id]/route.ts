@@ -33,6 +33,9 @@ const ALLOWED_UPDATE_FIELDS = [
   'license_types',           // text[] — e.g. ['exclusive','non-exclusive','field-of-use']
   'asking_price_range',      // text — display string e.g. "$50K–$200K" or "Open to offers"
   'marketplace_published_at',// timestamptz — when listing went live
+  'marketplace_tags',        // text[] — search/filter tags
+  'youtube_embed_url',       // text — YouTube embed for deal page video
+  'ip_readiness_score',      // integer 0-100 — computed readiness
   'is_locked',               // patent lock — read-only for everyone when true
 ] as const
 

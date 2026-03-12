@@ -1,9 +1,14 @@
 /**
- * POST /api/marketplace/inquire
+ * POST /api/marketplace/inquire — Gated Marketplace Inquiry (Prompt 7E)
+ *
  * Public, no auth required.
- * Validates inquiry, logs to patent_correspondence with type='marketplace_inquiry',
- * and sends notification email to support@hotdeck.com.
+ * Accepts structured lead data, inserts into marketplace_leads (primary record)
+ * and logs a correspondence entry (for owner's Correspondence tab).
+ * Sends notification email to support@hotdeck.com. Email is non-blocking.
  * Rate-limited: 5/hour per IP.
+ *
+ * Privacy bridge: owner PII never exposed to inquirer.
+ * Lead data (email, phone, why_statement) never shown on public deal page.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -17,10 +22,12 @@ const supabaseService = createClient(
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
 
+const VALID_INTEREST_TYPES = ['license', 'acquire', 'partner', 'invest', 'other'] as const
+
 // ── Rate limiting (per-IP, 5/hour) ───────────────────────────────────────────
 const rateMap = new Map<string, number[]>()
-const RATE_LIMIT    = 5
-const RATE_WINDOW   = 60 * 60 * 1000
+const RATE_LIMIT  = 5
+const RATE_WINDOW = 60 * 60 * 1000
 
 function isRateLimited(ip: string): boolean {
   const now  = Date.now()
@@ -32,104 +39,158 @@ function isRateLimited(ip: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  // Rate limiting
+  // ── Rate limiting ──────────────────────────────────────────────────────────
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     ?? req.headers.get('x-real-ip')
     ?? 'unknown'
   if (isRateLimited(ip)) {
-    return NextResponse.json({ error: 'Too many requests — please try again later.' }, { status: 429 })
+    return NextResponse.json(
+      { error: 'Too many requests — please try again later.' },
+      { status: 429 }
+    )
   }
 
-  // Parse body
+  // ── Parse body ─────────────────────────────────────────────────────────────
   let body: Record<string, unknown>
   try { body = await req.json() } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { marketplace_slug, name, email, company, interest_type, message } =
-    body as Record<string, unknown>
+  const {
+    slug,            // preferred — matches marketplace_slug
+    marketplace_slug: _fallbackSlug,
+    full_name,
+    email,
+    company,
+    phone,
+    interest_type,
+    why_statement,
+  } = body as Record<string, unknown>
 
-  // ── Validate required fields ────────────────────────────────────────────────
-  if (!marketplace_slug || typeof marketplace_slug !== 'string') {
-    return NextResponse.json({ error: 'marketplace_slug is required' }, { status: 400 })
+  const resolvedSlug = (slug ?? _fallbackSlug) as string | undefined
+
+  // ── Validate ───────────────────────────────────────────────────────────────
+  if (!resolvedSlug || typeof resolvedSlug !== 'string') {
+    return NextResponse.json({ error: 'slug is required' }, { status: 400 })
   }
-  if (!name || typeof name !== 'string' || !name.trim()) {
+  if (!full_name || typeof full_name !== 'string' || !full_name.trim()) {
     return NextResponse.json({ error: 'Full name is required' }, { status: 400 })
   }
   if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: 'A valid email address is required' }, { status: 400 })
   }
-  if (!interest_type || typeof interest_type !== 'string' || !interest_type.trim()) {
+  if (!interest_type || typeof interest_type !== 'string') {
     return NextResponse.json({ error: 'Interest type is required' }, { status: 400 })
   }
+  const cleanInterest = interest_type.trim().toLowerCase()
+  if (!VALID_INTEREST_TYPES.includes(cleanInterest as typeof VALID_INTEREST_TYPES[number])) {
+    return NextResponse.json(
+      { error: `interest_type must be one of: ${VALID_INTEREST_TYPES.join(', ')}` },
+      { status: 400 }
+    )
+  }
+  if (!why_statement || typeof why_statement !== 'string' || why_statement.trim().length < 50) {
+    return NextResponse.json(
+      { error: 'Please explain your interest (minimum 50 characters)' },
+      { status: 400 }
+    )
+  }
 
-  const cleanName         = name.trim().slice(0, 200)
-  const cleanEmail        = email.trim().toLowerCase()
-  const cleanCompany      = company ? String(company).trim().slice(0, 200) : null
-  const cleanInterestType = interest_type.trim()
-  const cleanMessage      = message ? String(message).trim().slice(0, 2000) : null
+  const cleanName      = full_name.trim().slice(0, 200)
+  const cleanEmail     = email.trim().toLowerCase()
+  const cleanCompany   = company  ? String(company).trim().slice(0, 200) : null
+  const cleanPhone     = phone    ? String(phone).trim().slice(0, 40)   : null
+  const cleanWhy       = why_statement.trim().slice(0, 3000)
+  const firstName      = cleanName.split(' ')[0]
 
-  // ── Look up patent by marketplace_slug ─────────────────────────────────────
+  // ── Resolve patent ─────────────────────────────────────────────────────────
   const { data: patent } = await supabaseService
     .from('patents')
     .select('id, title, owner_id, marketplace_enabled')
-    .eq('marketplace_slug', marketplace_slug)
+    .eq('marketplace_slug', resolvedSlug)
     .single()
 
   if (!patent || !patent.marketplace_enabled) {
-    return NextResponse.json({ error: 'Patent listing not found or not available.' }, { status: 404 })
+    return NextResponse.json(
+      { error: 'Patent listing not found or not available.' },
+      { status: 404 }
+    )
   }
 
-  // ── Insert into patent_correspondence ──────────────────────────────────────
-  const companyStr = cleanCompany ? ` (${cleanCompany})` : ''
-  const corr = {
-    patent_id:           patent.id,
-    owner_id:            patent.owner_id,
-    title:               `Marketplace Inquiry — ${cleanInterestType} from ${cleanName}${companyStr}`,
-    content:             cleanMessage ?? 'No message provided.',
-    type:                'marketplace_inquiry' as const,
-    from_party:          `${cleanName}${companyStr} — ${cleanEmail}`,
-    to_party:            'Hot Hands IP, LLC',
-    correspondence_date: new Date().toISOString(),
-    tags:                ['marketplace', 'inquiry', cleanInterestType.toLowerCase()],
+  // ── Insert into marketplace_leads ─────────────────────────────────────────
+  const { data: lead, error: leadError } = await supabaseService
+    .from('marketplace_leads')
+    .insert({
+      patent_id:        patent.id,
+      full_name:        cleanName,
+      email:            cleanEmail,
+      company:          cleanCompany,
+      phone:            cleanPhone,
+      interest_type:    cleanInterest,
+      why_statement:    cleanWhy,
+      status:           'pending',
+      owner_notified_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single()
+
+  if (leadError || !lead) {
+    console.error('[marketplace/inquire] lead insert error:', leadError?.message)
+    return NextResponse.json(
+      { error: 'Failed to submit inquiry — please try again.' },
+      { status: 500 }
+    )
   }
 
-  const { error: insertError } = await supabaseService
-    .from('patent_correspondence')
-    .insert(corr)
-
-  if (insertError) {
-    console.error('[marketplace/inquire] insert error:', insertError.message)
-    return NextResponse.json({ error: 'Failed to submit inquiry — please try again.' }, { status: 500 })
-  }
-
-  // ── Notification email to owner (non-blocking) ─────────────────────────────
+  // ── Log to patent_correspondence (for owner Correspondence tab) ────────────
   try {
-    const dashboardUrl = `${APP_URL}/dashboard/patents/${patent.id}?tab=correspondence`
+    const companyStr = cleanCompany ? ` (${cleanCompany})` : ''
+    await supabaseService.from('patent_correspondence').insert({
+      patent_id:           patent.id,
+      owner_id:            patent.owner_id,
+      title:               `Marketplace Inquiry — ${cleanInterest} from ${cleanName}${companyStr}`,
+      content:             `Why interested: ${cleanWhy}${cleanPhone ? `\nPhone: ${cleanPhone}` : ''}`,
+      type:                'marketplace_inquiry',
+      from_party:          `${cleanName}${companyStr}`,
+      to_party:            'Hot Hands IP, LLC',
+      correspondence_date: new Date().toISOString(),
+      tags:                ['marketplace', 'inquiry', cleanInterest, 'pending'],
+    })
+  } catch (corrErr) {
+    console.error('[marketplace/inquire] correspondence log failed (non-blocking):', corrErr)
+  }
+
+  // ── Notify owner (non-blocking) ────────────────────────────────────────────
+  try {
+    const leadsUrl = `${APP_URL}/dashboard/patents/${patent.id}?tab=leads`
 
     await sendEmail(buildEmail({
       to:      'support@hotdeck.com',
-      subject: `New Marketplace Inquiry — ${patent.title}`,
+      subject: `New Marketplace Lead — ${patent.title}`,
       html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
   <div style="background:#1a1f36;padding:20px 24px;border-radius:8px 8px 0 0">
-    <h2 style="color:#ffffff;margin:0;font-size:18px">New Marketplace Inquiry 📬</h2>
+    <h2 style="color:#fff;margin:0;font-size:18px">New Marketplace Lead 🎯</h2>
   </div>
   <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px">
-    <p style="margin:0 0 16px;color:#374151;font-size:14px;">
-      Someone is interested in <strong>${patent.title}</strong>.
+    <p style="margin:0 0 16px;font-size:14px;color:#374151;">
+      Someone is interested in licensing <strong>${patent.title}</strong>.
     </p>
-    <table style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:16px">
-      <tr><td style="padding:6px 16px 6px 0;color:#6b7280;white-space:nowrap;font-weight:600">Name</td><td style="padding:6px 0"><strong>${cleanName}</strong></td></tr>
-      <tr><td style="padding:6px 16px 6px 0;color:#6b7280;font-weight:600">Email</td><td style="padding:6px 0"><a href="mailto:${cleanEmail}" style="color:#4f46e5">${cleanEmail}</a></td></tr>
-      ${cleanCompany ? `<tr><td style="padding:6px 16px 6px 0;color:#6b7280;font-weight:600">Company</td><td style="padding:6px 0">${cleanCompany}</td></tr>` : ''}
-      <tr><td style="padding:6px 16px 6px 0;color:#6b7280;font-weight:600">Interest</td><td style="padding:6px 0"><span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:9999px;font-size:12px;font-weight:700">${cleanInterestType}</span></td></tr>
-      ${cleanMessage ? `<tr><td style="padding:6px 16px 6px 0;color:#6b7280;font-weight:600;vertical-align:top">Message</td><td style="padding:6px 0;color:#374151">${cleanMessage.replace(/\n/g, '<br>')}</td></tr>` : ''}
+    <table style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px">
+      <tr><td style="padding:5px 16px 5px 0;color:#6b7280;font-weight:600;white-space:nowrap">Name</td><td style="padding:5px 0"><strong>${cleanName}</strong></td></tr>
+      <tr><td style="padding:5px 16px 5px 0;color:#6b7280;font-weight:600">Email</td><td style="padding:5px 0"><a href="mailto:${cleanEmail}" style="color:#4f46e5">${cleanEmail}</a></td></tr>
+      ${cleanCompany ? `<tr><td style="padding:5px 16px 5px 0;color:#6b7280;font-weight:600">Company</td><td style="padding:5px 0">${cleanCompany}</td></tr>` : ''}
+      ${cleanPhone ? `<tr><td style="padding:5px 16px 5px 0;color:#6b7280;font-weight:600">Phone</td><td style="padding:5px 0">${cleanPhone}</td></tr>` : ''}
+      <tr><td style="padding:5px 16px 5px 0;color:#6b7280;font-weight:600">Interest</td><td style="padding:5px 0"><span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:9999px;font-size:12px;font-weight:700;text-transform:capitalize">${cleanInterest}</span></td></tr>
     </table>
-    <a href="${dashboardUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px">
-      View in Correspondence Tab →
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:20px">
+      <div style="font-size:12px;font-weight:600;color:#6b7280;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Why they're interested</div>
+      <p style="margin:0;font-size:14px;color:#374151;line-height:1.6">${cleanWhy.replace(/\n/g, '<br>')}</p>
+    </div>
+    <a href="${leadsUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px">
+      Review Lead →
     </a>
     <p style="margin:16px 0 0;font-size:12px;color:#9ca3af">
-      This inquiry is logged under the patent's Correspondence tab with a purple "Marketplace" badge.
+      Lead ID: ${lead.id} · Status: pending · pp.app is intermediary — contact info not shared with inventor until you approve.
     </p>
   </div>
 </div>`,
@@ -140,6 +201,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    message: "Your inquiry has been received. We'll be in touch within 2 business days.",
+    firstName,
+    message: `Your inquiry has been received. We'll be in touch within 2 business days.`,
   })
 }

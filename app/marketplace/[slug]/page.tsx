@@ -45,7 +45,7 @@ export default async function MarketplaceDealPage(
     .from('patents')
     .select(`
       id, title, marketplace_slug, status, filing_status,
-      inventors, tags, description,
+      inventors, tags, marketplace_tags, description,
       deal_page_brief, deal_page_summary, deal_page_market,
       license_types, asking_price_range,
       licensing_exclusive, licensing_nonexclusive, licensing_field_of_use,
