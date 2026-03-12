@@ -65,7 +65,7 @@ export async function POST(
   // NOTE: only select columns that exist in the patents table schema
   const { data: patent, error: patentError } = await supabaseService
     .from('patents')
-    .select('id, owner_id, title, spec_draft, claims_draft, abstract_draft, current_phase, inventors, status')
+    .select('id, owner_id, title, spec_draft, claims_draft, abstract_draft, current_phase, inventors, status, filing_status, provisional_app_number, provisional_filed_at, nonprov_deadline_at')
     .eq('id', patentId)
     .single()
 
@@ -122,6 +122,29 @@ export async function POST(
     ? `Present (${abstractWordCount} words${abstractWordCount > 150 ? ' — ⚠️ EXCEEDS 150-word limit' : ''})`
     : 'MISSING — required for non-provisional, recommended for provisional'
 
+  const filingStatus = (patent as Record<string, unknown>).filing_status as string | null
+  const provAppNumber = (patent as Record<string, unknown>).provisional_app_number as string | null
+  const provFiledAt = (patent as Record<string, unknown>).provisional_filed_at as string | null
+  const nonprovDeadline = (patent as Record<string, unknown>).nonprov_deadline_at as string | null
+  const isProvisionalFiled = filingStatus === 'provisional_filed' || filingStatus === 'nonprov_filed'
+
+  const filedContext = isProvisionalFiled && provAppNumber && provFiledAt ? `
+FILING STATUS: PATENT PENDING ™
+---
+This patent has been filed with the USPTO as provisional application ${provAppNumber}
+on ${new Date(provFiledAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.
+${nonprovDeadline ? `The non-provisional deadline is ${new Date(nonprovDeadline).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} (${Math.max(0, Math.ceil((new Date(nonprovDeadline).getTime() - Date.now()) / 86400000))} days remaining).` : ''}
+The inventor is in the 12-month enhancement period.
+---
+
+COMMON QUESTIONS TO BE READY FOR:
+- "Can I tell people about my invention now?" → Yes — Patent Pending status allows public disclosure. In fact, it establishes your priority date.
+- "What's the difference between provisional and non-provisional?" → Provisional is a 12-month placeholder that establishes your priority date and gives you Patent Pending status. Non-provisional is the full application that goes through examination and can become a patent.
+- "Do I need a lawyer for the non-provisional?" → It's strongly recommended but not required. Pro se (self-represented) filing is legal and PatentPending supports it. A patent attorney can significantly strengthen your claims during examination.
+- "Can I sell or license my patent now?" → Yes — Patent Pending status is legally valid for licensing and sale. Buyers and licensees deal with patent pending inventions regularly. The Marketplace tab can help find interested parties.
+- "What should I do during the 12 months?" → Refer them to the Enhancement tab roadmap: strengthen claims (months 1-3), consider PCT international (months 3-6), draft non-provisional (months 6-9), file before the deadline (months 9-12).
+` : ''
+
   const systemPrompt = `You are Pattie, the helpful assistant built into PatentPending — an app that helps inventors file and manage their own patents.
 
 You are currently helping with the patent: "${patent.title}"
@@ -141,7 +164,7 @@ ABSTRACT:
 ${abstractDraft ?? 'No abstract written yet.'}
 ---
 Abstract status: ${abstractStatus}
-
+${filedContext}
 Filing progress: Step ${currentStep} of 9
 Inventors: ${inventorsList}
 Recent correspondence: ${correspondenceTitles}
@@ -178,7 +201,8 @@ WHAT YOU NEVER DO:
 TONE:
 - Friendly, knowledgeable, and professional
 - Like a brilliant friend who happens to know a lot about patents — not a stiff legal document
-- Short answers by default. Go deeper only when the user asks.${patent.status === 'granted' ? `
+- Short answers by default. Go deeper only when the user asks.
+- For filed patents: be celebratory and forward-looking. The hard part (filing) is done. Focus on maximizing the 12-month window.${patent.status === 'granted' ? `
 
 POST-GRANT CONTEXT (this patent is granted/issued):
 This is a granted patent — prosecution is complete. Do not suggest filing steps, claim amendments, or office action responses. Focus entirely on post-grant value: licensing opportunities, maintenance fee obligations, enforcement options, and commercialization strategies.

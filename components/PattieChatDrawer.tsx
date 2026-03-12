@@ -22,6 +22,13 @@ const STARTER_CHIPS_DEFAULT = [
   'Explain my spec in plain English',
 ]
 
+const STARTER_CHIPS_FILED = [
+  "What can I do with 'Patent Pending' status?",
+  'Help me improve my claims',
+  'Explain the non-provisional process',
+  'Can I license my patent now?',
+]
+
 const STARTER_CHIPS_GRANTED = [
   'Who might want to license this patent?',
   'What industries could use this technology?',
@@ -81,7 +88,10 @@ export default function PattieChatDrawer({
   // canEdit is the prerequisite for Pattie write mode (Prompt 8)
   void canEdit
   const isGrantedPatent = patentStatus === 'granted'
-  const starterChips = isGrantedPatent ? STARTER_CHIPS_GRANTED : STARTER_CHIPS_DEFAULT
+  const isFiledPatent   = patentStatus === 'provisional_filed' || patentStatus === 'nonprov_filed'
+  const starterChips = isGrantedPatent ? STARTER_CHIPS_GRANTED
+                     : isFiledPatent   ? STARTER_CHIPS_FILED
+                     : STARTER_CHIPS_DEFAULT
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)

@@ -14,6 +14,7 @@ interface ResearchReport {
 interface EnhancementTabProps {
   patent: Patent
   authToken: string
+  isPro?: boolean
   onNavigate?: (tab: string) => void
 }
 
@@ -28,7 +29,7 @@ const READINESS_ITEMS = [
   { key: 'fees',        label: 'Non-provisional filing fee confirmed ($320 micro / $640 small / $1,600 large)', tab: null },
 ]
 
-export default function EnhancementTab({ patent, authToken, onNavigate }: EnhancementTabProps) {
+export default function EnhancementTab({ patent, authToken, isPro = false, onNavigate }: EnhancementTabProps) {
   const [reports, setReports]           = useState<ResearchReport[]>([])
   const [loadingReports, setLoadingReports] = useState(true)
   const [expandedReport, setExpandedReport] = useState<string | null>(null)
@@ -141,8 +142,146 @@ export default function EnhancementTab({ patent, authToken, onNavigate }: Enhanc
     )
   }
 
+  const filedDateStr = filedAt
+    ? filedAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : ''
+  const deadlineDateStr = deadlineAt
+    ? deadlineAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : ''
+  const appNumber = (patent as Record<string, unknown>).provisional_app_number as string | null
+
   return (
     <div className="space-y-6">
+
+      {/* ── 🎉 Patent Filed Moment ────────────────────────────────────────────── */}
+      <div className="bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-200 rounded-2xl p-5 sm:p-6">
+        <div className="flex items-start gap-4">
+          <div className="text-4xl shrink-0">🎉</div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-bold text-emerald-900">Patent Application Filed</h2>
+            <p className="text-sm text-emerald-700 mt-0.5 font-mono">
+              {appNumber} · Filed {filedDateStr} · Protected for 12 months
+            </p>
+            <p className="text-sm text-gray-700 mt-3 leading-relaxed">
+              Your invention is now protected under US patent law while you prepare your non-provisional application.
+              Here&apos;s how PatentPending helps you make the most of this window:
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+              {[
+                {
+                  icon: '🔬',
+                  title: 'Monthly Research',
+                  desc: 'AI finds new prior art and claim improvements each month while patent pending',
+                },
+                {
+                  icon: '🏪',
+                  title: 'Marketplace',
+                  desc: 'List your patent for licensing or sale while patent pending',
+                  onClick: () => onNavigate?.('leads'),
+                },
+                {
+                  icon: '📋',
+                  title: 'Non-Pro Prep',
+                  desc: `Tools and checklist to convert to non-provisional before ${deadlineDateStr}`,
+                },
+              ].map(card => (
+                <div
+                  key={card.title}
+                  onClick={card.onClick}
+                  className={`p-3.5 bg-white border border-emerald-100 rounded-xl ${card.onClick ? 'cursor-pointer hover:border-emerald-300 hover:shadow-sm transition-all' : ''}`}
+                >
+                  <div className="text-xl mb-1.5">{card.icon}</div>
+                  <div className="text-xs font-bold text-emerald-900">{card.title}</div>
+                  <div className="text-xs text-gray-500 mt-1 leading-relaxed">{card.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 🗓 Your 12-Month Roadmap ─────────────────────────────────────────── */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5">
+        <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+          🗓 Your 12-Month Roadmap
+        </h3>
+        <div className="space-y-3">
+          {[
+            {
+              range: 'Month 1–3',
+              color: 'border-blue-200 bg-blue-50',
+              titleColor: 'text-blue-800',
+              title: 'Strengthen Your Application',
+              items: ['Refine claims based on Pattie suggestions', 'Add new embodiments and use cases', 'Monitor prior art with monthly research reports'],
+            },
+            {
+              range: 'Month 3–6',
+              color: 'border-violet-200 bg-violet-50',
+              titleColor: 'text-violet-800',
+              title: 'Consider International Protection',
+              items: ['PCT application deadline = 12 months from filing', 'Foreign national phase deadline = 30 months from filing', 'Consult an attorney if global coverage matters'],
+            },
+            {
+              range: 'Month 6–9',
+              color: 'border-amber-200 bg-amber-50',
+              titleColor: 'text-amber-800',
+              title: 'Prepare Non-Provisional',
+              items: ['Draft full claims and specification', 'Generate USPTO-compliant drawings', 'Complete Oath & Declaration (PTO/AIA/01)'],
+            },
+            {
+              range: `Month 9–12`,
+              color: 'border-red-200 bg-red-50',
+              titleColor: 'text-red-800',
+              title: `File Before ${deadlineDateStr}`,
+              items: ['File non-provisional at Patent Center', 'Pay non-provisional fees (micro ~$320 / small ~$640)', 'Activate Marketplace listing — "Patent Pending" sells'],
+            },
+          ].map(phase => (
+            <div key={phase.range} className={`flex gap-4 p-4 rounded-xl border ${phase.color}`}>
+              <div className="shrink-0 text-xs font-bold text-gray-400 w-20 pt-0.5 text-right">{phase.range}</div>
+              <div className="flex-1 min-w-0">
+                <div className={`text-sm font-bold mb-1.5 ${phase.titleColor}`}>{phase.title}</div>
+                <ul className="space-y-0.5">
+                  {phase.items.map(item => (
+                    <li key={item} className="text-xs text-gray-600 flex items-start gap-1.5">
+                      <span className="text-gray-400 shrink-0 mt-0.5">•</span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── 💎 Free-tier upgrade prompt (hidden for Pro/attorney) ────────────── */}
+      {!isPro && (
+        <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-2xl p-5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h3 className="font-bold text-indigo-900 text-sm mb-2">
+                Unlock your full 12-month protection
+              </h3>
+              <ul className="space-y-1">
+                {[
+                  '✓ Monthly AI research reports',
+                  '✓ Marketplace listing for licensing & sale',
+                  '✓ Unlimited Pattie sessions',
+                ].map(item => (
+                  <li key={item} className="text-xs text-indigo-800">{item}</li>
+                ))}
+              </ul>
+            </div>
+            <a
+              href="/dashboard/upgrade"
+              className="shrink-0 flex flex-col items-center gap-1 px-5 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm whitespace-nowrap"
+            >
+              <span>Upgrade to Pro</span>
+              <span className="text-xs font-normal opacity-80">$149/mo · $99/mo annual</span>
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* ── Section A: 12-Month Timeline ─────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5">

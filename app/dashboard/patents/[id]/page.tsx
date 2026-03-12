@@ -974,7 +974,7 @@ export default function PatentDetail() {
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
           const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
-          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'enhancement', 'correspondence', 'collaborators', 'leads'] as Tab[])
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
@@ -1024,7 +1024,9 @@ export default function PatentDetail() {
                       <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-bold">{collaborators.length}</span>
                     )}
                   </span>
-                ) : 'Details'
+                ) : t === 'enhancement' ? '✨ Enhancement'
+                : t === 'details' ? 'Overview'
+                : 'Details'
               }
             </button>
           ))}
@@ -2465,6 +2467,7 @@ export default function PatentDetail() {
           <EnhancementTab
             patent={patent}
             authToken={authToken}
+            isPro={isPro}
             onNavigate={(t) => setTab(t as Tab)}
           />
         )}
@@ -2679,7 +2682,7 @@ export default function PatentDetail() {
           authToken={authToken}
           onClose={() => setShowPattie(false)}
           canEdit={canWrite}
-          patentStatus={patent.status}
+          patentStatus={patent.filing_status ?? patent.status}
           onTierRequired={(feature) => { setShowPattie(false); setUpgradeFeature(feature) }}
         />
       )}

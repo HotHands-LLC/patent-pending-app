@@ -41,6 +41,10 @@ interface Patent {
   owner_id?: string;
   created_at?: string;
   updated_at?: string;
+  // Post-filing fields
+  provisional_app_number?: string | null;
+  provisional_filed_at?: string | null;
+  nonprov_deadline_at?: string | null;
 }
 
 // ── Phase definitions ────────────────────────────────────────────────────────
@@ -195,14 +199,17 @@ function PatentCard({ patent }: { patent: Patent }) {
   const phaseInfo = PHASES[phase - 1];
   const nextAction = NEXT_ACTIONS[phase];
 
-  const deadline = patent.provisional_deadline || patent.non_provisional_deadline;
+  const isProvisionalFiled = patent.filing_status === 'provisional_filed'
+  const deadline = isProvisionalFiled
+    ? patent.nonprov_deadline_at  // post-filing: show NP countdown
+    : patent.provisional_deadline || patent.non_provisional_deadline
   const days = daysUntil(deadline);
 
   return (
     <div
       className={`
         rounded-xl border transition-all duration-200 overflow-hidden
-        ${urgencyBg(days)}
+        ${isProvisionalFiled ? 'bg-emerald-950/20 border-emerald-800/40' : urgencyBg(days)}
         hover:border-amber-700/50 hover:shadow-lg hover:shadow-amber-950/20
       `}
     >
@@ -217,11 +224,24 @@ function PatentCard({ patent }: { patent: Patent }) {
               {patent.title}
             </h3>
             <p className="text-xs text-zinc-500 mt-0.5 font-mono">
-              {patent.provisional_number || patent.application_number || "No number on file"}
+              {isProvisionalFiled && patent.provisional_app_number
+                ? patent.provisional_app_number
+                : patent.provisional_number || patent.application_number || "No number on file"}
             </p>
+            {isProvisionalFiled && days !== null && (
+              <p className={`text-xs mt-0.5 font-medium ${
+                days <= 30 ? 'text-red-400' : days <= 90 ? 'text-amber-400' : days <= 180 ? 'text-yellow-400' : 'text-emerald-400'
+              }`}>
+                Non-provisional due in {days}d
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {days !== null && (
+            {isProvisionalFiled ? (
+              <span className="text-xs font-bold text-emerald-400 bg-emerald-950/50 border border-emerald-800/50 px-2 py-0.5 rounded-full">
+                Filed ✓
+              </span>
+            ) : days !== null && (
               <span className={`text-xs font-bold tabular-nums ${urgencyColor(days)}`}>
                 {days <= 0 ? "OVERDUE" : `${days}d`}
               </span>
@@ -333,8 +353,8 @@ export default function PatentPhaseWidget({ patents }: { patents: Patent[] }) {
         <div className="space-y-3">
           {activePatents
             .sort((a, b) => {
-              const da = daysUntil(a.provisional_deadline || a.non_provisional_deadline) ?? 999;
-              const db = daysUntil(b.provisional_deadline || b.non_provisional_deadline) ?? 999;
+              const da = daysUntil(a.filing_status === 'provisional_filed' ? a.nonprov_deadline_at : (a.provisional_deadline || a.non_provisional_deadline)) ?? 999;
+              const db = daysUntil(b.filing_status === 'provisional_filed' ? b.nonprov_deadline_at : (b.provisional_deadline || b.non_provisional_deadline)) ?? 999;
               return da - db; // most urgent first
             })
             .map((patent) => (

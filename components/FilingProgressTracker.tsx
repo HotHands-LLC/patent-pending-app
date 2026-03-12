@@ -20,26 +20,36 @@ export function computeStepStatus(patent: Patent): boolean[] {
   if (patent.status === 'granted' || patent.status === 'abandoned') {
     return Array(9).fill(true)
   }
+
+  // Filed = all pre-filing steps implicitly complete
+  const isProvisionalFiled = patent.filing_status === 'provisional_filed'
+  const isNonProvFiled      = patent.filing_status === 'nonprov_filed'
+  const isAnyFiled          = isProvisionalFiled || isNonProvFiled ||
+                              patent.filing_status === 'filed' || patent.filing_status === 'issued' ||
+                              patent.status === 'non_provisional'
+
   const hasClaimsDraft = !!patent.claims_draft
+  const hasProv = !!(patent as Record<string, unknown>).provisional_app_number
+
   return [
     // 1 Intake — has session, or payment, or claims draft (seed patents)
-    !!(patent.intake_session_id || patent.payment_confirmed_at || hasClaimsDraft),
+    !!(isAnyFiled || patent.intake_session_id || patent.payment_confirmed_at || hasClaimsDraft),
     // 2 Payment — payment confirmed, or has claims draft
-    !!(patent.payment_confirmed_at || hasClaimsDraft),
+    !!(isAnyFiled || patent.payment_confirmed_at || hasClaimsDraft),
     // 3 Claims Generated
-    !!(patent.claims_status === 'complete' || hasClaimsDraft),
-    // 4 Claims Approved
-    !!(patent.filing_status === 'approved' || patent.filing_status === 'filed'),
-    // 5 Specification Uploaded
-    !!patent.spec_uploaded,
-    // 6 Drawings Uploaded
-    !!patent.figures_uploaded,
+    !!(isAnyFiled || patent.claims_status === 'complete' || hasClaimsDraft),
+    // 4 Claims Approved — a filed patent has approved claims by definition
+    !!(isAnyFiled || patent.filing_status === 'approved'),
+    // 5 Specification Uploaded — filed = spec was uploaded
+    !!(isAnyFiled || patent.spec_uploaded),
+    // 6 Drawings Uploaded — filed = drawings were submitted (or optional prov)
+    !!(isAnyFiled || patent.figures_uploaded),
     // 7 Cover Sheet Acknowledged
-    !!patent.cover_sheet_acknowledged,
-    // 8 Filed
-    !!(patent.filing_status === 'filed' || patent.status === 'non_provisional'),
-    // 9 Patent Pending
-    patent.status === 'non_provisional',
+    !!(isAnyFiled || patent.cover_sheet_acknowledged),
+    // 8 Filed with USPTO — true when provisional_filed_at is set
+    !!(isAnyFiled || !!(patent as Record<string, unknown>).provisional_filed_at),
+    // 9 Patent Pending — true when provisional_app_number is confirmed
+    !!(hasProv || isNonProvFiled || patent.status === 'non_provisional'),
   ]
 }
 
