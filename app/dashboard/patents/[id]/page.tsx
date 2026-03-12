@@ -794,7 +794,12 @@ export default function PatentDetail() {
   if (loading) return <div className="min-h-screen bg-gray-50"><Navbar /><div className="flex items-center justify-center h-64 text-gray-400">Loading...</div></div>
   if (!patent) return null
 
-  const deadline = patent.provisional_deadline
+  // Post-filing: show NP deadline; pre-filing: show provisional filing deadline
+  const isProvisionalFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
+  const deadline = isProvisionalFiled && (patent as Record<string, unknown>).nonprov_deadline_at
+    ? ((patent as Record<string, unknown>).nonprov_deadline_at as string).split('T')[0]
+    : patent.provisional_deadline
+  const deadlineLabel = isProvisionalFiled ? 'Non-provisional deadline' : 'Provisional filing deadline'
   const days = deadline ? getDaysUntil(deadline) : null
   const claimsScore = patent.claims_score as ClaimsScore | null
   const revisionContentReady = selectedChips.some(c => c !== 'custom') || customNote.trim().length > 0
@@ -854,7 +859,7 @@ export default function PatentDetail() {
               </span>
               {!isGranted && days !== null && (
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getUrgencyBadge(days)}`}>
-                  {days <= 0 ? 'DEADLINE OVERDUE' : `${days} days to deadline`}
+                  {days <= 0 ? 'DEADLINE OVERDUE' : `${deadlineLabel} · ${days}d`}
                 </span>
               )}
               {/* Granted ✓ badge removed — status pill ("granted") is sufficient */}
@@ -917,7 +922,7 @@ export default function PatentDetail() {
             <span className="text-xl flex-shrink-0">{days <= 30 ? '🚨' : '⚠️'}</span>
             <div>
               <div className={`font-semibold text-sm ${days <= 30 ? 'text-red-800' : 'text-yellow-800'}`}>
-                {days <= 0 ? 'DEADLINE OVERDUE' : `Non-provisional deadline in ${days} days`}
+                {days <= 0 ? 'DEADLINE OVERDUE' : `${deadlineLabel} in ${days} days`}
               </div>
               <div className={`text-xs mt-0.5 ${days <= 30 ? 'text-red-600' : 'text-yellow-600'}`}>
                 Due: {new Date(deadline! + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}

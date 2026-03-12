@@ -38,7 +38,7 @@ export function buildFiledEmail(params: PatentFiledEmailParams): string {
     appUrl = APP_URL,
   } = params
 
-  const patentUrl = `${appUrl}/dashboard/patents/${patentId}`
+  const patentUrl = `${appUrl}/patents/${patentId}`
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -123,7 +123,7 @@ export function buildFiledEmail(params: PatentFiledEmailParams): string {
           <!-- ── Pattie CTA ─────────────────────────────────────────────── -->
           <tr>
             <td style="padding:28px 32px;border-bottom:1px solid #e5e7eb;text-align:center;">
-              <p style="margin:0 0 6px 0;font-size:15px;font-weight:700;color:#1a1f36;">Have questions? Pattie does.</p>
+              <p style="margin:0 0 6px 0;font-size:15px;font-weight:700;color:#1a1f36;">Have Questions? Ask Pattie.</p>
               <p style="margin:0 0 20px 0;font-size:14px;color:#6b7280;line-height:1.5;">
                 Pattie is your AI patent assistant &mdash; she knows your patent inside and out and is available 24/7.
               </p>

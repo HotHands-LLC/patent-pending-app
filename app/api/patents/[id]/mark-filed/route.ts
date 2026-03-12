@@ -194,6 +194,24 @@ export async function POST(
           html,
         }))
         console.log(`[mark-filed] congratulations email sent to ${ownerEmail}`)
+
+        // ── Log to patent correspondence ────────────────────────────────────
+        try {
+          await supabaseService.from('patent_correspondence').insert({
+            patent_id:           patentId,
+            owner_id:            user.id,
+            title:               'Patent Filed — USPTO Application Confirmation',
+            content:             `Congratulations email sent confirming provisional application ${app_number.trim()} filed ${filedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}. Non-provisional deadline: ${nonprovDeadline.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.`,
+            type:                'filing',
+            from_party:          'PatentPending <notifications@patentpending.app>',
+            to_party:            ownerEmail,
+            correspondence_date: filedDate.toISOString(),
+            tags:                ['system', 'filed', 'notification'],
+          })
+          console.log(`[mark-filed] correspondence record logged for patent ${patentId}`)
+        } catch (corrErr) {
+          console.error('[mark-filed] correspondence log failed (non-blocking):', corrErr)
+        }
       }
     } catch (emailErr) {
       // Non-blocking — email failure must never fail the filing
