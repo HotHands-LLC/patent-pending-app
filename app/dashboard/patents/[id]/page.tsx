@@ -18,6 +18,7 @@ import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 import Arc3Modal from '@/components/Arc3Modal'
 import DownloadPackageModal from '@/components/DownloadPackageModal'
 import MarkFiledModal from '@/components/MarkFiledModal'
+import { computeIpReadinessScore, getIpReadinessCriteria } from '@/lib/ip-readiness'
 import FilingGuide from '@/components/FilingGuide'
 import EnhancementTab from '@/components/EnhancementTab'
 import PattieChatDrawer from '@/components/PattieChatDrawer'
@@ -349,6 +350,27 @@ function MarketplaceSettingsCard({
   const [brief, setBrief]         = useState(
     ((patent as Record<string, unknown>).deal_page_brief as string | null) ?? ''
   )
+  const [mktTags, setMktTags]     = useState<string[]>(
+    ((patent as Record<string, unknown>).marketplace_tags as string[] | null) ?? []
+  )
+  const [tagInput, setTagInput]   = useState('')
+
+  function addTag(raw: string) {
+    const cleaned = raw.trim().toLowerCase().replace(/[^a-z0-9-]/g, '')
+    if (cleaned && !mktTags.includes(cleaned)) {
+      setMktTags(t => [...t, cleaned])
+    }
+    setTagInput('')
+  }
+
+  function handleTagKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      addTag(tagInput)
+    } else if (e.key === 'Backspace' && tagInput === '' && mktTags.length > 0) {
+      setMktTags(t => t.slice(0, -1))
+    }
+  }
 
   function autoSlug() {
     if (!slug && patent.title) {
@@ -367,6 +389,7 @@ function MarketplaceSettingsCard({
           marketplace_slug: slug.trim() || null,
           asking_price_range: price.trim() || null,
           deal_page_brief: brief.trim() || null,
+          marketplace_tags: mktTags,
           ...(mktEnabled && !(patent as Record<string, unknown>).marketplace_published_at
             ? { marketplace_published_at: new Date().toISOString() }
             : {}),
@@ -378,6 +401,7 @@ function MarketplaceSettingsCard({
           marketplace_slug: slug.trim() || null,
           asking_price_range: price.trim() || null,
           deal_page_brief: brief.trim() || null,
+          marketplace_tags: mktTags,
         })
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
@@ -474,6 +498,83 @@ function MarketplaceSettingsCard({
               placeholder="Describe the technology and its applications in plain language…"
             />
           </div>
+
+          {/* Search Tags */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Search Tags</label>
+            <p className="text-xs text-gray-400 mb-1.5">Type a tag and press Enter or comma to add. Click × to remove.</p>
+            <div className={`flex flex-wrap gap-1.5 items-center min-h-[38px] px-3 py-1.5 border border-gray-200 rounded-lg bg-white ${!canWrite ? 'bg-gray-50' : ''} focus-within:ring-2 focus-within:ring-purple-300`}>
+              {mktTags.map(t => (
+                <span key={t} className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full border border-indigo-100">
+                  #{t}
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={() => setMktTags(tags => tags.filter(x => x !== t))}
+                      className="text-indigo-400 hover:text-indigo-700 leading-none"
+                    >×</button>
+                  )}
+                </span>
+              ))}
+              {canWrite && (
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={handleTagKeyDown}
+                  onBlur={() => tagInput && addTag(tagInput)}
+                  className="flex-1 min-w-[80px] text-sm outline-none bg-transparent py-0.5"
+                  placeholder={mktTags.length === 0 ? 'e.g. IoT, energy, wireless…' : ''}
+                />
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">{mktTags.length} tag{mktTags.length !== 1 ? 's' : ''} · 3+ unlocks 5 IP Readiness points</p>
+          </div>
+
+          {/* IP Readiness Score */}
+          {(() => {
+            const scoreInput = {
+              provisional_filed_at: (patent as Record<string, unknown>).provisional_filed_at as string | null,
+              filing_status: (patent as Record<string, unknown>).filing_status as string | null,
+              spec_draft: (patent as Record<string, unknown>).spec_draft as string | null,
+              claims_draft: (patent as Record<string, unknown>).claims_draft as string | null,
+              abstract_draft: (patent as Record<string, unknown>).abstract_draft as string | null,
+              figures: (patent as Record<string, unknown>).figures as unknown[] | null,
+              deal_page_brief: brief,
+              marketplace_tags: mktTags,
+              asking_price_range: price || null,
+            }
+            const score = computeIpReadinessScore(scoreInput)
+            const criteria = getIpReadinessCriteria(scoreInput)
+            return (
+              <div className="border border-gray-100 rounded-lg p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">IP Readiness Score</span>
+                  <span className={`text-sm font-extrabold ${score >= 80 ? 'text-green-600' : score >= 50 ? 'text-yellow-600' : 'text-orange-500'}`}>
+                    {score} / 100
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-3">
+                  <div
+                    className={`h-full rounded-full transition-all ${score >= 80 ? 'bg-green-500' : score >= 50 ? 'bg-yellow-400' : 'bg-orange-400'}`}
+                    style={{ width: `${score}%` }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  {criteria.map(c => (
+                    <div key={c.label} className="flex items-center justify-between text-xs">
+                      <span className={c.met ? 'text-gray-700' : 'text-gray-400'}>
+                        {c.met ? '✅' : '❌'} {c.label}
+                      </span>
+                      <span className={c.met ? 'text-green-600 font-semibold' : 'text-gray-300'}>
+                        +{c.points}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
           {canWrite && (
             <button

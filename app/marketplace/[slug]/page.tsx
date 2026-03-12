@@ -50,7 +50,8 @@ export default async function MarketplaceDealPage(
       license_types, asking_price_range,
       licensing_exclusive, licensing_nonexclusive, licensing_field_of_use,
       provisional_app_number, provisional_filed_at, nonprov_deadline_at,
-      marketplace_published_at, created_at
+      marketplace_published_at, created_at,
+      ip_readiness_score, spec_draft, claims_draft, abstract_draft, figures
     `)
     .eq('marketplace_slug', slug)
     .eq('marketplace_enabled', true)

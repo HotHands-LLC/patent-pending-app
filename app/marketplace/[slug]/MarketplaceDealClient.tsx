@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef } from 'react'
 import Link from 'next/link'
+import { computeIpReadinessScore } from '@/lib/ip-readiness'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface DealPatent {
@@ -26,6 +27,11 @@ interface DealPatent {
   nonprov_deadline_at: string | null
   marketplace_published_at: string | null
   created_at: string
+  ip_readiness_score: number | null
+  spec_draft: string | null
+  claims_draft: string | null
+  abstract_draft: string | null
+  figures: unknown[] | null
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -353,6 +359,43 @@ export default function MarketplaceDealClient({ patent }: { patent: DealPatent }
                 </span>
               )}
             </div>
+
+            {/* Tag chips */}
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-4">
+                {tags.map(t => (
+                  <span key={t} className="px-2.5 py-0.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-full border border-indigo-100">
+                    #{t}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* IP Readiness Score */}
+            {(() => {
+              const score = patent.ip_readiness_score ?? computeIpReadinessScore(patent)
+              return (
+                <div className="mb-4 inline-flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 px-2.5 py-1 rounded-full">
+                      IP Score: {score} / 100
+                    </span>
+                    <span
+                      className="text-gray-400 cursor-help text-xs"
+                      title="PatentPending IP Readiness Score reflects the completeness and filing status of this patent. It is not a legal valuation."
+                    >
+                      ⓘ
+                    </span>
+                  </div>
+                  <div className="w-40 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${score >= 80 ? 'bg-green-500' : score >= 50 ? 'bg-yellow-400' : 'bg-orange-400'}`}
+                      style={{ width: `${score}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })()}
 
             <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight mb-4">
               {patent.title}

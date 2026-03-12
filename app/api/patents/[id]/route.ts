@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { computeIpReadinessScore } from '@/lib/ip-readiness'
 
 const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -91,7 +92,7 @@ export async function PATCH(
   // Verify ownership
   const { data: patent } = await supabaseService
     .from('patents')
-    .select('id, owner_id')
+    .select('id, owner_id, provisional_filed_at, filing_status, spec_draft, claims_draft, abstract_draft, figures, deal_page_brief, marketplace_tags, asking_price_range')
     .eq('id', id)
     .single()
 
@@ -100,9 +101,23 @@ export async function PATCH(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // Compute IP Readiness Score (denormalized) using merged state (existing + updates)
+  const merged = { ...patent, ...updates }
+  const computedScore = computeIpReadinessScore({
+    provisional_filed_at: merged.provisional_filed_at as string | null,
+    filing_status: merged.filing_status as string | null,
+    spec_draft: merged.spec_draft as string | null,
+    claims_draft: merged.claims_draft as string | null,
+    abstract_draft: merged.abstract_draft as string | null,
+    figures: merged.figures as unknown[] | null,
+    deal_page_brief: merged.deal_page_brief as string | null,
+    marketplace_tags: merged.marketplace_tags as string[] | null,
+    asking_price_range: merged.asking_price_range as string | null,
+  })
+
   const { data: updated, error } = await supabaseService
     .from('patents')
-    .update({ ...updates, updated_at: new Date().toISOString() })
+    .update({ ...updates, ip_readiness_score: computedScore, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single()
