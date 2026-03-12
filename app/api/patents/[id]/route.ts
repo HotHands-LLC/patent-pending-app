@@ -6,7 +6,7 @@ const supabaseService = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const ALLOWED_FILING_STATUSES = ['draft', 'approved', 'filed'] as const
+const ALLOWED_FILING_STATUSES = ['draft', 'approved', 'filed', 'provisional_filed', 'nonprov_filed', 'issued', 'granted'] as const
 
 // Fields user is allowed to update via PATCH
 const ALLOWED_UPDATE_FIELDS = [

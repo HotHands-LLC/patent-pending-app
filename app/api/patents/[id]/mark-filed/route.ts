@@ -70,8 +70,11 @@ export async function POST(
     if (isNaN(filedDate.getTime())) {
       return NextResponse.json({ error: 'filed_at must be a valid ISO date string' }, { status: 400 })
     }
-    // Sanity: filing date can't be in the future
-    if (filedDate > new Date()) {
+    // Sanity: filing date can't be more than 1 day in the future
+    // (allow same-day filings where timezone offset might push date slightly ahead)
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    if (filedDate > tomorrow) {
       return NextResponse.json({
         error: 'filed_at cannot be in the future',
         code: 'FUTURE_DATE',
