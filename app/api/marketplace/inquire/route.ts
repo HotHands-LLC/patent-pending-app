@@ -117,6 +117,20 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // ── Per-email-per-patent rate limit (3 max) ──────────────────────────────
+  const { count: existingCount } = await supabaseService
+    .from('marketplace_leads')
+    .select('id', { count: 'exact', head: true })
+    .eq('patent_id', patent.id)
+    .eq('email', cleanEmail)
+
+  if ((existingCount ?? 0) >= 3) {
+    return NextResponse.json(
+      { error: 'You have already submitted the maximum number of inquiries for this patent.' },
+      { status: 429 }
+    )
+  }
+
   // ── Insert into marketplace_leads ─────────────────────────────────────────
   const { data: lead, error: leadError } = await supabaseService
     .from('marketplace_leads')
