@@ -44,11 +44,10 @@ export default function DownloadPackageModal({ patent, authToken, onClose }: Dow
       title: 'Provisional Filing',
       subtitle: 'Everything to file a provisional application at USPTO Patent Center',
       docs: [
-        { label: 'Cover Sheet (ADS PDF)', present: true, required: true, note: 'PDF 1.7 — USPTO compliant, no conversion needed' },
-        { label: 'Specification (.txt)', present: hasSpec, required: true },
-        { label: 'Claims (.txt)', present: hasClaims, required: true },
+        { label: 'Cover Sheet (ADS PDF)', present: true, required: true, note: 'PDF 1.7 — USPTO compliant, reference only' },
+        { label: 'Specification PDF (spec + claims + abstract)', present: hasSpec && hasClaims, required: true, note: '37 CFR 1.52 — upload as "Specification" in Patent Center' },
         { label: 'Figures', present: hasFigures, required: false, note: 'Optional for provisional' },
-        ...(patent.abstract_draft ? [{ label: 'Abstract (.txt)', present: true, required: false }] : []),
+        { label: 'Abstract', present: !!(patent.abstract_draft), required: false, note: patent.abstract_draft ? 'Included in spec PDF' : 'Recommended — add via edit form' },
       ],
     },
     {

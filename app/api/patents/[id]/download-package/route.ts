@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { PDFDocument } from 'pdf-lib'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 import { buildCoverSheetPdf } from '@/lib/cover-sheet-pdf'
+import { buildSpecPdf } from '@/lib/spec-pdf'
 import { getUserTierInfo, isPro, tierRequiredResponse } from '@/lib/tier'
 import { sanitizeForUspto } from '@/lib/text-sanitize'
 
@@ -65,12 +66,12 @@ DOCUMENTS IN THIS PACKAGE:
                              then enter them in Patent Center's "Fill out form online" option.
                              All major e-filing tools handle ADS the same way.
 
-  02-specification-and-claims.txt
-                           — Specification + Claims (combined, pure ASCII)
+  02-specification.pdf     — Specification + Claims + Abstract (USPTO-compliant PDF, 37 CFR 1.52)
                              Status: ${hasSpec ? 'Specification present' : 'MISSING spec — complete Step 5 first'}
                                      ${hasClaims ? 'Claims present' : 'MISSING claims — generate in PatentPending.app'}
                              Upload as document type: "Specification" in Patent Center
-                             Contains: Field, Background, Summary, Detailed Description, Claims
+                             Contains: Spec sections, CLAIMS, and ABSTRACT (if entered)
+                             Format: 12pt Helvetica, 1.5x spacing, 1" margins — USPTO letter format
 
   04-drawings.pdf          — All figures combined into single PDF
                              Status: ${hasFigures ? 'Figures present' : 'Not yet generated (optional for provisional)'}
@@ -92,8 +93,8 @@ STEP-BY-STEP FILING GUIDE:
           - Application type: Provisional
           Click "Add to Documents"
 
-  Step 3: Upload Specification + Claims
-          Add Document -> browse to 02-specification-and-claims.txt
+  Step 3: Upload Specification
+          Add Document -> browse to 02-specification.pdf
           Document type: Specification
           Click "Add to Documents"
 
@@ -470,22 +471,42 @@ export async function POST(
 
       // Specification + Claims (format depends on scenario)
       if (scenario === 'provisional_filing') {
-        // Provisional: combine spec + claims into one pure-ASCII file.
-        // Patent Center does not have a standalone "Claims" document type for provisionals —
-        // claims must be appended to the specification and uploaded as "Specification".
-        const specText = sanitizeForUspto((patent.spec_draft as string) ?? '')
-        const claimsText = sanitizeForUspto((patent.claims_draft as string) ?? '')
-        const combinedContent = [
-          specText.trim() ? specText : 'SPECIFICATION NOT YET GENERATED\n\nComplete Step 5 in PatentPending.app first.',
-          '',
-          '================================================================================',
-          'CLAIMS',
-          '================================================================================',
-          '',
-          claimsText.trim() ? claimsText : 'CLAIMS NOT YET GENERATED\n\nGenerate and approve claims in PatentPending.app first.',
-        ].join('\n')
-        folder.file('02-specification-and-claims.txt', combinedContent)
-        console.log(`[ZIP] provisional: combined spec+claims (${combinedContent.length} chars, ASCII-safe)`)
+        // Provisional: spec + claims + abstract as USPTO-compliant PDF (37 CFR 1.52).
+        // Patent Center accepts PDF for "Specification" document type.
+        // All three sections (spec, claims, abstract) are combined in one file per USPTO convention.
+        try {
+          const specPdfBytes = await buildSpecPdf({
+            title: patent.title as string ?? '',
+            spec_draft: patent.spec_draft as string | null,
+            claims_draft: patent.claims_draft as string | null,
+            abstract_draft: (patent as Record<string, unknown>).abstract_draft as string | null,
+          })
+          folder.file('02-specification.pdf', specPdfBytes)
+          console.log(`[ZIP] provisional: spec PDF generated (${specPdfBytes.byteLength} bytes)`)
+        } catch (specPdfErr) {
+          console.error('[ZIP] spec PDF generation failed — falling back to txt:', specPdfErr)
+          // Fallback: combined ASCII text (Patent Center may not accept but preserves content)
+          const { sanitizeForUspto } = await import('@/lib/text-sanitize')
+          const specText    = sanitizeForUspto((patent.spec_draft as string) ?? '')
+          const claimsText  = sanitizeForUspto((patent.claims_draft as string) ?? '')
+          const abstractText = (patent as Record<string, unknown>).abstract_draft
+            ? sanitizeForUspto(((patent as Record<string, unknown>).abstract_draft) as string)
+            : ''
+          const parts = [
+            specText.trim() ? specText : 'SPECIFICATION NOT YET GENERATED',
+            '',
+            '================================================================================',
+            'CLAIMS',
+            '================================================================================',
+            '',
+            claimsText.trim() ? claimsText : 'CLAIMS NOT YET GENERATED',
+          ]
+          if (abstractText.trim()) {
+            parts.push('', '================================================================================', 'ABSTRACT', '================================================================================', '', abstractText)
+          }
+          folder.file('02-specification-FALLBACK.txt', parts.join('\n'))
+          console.log('[ZIP] fallback: combined spec+claims+abstract txt')
+        }
       } else {
         // Non-provisional / other: separate files (Patent Center accepts both)
         if (patent.spec_draft) {

@@ -25,6 +25,7 @@ const ALLOWED_UPDATE_FIELDS = [
   'is_listed',
   'cover_sheet_acknowledged',  // set by client after printing/saving cover sheet
   'spec_draft',               // AI-generated or manually entered spec draft text
+  'abstract_draft',          // 150-word abstract — required for non-provisional
   'is_locked',               // patent lock — read-only for everyone when true
 ] as const
 

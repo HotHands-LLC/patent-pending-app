@@ -216,6 +216,112 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+// ── Abstract Field ────────────────────────────────────────────────────────────
+function AbstractField({
+  patent,
+  authToken,
+  canWrite,
+  onUpdate,
+}: {
+  patent: Patent
+  authToken: string
+  canWrite: boolean
+  onUpdate: (val: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(patent.abstract_draft ?? '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const wordCount = value.trim() ? value.trim().split(/\s+/).filter(Boolean).length : 0
+  const isOverLimit = wordCount > 150
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/patents/${patent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ abstract_draft: value.trim() || null }),
+      })
+      if (res.ok) {
+        onUpdate(value.trim() || null)
+        setEditing(false)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2500)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className={`bg-white rounded-xl border overflow-hidden ${patent.abstract_draft ? 'border-blue-200' : 'border-dashed border-gray-300'}`}>
+      <div className={`px-5 py-3 border-b border-gray-100 flex items-center justify-between ${patent.abstract_draft ? 'bg-blue-50' : 'bg-gray-50'}`}>
+        <div className="flex items-center gap-2">
+          <span>📝</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Abstract</span>
+          {patent.abstract_draft
+            ? <span className="text-xs text-blue-600 font-semibold">✅ Present</span>
+            : <span className="text-xs text-amber-600 font-medium">⚠ Recommended for provisional · Required for non-provisional</span>
+          }
+          {saved && <span className="text-xs text-green-600 font-semibold ml-2">Saved ✓</span>}
+        </div>
+        {canWrite && !editing && (
+          <button
+            onClick={() => { setValue(patent.abstract_draft ?? ''); setEditing(true) }}
+            className="text-xs text-indigo-600 hover:underline font-medium"
+          >
+            {patent.abstract_draft ? 'Edit' : '+ Add Abstract'}
+          </button>
+        )}
+      </div>
+      <div className="p-5">
+        {editing ? (
+          <>
+            <textarea
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              rows={6}
+              className="w-full text-sm border border-gray-200 rounded-lg p-3 font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              placeholder="A brief description of the invention — 150 words or less. No claim language. Single paragraph."
+            />
+            <div className="mt-2 flex items-center justify-between">
+              <span className={`text-xs font-medium ${isOverLimit ? 'text-red-600' : wordCount > 130 ? 'text-amber-600' : 'text-gray-400'}`}>
+                {wordCount} / 150 words{isOverLimit ? ' — ⚠️ Exceeds USPTO limit' : ''}
+              </span>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setEditing(false)}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={saving || isOverLimit}
+                  className="px-4 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] disabled:opacity-50"
+                >
+                  {saving ? 'Saving…' : 'Save Abstract'}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : patent.abstract_draft ? (
+          <p className="text-sm text-gray-700 leading-relaxed">{patent.abstract_draft}</p>
+        ) : (
+          <p className="text-sm text-gray-400 italic">
+            No abstract yet. Abstracts must be 150 words or less. Required for non-provisional applications.
+            {canWrite && (
+              <> <button onClick={() => { setValue(''); setEditing(true) }} className="ml-1 text-indigo-500 hover:underline not-italic">Add one now →</button></>
+            )}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PatentDetail() {
   const [patent, setPatent] = useState<Patent | null>(null)
@@ -2156,6 +2262,16 @@ export default function PatentDetail() {
                 </>
               )}
             </div>
+
+            {/* Abstract field — optional for provisional, required for non-provisional */}
+            {computeStepStatus(patent)[3] && (
+              <AbstractField
+                patent={patent}
+                authToken={authToken}
+                canWrite={canWrite}
+                onUpdate={(val) => setPatent(prev => prev ? { ...prev, abstract_draft: val } : null)}
+              />
+            )}
 
             {/* Step 6: Figures upload + AI Generate */}
             {(() => {

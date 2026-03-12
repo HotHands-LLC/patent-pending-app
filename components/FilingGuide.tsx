@@ -16,6 +16,7 @@ interface FilingGuideProps {
     filing_status?: string | null
     spec_draft?: string | null
     claims_draft?: string | null
+    abstract_draft?: string | null
     figures_uploaded?: boolean | null
     cover_sheet_acknowledged?: boolean | null
   }
@@ -186,14 +187,17 @@ export default function FilingGuide({ patent, hasDownloadedZip = false }: Filing
         </div>
       </Step>
 
-      <Step num={3} title="Upload Specification + Claims"
+      <Step num={3} title="Upload Specification"
             status={step3Done ? 'done' : activeStep === 3 ? 'active' : 'pending'}>
         <ol className="space-y-1 list-decimal list-inside">
           <li>Click <strong>"Add Document"</strong></li>
-          <li>Browse to <strong>02-specification-and-claims.txt</strong> (in your downloaded ZIP)</li>
+          <li>Browse to <strong>02-specification.pdf</strong> (in your downloaded ZIP)</li>
           <li>Document type: <strong>Specification</strong></li>
           <li>Click <strong>"Add to Documents"</strong></li>
         </ol>
+        <div className="mt-2 text-xs text-gray-500">
+          The PDF contains your specification, claims, and abstract (if added) in proper USPTO format (37 CFR 1.52).
+        </div>
         {!hasSpec && (
           <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-xs mt-1">
             ⚠️ Specification not yet generated — complete Step 5 first
@@ -202,6 +206,11 @@ export default function FilingGuide({ patent, hasDownloadedZip = false }: Filing
         {!hasClaims && (
           <div className="p-2 bg-red-50 border border-red-200 rounded text-red-700 text-xs mt-1">
             ⚠️ Claims not yet generated — generate and approve claims first
+          </div>
+        )}
+        {!(patent as { abstract_draft?: string | null }).abstract_draft && (
+          <div className="p-2 bg-blue-50 border border-blue-200 rounded text-blue-700 text-xs mt-1">
+            💡 Abstract not added — recommended for provisional, required for non-provisional. Add it in the Filings tab.
           </div>
         )}
       </Step>

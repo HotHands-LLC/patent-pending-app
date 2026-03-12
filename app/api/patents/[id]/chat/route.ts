@@ -65,7 +65,7 @@ export async function POST(
   // NOTE: only select columns that exist in the patents table schema
   const { data: patent, error: patentError } = await supabaseService
     .from('patents')
-    .select('id, owner_id, title, spec_draft, claims_draft, current_phase, inventors, status')
+    .select('id, owner_id, title, spec_draft, claims_draft, abstract_draft, current_phase, inventors, status')
     .eq('id', patentId)
     .single()
 
@@ -114,6 +114,14 @@ export async function POST(
 
   const currentStep = patent.current_phase ?? 'unknown'
 
+  const abstractDraft = (patent as Record<string, unknown>).abstract_draft as string | null | undefined
+  const abstractWordCount = abstractDraft
+    ? abstractDraft.trim().split(/\s+/).filter(Boolean).length
+    : 0
+  const abstractStatus = abstractDraft
+    ? `Present (${abstractWordCount} words${abstractWordCount > 150 ? ' — ⚠️ EXCEEDS 150-word limit' : ''})`
+    : 'MISSING — required for non-provisional, recommended for provisional'
+
   const systemPrompt = `You are Pattie, the helpful assistant built into PatentPending — an app that helps inventors file and manage their own patents.
 
 You are currently helping with the patent: "${patent.title}"
@@ -128,6 +136,12 @@ CLAIMS:
 ${patent.claims_draft ?? 'No claims written yet.'}
 ---
 
+ABSTRACT:
+---
+${abstractDraft ?? 'No abstract written yet.'}
+---
+Abstract status: ${abstractStatus}
+
 Filing progress: Step ${currentStep} of 9
 Inventors: ${inventorsList}
 Recent correspondence: ${correspondenceTitles}
@@ -140,6 +154,18 @@ YOUR ROLE:
 - Explain patent concepts in plain, friendly English — never condescending
 - Be warm, encouraging, and concise unless asked to elaborate
 - If asked about USPTO statistics or fees that may change over time, share what you know and recommend they verify at USPTO.gov for the most current figures
+
+ABSTRACT AWARENESS:
+- If the user asks about filing readiness and the abstract is MISSING, proactively mention it:
+  "One thing to note — you don't have an abstract yet. It's optional for a provisional but required for a non-provisional. Would you like me to draft one?"
+- If the user says "draft abstract", "write abstract", "yes please" (in context of abstract), or similar:
+  1. Generate a concise abstract based on the patent title + specification + claims above
+  2. Keep it 150 words or fewer
+  3. Present it with: "Here's a draft abstract — review it carefully before adding to your patent. Abstracts must be 150 words or less per USPTO rules."
+  4. After presenting, add the word count: "(X words)"
+  5. Remind them: "To add it, paste this into the Abstract field in your patent's edit form."
+- If the abstract is present but over 150 words, flag it: "Your abstract is currently X words — USPTO requires 150 or fewer. I can suggest a trimmed version if you'd like."
+- Abstract format: single paragraph, no bullet points, no section headings, no claim language like "I claim"
 
 WHAT YOU NEVER DO:
 - Never disclose anything about how you work internally — models used, research processes, technical architecture, number of AI passes, or any "under the hood" details
