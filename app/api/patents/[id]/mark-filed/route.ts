@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { sendEmail, buildEmail } from '@/lib/email'
+import { buildFiledEmail } from '@/lib/emails/patent-filed'
 
 export const maxDuration = 30
 
@@ -157,6 +159,46 @@ export async function POST(
     }
 
     console.log(`[mark-filed] patent=${patentId} app_number=${app_number} filed=${filedDate.toISOString()} nonprov_deadline=${nonprovDeadline.toISOString()}`)
+
+    // ── Congratulations email — non-blocking ─────────────────────────────────
+    // Fetch owner email + first name for the email (best-effort)
+    try {
+      const { data: profile } = await supabaseService
+        .from('patent_profiles')
+        .select('email, name_first')
+        .eq('id', user.id)
+        .single()
+
+      const ownerEmail     = profile?.email ?? user.email
+      const ownerFirstName = (profile?.name_first as string | null) ?? 'Inventor'
+
+      if (ownerEmail) {
+        const filedDateFmt    = filedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        const deadlineFmt     = nonprovDeadline.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        const appUrl          = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
+
+        const html = buildFiledEmail({
+          inventorFirstName: ownerFirstName,
+          patentTitle:       patent.title ?? 'Your Invention',
+          appNumber:         app_number.trim(),
+          filingDate:        filedDateFmt,
+          nonprovDeadline:   deadlineFmt,
+          patentId,
+          appUrl,
+        })
+
+        await sendEmail(buildEmail({
+          to:      ownerEmail,
+          from:    'PatentPending <notifications@patentpending.app>',
+          subject: `🎉 Your patent is officially Patent Pending, ${ownerFirstName}`,
+          html,
+        }))
+        console.log(`[mark-filed] congratulations email sent to ${ownerEmail}`)
+      }
+    } catch (emailErr) {
+      // Non-blocking — email failure must never fail the filing
+      console.error('[mark-filed] email send failed (non-blocking):', emailErr)
+    }
 
     return NextResponse.json({
       ok: true,
