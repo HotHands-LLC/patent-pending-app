@@ -26,6 +26,13 @@ const ALLOWED_UPDATE_FIELDS = [
   'cover_sheet_acknowledged',  // set by client after printing/saving cover sheet
   'spec_draft',               // AI-generated or manually entered spec draft text
   'abstract_draft',          // 150-word abstract — required for non-provisional
+  // Arc 3 — Marketplace fields
+  'marketplace_enabled',     // boolean — show on public /marketplace
+  'marketplace_slug',        // text UNIQUE — URL slug e.g. 'light-communication-system'
+  'deal_page_brief',         // text — AI-generated or manual deal summary
+  'license_types',           // text[] — e.g. ['exclusive','non-exclusive','field-of-use']
+  'asking_price_range',      // text — display string e.g. "$50K–$200K" or "Open to offers"
+  'marketplace_published_at',// timestamptz — when listing went live
   'is_locked',               // patent lock — read-only for everyone when true
 ] as const
 

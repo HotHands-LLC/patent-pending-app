@@ -322,6 +322,174 @@ function AbstractField({
   )
 }
 
+// ── Marketplace Settings Card ─────────────────────────────────────────────────
+function MarketplaceSettingsCard({
+  patent,
+  authToken,
+  canWrite,
+  onUpdate,
+}: {
+  patent: Patent
+  authToken: string
+  canWrite: boolean
+  onUpdate: (fields: Partial<Record<string, unknown>>) => void
+}) {
+  const [open, setOpen]           = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [saved, setSaved]         = useState(false)
+  const [mktEnabled, setMktEnabled] = useState(
+    !!((patent as Record<string, unknown>).marketplace_enabled)
+  )
+  const [slug, setSlug]           = useState(
+    ((patent as Record<string, unknown>).marketplace_slug as string | null) ?? ''
+  )
+  const [price, setPrice]         = useState(
+    ((patent as Record<string, unknown>).asking_price_range as string | null) ?? ''
+  )
+  const [brief, setBrief]         = useState(
+    ((patent as Record<string, unknown>).deal_page_brief as string | null) ?? ''
+  )
+
+  function autoSlug() {
+    if (!slug && patent.title) {
+      setSlug(patent.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60))
+    }
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/patents/${patent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          marketplace_enabled: mktEnabled,
+          marketplace_slug: slug.trim() || null,
+          asking_price_range: price.trim() || null,
+          deal_page_brief: brief.trim() || null,
+          ...(mktEnabled && !(patent as Record<string, unknown>).marketplace_published_at
+            ? { marketplace_published_at: new Date().toISOString() }
+            : {}),
+        }),
+      })
+      if (res.ok) {
+        onUpdate({
+          marketplace_enabled: mktEnabled,
+          marketplace_slug: slug.trim() || null,
+          asking_price_range: price.trim() || null,
+          deal_page_brief: brief.trim() || null,
+        })
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2500)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isListed = !!(patent as Record<string, unknown>).marketplace_enabled
+  const liveSlug = (patent as Record<string, unknown>).marketplace_slug as string | null
+
+  return (
+    <div className={`bg-white rounded-xl border overflow-hidden mt-4 ${isListed ? 'border-purple-200' : 'border-gray-200'}`}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`w-full px-5 py-3 flex items-center justify-between ${isListed ? 'bg-purple-50' : 'bg-gray-50'} border-b border-gray-100`}
+      >
+        <div className="flex items-center gap-2">
+          <span>🏪</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Marketplace Settings</span>
+          {isListed
+            ? <span className="text-xs text-purple-600 font-semibold">✅ Listed</span>
+            : <span className="text-xs text-gray-400">Not listed</span>
+          }
+          {saved && <span className="text-xs text-green-600 font-semibold ml-2">Saved ✓</span>}
+        </div>
+        <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="p-5 space-y-4">
+          {/* Toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold text-gray-800">List on Marketplace</div>
+              <div className="text-xs text-gray-400 mt-0.5">Makes this patent visible at /marketplace/[slug]</div>
+            </div>
+            <button
+              onClick={() => canWrite && setMktEnabled(e => !e)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                mktEnabled ? 'bg-purple-600' : 'bg-gray-200'
+              } ${!canWrite ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                mktEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+          </div>
+
+          {/* Slug */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Marketplace Slug</label>
+            <div className="flex gap-2">
+              <input
+                disabled={!canWrite}
+                value={slug}
+                onChange={e => setSlug(e.target.value)}
+                onFocus={autoSlug}
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+                placeholder="e.g. light-communication-system"
+              />
+            </div>
+            {liveSlug && (
+              <a href={`/marketplace/${liveSlug}`} target="_blank" rel="noopener noreferrer"
+                className="text-xs text-purple-600 hover:underline mt-1 inline-block">
+                /marketplace/{liveSlug} →
+              </a>
+            )}
+          </div>
+
+          {/* Price */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Asking Price / Terms</label>
+            <input
+              disabled={!canWrite}
+              value={price}
+              onChange={e => setPrice(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+              placeholder='e.g. "$50K–$200K" or "Open to offers"'
+            />
+          </div>
+
+          {/* Brief */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Deal Page Brief</label>
+            <p className="text-xs text-gray-400 mb-1.5">Plain language summary. Pattie can draft this for you.</p>
+            <textarea
+              disabled={!canWrite}
+              value={brief}
+              onChange={e => setBrief(e.target.value)}
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+              placeholder="Describe the technology and its applications in plain language…"
+            />
+          </div>
+
+          {canWrite && (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-5 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save Marketplace Settings'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PatentDetail() {
   const [patent, setPatent] = useState<Patent | null>(null)
@@ -2642,6 +2810,16 @@ export default function PatentDetail() {
         )}
 
         {/* Save/cancel when editing details */}
+        {/* ── MARKETPLACE SETTINGS (Overview tab, owner only) ─────────────────── */}
+        {tab === 'details' && !isCollaborator && (
+          <MarketplaceSettingsCard
+            patent={patent}
+            authToken={authToken}
+            canWrite={canWrite}
+            onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
+          />
+        )}
+
         {tab === 'details' && editing && (
           <div className="mt-4 flex gap-3">
             <button onClick={saveEdits} disabled={saving}
