@@ -51,7 +51,8 @@ export default async function MarketplaceDealPage(
       licensing_exclusive, licensing_nonexclusive, licensing_field_of_use,
       provisional_app_number, provisional_filed_at, nonprov_deadline_at,
       marketplace_published_at, created_at,
-      ip_readiness_score, spec_draft, claims_draft, abstract_draft, figures
+      ip_readiness_score, spec_draft, claims_draft, abstract_draft, figures,
+      youtube_embed_url
     `)
     .eq('marketplace_slug', slug)
     .eq('marketplace_enabled', true)

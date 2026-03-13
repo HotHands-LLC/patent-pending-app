@@ -353,6 +353,9 @@ function MarketplaceSettingsCard({
   const [mktTags, setMktTags]     = useState<string[]>(
     ((patent as Record<string, unknown>).marketplace_tags as string[] | null) ?? []
   )
+  const [youtubeUrl, setYoutubeUrl] = useState(
+    ((patent as Record<string, unknown>).youtube_embed_url as string | null) ?? ''
+  )
   const [tagInput, setTagInput]   = useState('')
 
   function addTag(raw: string) {
@@ -390,6 +393,7 @@ function MarketplaceSettingsCard({
           asking_price_range: price.trim() || null,
           deal_page_brief: brief.trim() || null,
           marketplace_tags: mktTags,
+          youtube_embed_url: youtubeUrl.trim() || null,
           ...(mktEnabled && !(patent as Record<string, unknown>).marketplace_published_at
             ? { marketplace_published_at: new Date().toISOString() }
             : {}),
@@ -402,6 +406,7 @@ function MarketplaceSettingsCard({
           asking_price_range: price.trim() || null,
           deal_page_brief: brief.trim() || null,
           marketplace_tags: mktTags,
+          youtube_embed_url: youtubeUrl.trim() || null,
         })
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
@@ -529,6 +534,25 @@ function MarketplaceSettingsCard({
               )}
             </div>
             <p className="text-xs text-gray-400 mt-1">{mktTags.length} tag{mktTags.length !== 1 ? 's' : ''} · 3+ unlocks 5 IP Readiness points</p>
+          </div>
+
+          {/* YouTube Video URL */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Video URL</label>
+            <p className="text-xs text-gray-400 mb-1.5">Appears as the "Watch Overview" embed on the public deal page.</p>
+            <input
+              disabled={!canWrite}
+              value={youtubeUrl}
+              onChange={e => setYoutubeUrl(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+              placeholder="https://www.youtube.com/watch?v=..."
+            />
+            {youtubeUrl && (() => {
+              const match = youtubeUrl.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
+              return match
+                ? <p className="text-xs text-green-600 mt-1">✓ Valid YouTube URL — video ID: {match[1]}</p>
+                : <p className="text-xs text-amber-500 mt-1">⚠ Could not detect a YouTube video ID in this URL</p>
+            })()}
           </div>
 
           {/* IP Readiness Score */}

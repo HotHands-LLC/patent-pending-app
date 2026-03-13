@@ -32,6 +32,7 @@ interface DealPatent {
   claims_draft: string | null
   abstract_draft: string | null
   figures: unknown[] | null
+  youtube_embed_url: string | null
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -40,6 +41,16 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   non_provisional: { label: 'Patent Pending',   cls: 'bg-yellow-100 text-yellow-800 border border-yellow-300' },
   granted:         { label: 'Patent Granted ✓', cls: 'bg-green-100 text-green-800 border border-green-300' },
   published:       { label: 'Patent Published', cls: 'bg-blue-100 text-blue-800 border border-blue-300' },
+}
+
+// ── YouTube embed helper ──────────────────────────────────────────────────────
+function getYouTubeEmbedUrl(url: string): string {
+  try {
+    const match = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
+    return match ? `https://www.youtube.com/embed/${match[1]}` : ''
+  } catch {
+    return ''
+  }
 }
 
 const LICENSE_LABELS: Record<string, string> = {
@@ -322,8 +333,8 @@ export default function MarketplaceDealClient({ patent }: { patent: DealPatent }
     .map(t => LICENSE_LABELS[t] ?? t)
     .join(', ')
 
-  const tags = patent.marketplace_tags ?? patent.tags ?? []
   const inventors = patent.inventors ?? []
+  const embedUrl = patent.youtube_embed_url ? getYouTubeEmbedUrl(patent.youtube_embed_url) : ''
 
   return (
     <>
@@ -342,7 +353,18 @@ export default function MarketplaceDealClient({ patent }: { patent: DealPatent }
           </div>
         </div>
 
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 space-y-8">
+        {/* ── Back to Marketplace ───────────────────────────────────── */}
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-5">
+          <Link
+            href="/marketplace"
+            className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <span>←</span>
+            <span>Back to Marketplace</span>
+          </Link>
+        </div>
+
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-8">
 
           {/* ── Section 1: Hero ───────────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-gray-200 p-8">
@@ -359,17 +381,6 @@ export default function MarketplaceDealClient({ patent }: { patent: DealPatent }
                 </span>
               )}
             </div>
-
-            {/* Tag chips */}
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-4">
-                {tags.map(t => (
-                  <span key={t} className="px-2.5 py-0.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-full border border-indigo-100">
-                    #{t}
-                  </span>
-                ))}
-              </div>
-            )}
 
             {/* IP Readiness Score */}
             {(() => {
@@ -419,6 +430,25 @@ export default function MarketplaceDealClient({ patent }: { patent: DealPatent }
             </div>
           </div>
 
+          {/* ── Section 3: Watch Overview ─────────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Watch Overview</h2>
+            {embedUrl ? (
+              <iframe
+                src={embedUrl}
+                title="Patent Overview"
+                allowFullScreen
+                className="w-full aspect-video rounded-lg"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              />
+            ) : (
+              <div className="w-full aspect-video rounded-lg bg-gray-50 border border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400">
+                <div className="text-4xl mb-3">🎬</div>
+                <p className="text-sm font-medium">Video walkthrough coming soon.</p>
+              </div>
+            )}
+          </div>
+
           {/* ── Section 2: Technology Brief ──────────────────────────── */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8">
             <h2 className="text-xl font-bold text-gray-900 mb-4">The Technology</h2>
@@ -430,15 +460,6 @@ export default function MarketplaceDealClient({ patent }: { patent: DealPatent }
                 </span>
               ))}
             </div>
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-gray-100">
-                {tags.map(t => (
-                  <span key={t} className="px-2.5 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
-                    #{t}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* ── Section 3: Use Case Cards ─────────────────────────────── */}

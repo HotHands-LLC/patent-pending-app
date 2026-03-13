@@ -31,26 +31,10 @@ export default async function MarketplacePage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12">
-        {/* Hero header */}
-        <div className="mb-10 text-center">
-          <h1 className="text-4xl font-extrabold text-gray-900 mb-3">Patent Marketplace</h1>
-          <p className="text-lg text-gray-500 max-w-2xl mx-auto">
-            Discover, license, and acquire patented technologies from independent inventors.
-          </p>
-        </div>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6">
+        <MarketplaceClient listings={listings ?? []} />
 
-        {/* Listings with tag filter */}
-        {!listings || listings.length === 0 ? (
-          <div className="text-center py-20 text-gray-400">
-            <div className="text-5xl mb-4">📭</div>
-            <p className="text-lg font-medium">No listings yet. Check back soon.</p>
-          </div>
-        ) : (
-          <MarketplaceClient listings={listings} />
-        )}
-
-        <div className="mt-12 pt-6 border-t border-gray-200 text-center">
+        <div className="mt-12 pb-8 pt-6 border-t border-gray-200 text-center">
           <p className="text-xs text-gray-400">
             All listings managed by{' '}
             <a href="https://patentpending.app" className="text-indigo-500 hover:underline">PatentPending.app</a>
