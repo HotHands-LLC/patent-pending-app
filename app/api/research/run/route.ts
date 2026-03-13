@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { createClient } from '@supabase/supabase-js'
-import { runGeminiResearch } from '@/lib/research/gemini-research'
+import { runGeminiResearch, type PatentAnalysisOptions } from '@/lib/research/gemini-research'
 
 export const maxDuration = 300
 
@@ -40,26 +40,50 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
 
   const body = await req.json().catch(() => ({}))
-  const { query: rawQuery, run_type } = body as { query?: string; run_type?: string }
+  const {
+    query: rawQuery,
+    run_type,
+    patent_id,
+    analysis_type,
+  } = body as {
+    query?:         string
+    run_type?:      string
+    patent_id?:     string
+    analysis_type?: 'prior_art' | 'competitive' | 'acquisition'
+  }
 
-  // Strip surrounding quotes the user may have typed (e.g. "light-based communication")
-  const query = rawQuery?.trim().replace(/^["']|["']$/g, '').trim()
+  const VALID_RUN_TYPES = ['keyword', 'patent_number', 'category', 'patent_analysis']
 
-  if (!query) {
+  // Patent analysis: query is derived from the patent title — use placeholder
+  const isPatentAnalysis = run_type === 'patent_analysis'
+
+  // Strip surrounding quotes the user may have typed
+  const query = isPatentAnalysis
+    ? (rawQuery?.trim() || 'Patent Analysis')
+    : rawQuery?.trim().replace(/^["']|["']$/g, '').trim()
+
+  if (!query && !isPatentAnalysis) {
     return NextResponse.json({ error: 'query is required' }, { status: 400 })
   }
-  if (!['keyword', 'patent_number', 'category'].includes(run_type ?? '')) {
-    return NextResponse.json({ error: 'run_type must be keyword | patent_number | category' }, { status: 400 })
+  if (!VALID_RUN_TYPES.includes(run_type ?? '')) {
+    return NextResponse.json({
+      error: `run_type must be one of: ${VALID_RUN_TYPES.join(' | ')}`
+    }, { status: 400 })
+  }
+  if (isPatentAnalysis && !patent_id) {
+    return NextResponse.json({ error: 'patent_id is required for patent_analysis runs' }, { status: 400 })
   }
 
   // Create pending run row and return immediately
   const { data: run, error } = await supabaseService
     .from('research_runs')
     .insert({
-      query,
+      query:         query ?? 'Patent Analysis',
       run_type,
-      status:     'pending',
-      created_by: user.id,
+      status:        'pending',
+      created_by:    user.id,
+      patent_id:     patent_id ?? null,
+      analysis_type: analysis_type ?? null,
     })
     .select('id')
     .single()
@@ -68,8 +92,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to create research run' }, { status: 500 })
   }
 
+  const patentOptions: PatentAnalysisOptions | undefined = isPatentAnalysis
+    ? { patentId: patent_id, analysisType: analysis_type ?? 'acquisition' }
+    : undefined
+
   // Kick off async Gemini loop — doesn't block response
-  waitUntil(runGeminiResearch(run.id, query, run_type!))
+  waitUntil(runGeminiResearch(run.id, query ?? 'Patent Analysis', run_type!, patentOptions))
 
   return NextResponse.json({ run_id: run.id, status: 'pending' })
 }

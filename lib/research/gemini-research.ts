@@ -362,17 +362,180 @@ ${worthAcquiring.slice(0, 3).map(c => `- ${c.patent_number}: ${c.title} — ${c.
 Write a concise, opinionated summary. Mention specific patents by number. Note the quality of this technology space for acquisition. Keep it under 150 words.`
 }
 
+// ── Patent analysis: extract queries + CPC codes from claims ─────────────────
+function patentAnalysisExtractPrompt(
+  claimsDraft: string,
+  analysisType: string,
+): string {
+  const typeInstructions: Record<string, string> = {
+    prior_art:    'Focus on finding prior art — what existed before this invention was filed.',
+    competitive:  'Focus on competitive landscape — who holds patents in adjacent technology spaces.',
+    acquisition:  'Focus on acquisition targets — abandoned patents in the same CPC classes that could be acquired.',
+  }
+  const typeNote = typeInstructions[analysisType] ?? typeInstructions.prior_art
+
+  return `You are a patent research analyst. Given the following patent claims, extract:
+1. The 3 best keyword search queries for a USPTO patent search covering this invention's core technology.
+   Queries should be specific enough to find relevant patents without being too narrow.
+2. The 2-4 most relevant CPC subclass codes for this invention.
+
+${typeNote}
+
+Patent claims:
+${claimsDraft.slice(0, 4000)}
+
+Return ONLY this JSON:
+{
+  "queries": ["query one", "query two", "query three"],
+  "cpc_codes": [
+    { "cpc_code": "H04B10/11", "description": "...", "relevance_reason": "..." }
+  ],
+  "primary_query": "the single best query for this search"
+}`
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
+export interface PatentAnalysisOptions {
+  patentId?:    string
+  analysisType?: 'prior_art' | 'competitive' | 'acquisition'
+}
+
 export async function runGeminiResearch(
   runId: string,
   query: string,
-  runType: string
+  runType: string,
+  options?: PatentAnalysisOptions
 ): Promise<void> {
   const updateRun = (fields: Record<string, unknown>) =>
     supabaseService.from('research_runs').update(fields).eq('id', runId)
 
   try {
     await updateRun({ status: 'running' })
+
+    // ── Patent Analysis pre-pass: extract query + CPC codes from claims ────
+    if (runType === 'patent_analysis' && options?.patentId) {
+      const analysisType = options.analysisType ?? 'prior_art'
+      console.log(`[research:${runId}] Patent Analysis mode — fetching claims for ${options.patentId}`)
+
+      const { data: patent } = await supabaseService
+        .from('patents')
+        .select('title, claims_draft, abstract_draft')
+        .eq('id', options.patentId)
+        .single()
+
+      if (patent?.claims_draft) {
+        try {
+          const extractText = await callGemini(patentAnalysisExtractPrompt(patent.claims_draft, analysisType))
+          const extracted = extractJSON(extractText) as {
+            queries?: string[]
+            cpc_codes?: CpcCode[]
+            primary_query?: string
+          }
+
+          // Override Phase 0 entirely — we have patent-specific CPC codes + query
+          const extractedCpcCodes = Array.isArray(extracted?.cpc_codes) ? extracted.cpc_codes as CpcCode[] : []
+          const primaryQuery      = extracted?.primary_query ?? extracted?.queries?.[0] ?? query
+
+          console.log(`[research:${runId}] Patent Analysis — primary query: "${primaryQuery}", CPCs: ${extractedCpcCodes.map(c => c.cpc_code).join(', ')}`)
+
+          // Update the run with the derived query (so UI shows meaningful label)
+          const displayQuery = `${patent.title} — ${analysisType.replace('_', ' ')}: ${primaryQuery}`
+          await updateRun({ query: displayQuery })
+
+          // Skip Phase 0 and go straight to ODP with extracted CPC codes
+          let odpCandidates: OdpPatent[] = []
+          if (extractedCpcCodes.length > 0) {
+            const fetches = await Promise.allSettled(
+              extractedCpcCodes.slice(0, 4).map(c => fetchOdpByCpc(c.cpc_code))
+            )
+            for (const result of fetches) {
+              if (result.status === 'fulfilled') odpCandidates.push(...result.value)
+            }
+            const seen = new Set<string>()
+            odpCandidates = odpCandidates.filter(p => {
+              if (seen.has(p.app_number)) return false
+              seen.add(p.app_number)
+              return true
+            })
+          }
+
+          const usedOdp = odpCandidates.length >= 5
+          console.log(`[research:${runId}] Patent Analysis — ${odpCandidates.length} ODP candidates`)
+
+          // Phase 1 with patent context injected
+          const phase1Text = await callGemini(
+            usedOdp
+              ? phase1GroundedPrompt(primaryQuery, extractedCpcCodes, odpCandidates)
+              : phase1FallbackPrompt(primaryQuery, analysisType, extractedCpcCodes)
+          )
+
+          let candidates: PatentCandidate[]
+          try {
+            const raw = extractJSON(phase1Text) as PatentCandidate[]
+            candidates = Array.isArray(raw) ? raw : []
+            if (candidates.length === 0) throw new Error('Phase 1 empty')
+          } catch (e) {
+            throw new Error(`Phase 1 JSON parse failed: ${e}`)
+          }
+
+          candidates = candidates.map(c => ({
+            patent_number:          String(c.patent_number ?? ''),
+            title:                  String(c.title ?? ''),
+            filing_date:            c.filing_date ?? null,
+            assignee:               c.assignee ?? null,
+            cpc_codes:              Array.isArray(c.cpc_codes) ? c.cpc_codes : [],
+            abandonment_reason:     c.abandonment_reason ?? null,
+            forward_citation_count: c.forward_citation_count ?? null,
+            technology_relevance:   Number(c.technology_relevance ?? 5),
+            acquisition_interest:   Number(c.acquisition_interest ?? 5),
+            rationale:              String(c.rationale ?? ''),
+            risk_flags:             [],
+            final_recommendation:   'investigate further' as const,
+            source:                 usedOdp ? 'odp_filtered' : 'gemini_knowledge',
+          }))
+
+          // Phase 2 adversarial
+          let riskResults: Array<{
+            patent_number: string; risk_flags: string[]
+            final_recommendation: PatentCandidate['final_recommendation']
+          }> = []
+          try {
+            riskResults = extractJSON(await callGemini(phase2Prompt(candidates))) as typeof riskResults
+          } catch { /* non-fatal */ }
+
+          candidates = candidates.map((c, i) => {
+            const risk = riskResults.find(r => r.patent_number === c.patent_number) ?? riskResults[i]
+            return risk
+              ? { ...c, risk_flags: Array.isArray(risk.risk_flags) ? risk.risk_flags : [], final_recommendation: risk.final_recommendation ?? c.final_recommendation }
+              : c
+          })
+
+          let summary = ''
+          try {
+            summary = (await callGemini(summaryPrompt(primaryQuery, candidates, extractedCpcCodes, usedOdp))).trim()
+          } catch {
+            const worthCount = candidates.filter(c => c.final_recommendation === 'worth acquiring').length
+            summary = `Patent analysis for "${patent.title}" (${analysisType.replace('_', ' ')}) complete. ${candidates.length} candidates analyzed; ${worthCount} flagged as worth acquiring.`
+          }
+
+          await updateRun({
+            status:       'complete',
+            candidates,
+            summary,
+            completed_at: new Date().toISOString(),
+          })
+
+          console.log(`[research:${runId}] ✅ Patent Analysis complete — ${candidates.length} candidates`)
+          return
+
+        } catch (e) {
+          console.warn(`[research:${runId}] Patent Analysis extraction failed: ${e}. Falling back to standard loop.`)
+          // Fall through to standard loop below
+        }
+      } else {
+        console.warn(`[research:${runId}] Patent ${options.patentId} has no claims_draft — using title as query`)
+      }
+    }
 
     // ── Phase 0: CPC class lookup ──────────────────────────────────────────
     console.log(`[research:${runId}] Phase 0 — CPC lookup for: "${query}"`)

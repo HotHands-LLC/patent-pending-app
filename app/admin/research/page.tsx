@@ -8,12 +8,19 @@ import { supabase } from '@/lib/supabase'
 interface ResearchRun {
   id: string
   query: string
-  run_type: 'keyword' | 'patent_number' | 'category'
+  run_type: 'keyword' | 'patent_number' | 'category' | 'patent_analysis'
   status: 'pending' | 'running' | 'complete' | 'failed'
   summary: string | null
   candidates: PatentCandidate[] | null
   created_at: string
   completed_at: string | null
+}
+
+interface UserPatent {
+  id: string
+  title: string
+  filing_status: string
+  claims_draft: string | null
 }
 
 interface PatentCandidate {
@@ -32,9 +39,16 @@ interface PatentCandidate {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const RUN_TYPE_LABELS: Record<string, string> = {
-  keyword:        'Keyword',
-  patent_number:  'Patent #',
-  category:       'Category',
+  keyword:          'Keyword',
+  patent_number:    'Patent #',
+  category:         'Category',
+  patent_analysis:  'Patent Analysis',
+}
+
+const ANALYSIS_TYPE_LABELS: Record<string, string> = {
+  prior_art:   'Prior Art Search',
+  competitive: 'Competitive Landscape',
+  acquisition: 'Acquisition Targets',
 }
 
 const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
@@ -56,60 +70,183 @@ const RUN_PLACEHOLDERS: Record<string, string> = {
   category:      'e.g. "free-space optical communications"',
 }
 
-// ── Import stub modal ─────────────────────────────────────────────────────────
+// ── Import modal — real flow ──────────────────────────────────────────────────
 function ImportModal({
   candidate,
+  runId,
+  authToken,
   onClose,
 }: {
   candidate: PatentCandidate
-  onClose: () => void
+  runId:     string
+  authToken: string
+  onClose:   () => void
 }) {
-  console.log('[research] Import intent:', candidate.patent_number, candidate.title)
+  const [phase, setPhase] = useState<'confirm' | 'importing' | 'success' | 'error'>('confirm')
+  const [patentId, setPatentId]   = useState<string | null>(null)
+  const [errorMsg, setErrorMsg]   = useState('')
+
+  async function handleImport() {
+    setPhase('importing')
+    try {
+      const res = await fetch('/api/research/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ run_id: runId, candidate }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErrorMsg(data.error ?? 'Import failed'); setPhase('error'); return }
+      setPatentId(data.patent_id)
+      setPhase('success')
+    } catch {
+      setErrorMsg('Network error — please try again')
+      setPhase('error')
+    }
+  }
 
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      onClick={e => { if (e.target === e.currentTarget && phase !== 'importing') onClose() }}
     >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-        <div className="text-3xl mb-3 text-center">📥</div>
-        <h2 className="text-lg font-bold text-gray-900 text-center mb-2">Import Patent Record</h2>
-        <p className="text-sm text-gray-600 text-center mb-1">
-          <span className="font-mono font-bold text-indigo-600">{candidate.patent_number}</span>
-        </p>
-        <p className="text-xs text-gray-500 text-center mb-5 leading-relaxed">{candidate.title}</p>
+        {phase === 'confirm' && (
+          <>
+            <div className="text-3xl mb-3 text-center">📥</div>
+            <h2 className="text-lg font-bold text-gray-900 text-center mb-1">Import Patent Record</h2>
+            <p className="text-xs text-gray-400 text-center mb-4">
+              Creates a new patent record pre-populated with research data
+            </p>
 
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5">
-          <p className="text-xs text-amber-800 font-semibold mb-1">🚧 Coming in next sprint</p>
-          <p className="text-xs text-amber-700 leading-relaxed">
-            Full import will pre-populate a new patent record from USPTO/Google Patents data —
-            title, inventors, filing date, abstract, and assignee. Available after sprint 9A.
-          </p>
-        </div>
+            <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-4 space-y-1.5">
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-xs text-gray-400 font-semibold shrink-0">Patent #</span>
+                <span className="text-xs font-mono font-bold text-indigo-700 text-right">{candidate.patent_number}</span>
+              </div>
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-xs text-gray-400 font-semibold shrink-0">Title</span>
+                <span className="text-xs text-gray-700 text-right leading-relaxed">{candidate.title}</span>
+              </div>
+              {candidate.assignee && (
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-xs text-gray-400 font-semibold shrink-0">Assignee</span>
+                  <span className="text-xs text-gray-600 text-right">{candidate.assignee}</span>
+                </div>
+              )}
+              {candidate.filing_date && (
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-xs text-gray-400 font-semibold shrink-0">Filed</span>
+                  <span className="text-xs text-gray-600">{candidate.filing_date}</span>
+                </div>
+              )}
+              <div className="pt-2 border-t border-gray-100">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-gray-400 font-semibold">Status will be set to</span>
+                  <span className="text-xs font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">
+                    Research Import
+                  </span>
+                </div>
+              </div>
+            </div>
 
-        <div className="flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            Close
-          </button>
-          <a
-            href={`https://patents.google.com/patent/${candidate.patent_number}/en`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold text-center hover:bg-indigo-700 transition-colors"
-          >
-            View on Google Patents →
-          </a>
-        </div>
+            <p className="text-xs text-gray-400 text-center mb-5 leading-relaxed">
+              You can edit all fields after import. This does not file anything with the USPTO.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleImport}
+                className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors"
+              >
+                Import &amp; View Record →
+              </button>
+            </div>
+
+            <div className="flex justify-center mt-3">
+              <a
+                href={`https://patents.google.com/patent/${candidate.patent_number}/en`}
+                target="_blank" rel="noopener noreferrer"
+                className="text-xs text-gray-400 hover:text-indigo-600 hover:underline"
+              >
+                View on Google Patents first →
+              </a>
+            </div>
+          </>
+        )}
+
+        {phase === 'importing' && (
+          <div className="text-center py-8">
+            <div className="text-3xl mb-4 animate-pulse">⚙️</div>
+            <p className="text-sm font-semibold text-gray-700">Creating patent record…</p>
+            <p className="text-xs text-gray-400 mt-1">Just a moment</p>
+          </div>
+        )}
+
+        {phase === 'success' && (
+          <>
+            <div className="text-4xl mb-3 text-center">✅</div>
+            <h2 className="text-lg font-bold text-gray-900 text-center mb-1">Imported!</h2>
+            <p className="text-xs text-gray-500 text-center mb-2">{candidate.patent_number}</p>
+            <p className="text-xs text-gray-400 text-center mb-6 leading-relaxed">
+              Patent record created with Research Import status. Add specification, claims, and drawings to continue.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50"
+              >
+                Done
+              </button>
+              {patentId && (
+                <a
+                  href={`/dashboard/patents/${patentId}`}
+                  className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold text-center hover:bg-indigo-700"
+                >
+                  View Record →
+                </a>
+              )}
+            </div>
+          </>
+        )}
+
+        {phase === 'error' && (
+          <>
+            <div className="text-4xl mb-3 text-center">⚠️</div>
+            <h2 className="text-lg font-bold text-gray-900 text-center mb-2">Import Failed</h2>
+            <p className="text-xs text-red-600 bg-red-50 rounded-lg px-4 py-2 text-center mb-5">{errorMsg}</p>
+            <div className="flex gap-3">
+              <button onClick={onClose}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                Close
+              </button>
+              <button onClick={() => setPhase('confirm')}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700">
+                Try Again
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
 }
 
 // ── Candidates table ──────────────────────────────────────────────────────────
-function CandidatesTable({ candidates }: { candidates: PatentCandidate[] }) {
+function CandidatesTable({
+  candidates,
+  runId,
+  authToken,
+}: {
+  candidates: PatentCandidate[]
+  runId:      string
+  authToken:  string
+}) {
   const [importTarget, setImportTarget] = useState<PatentCandidate | null>(null)
 
   const ORDER: Record<PatentCandidate['final_recommendation'], number> = {
@@ -120,7 +257,12 @@ function CandidatesTable({ candidates }: { candidates: PatentCandidate[] }) {
   return (
     <>
       {importTarget && (
-        <ImportModal candidate={importTarget} onClose={() => setImportTarget(null)} />
+        <ImportModal
+          candidate={importTarget}
+          runId={runId}
+          authToken={authToken}
+          onClose={() => setImportTarget(null)}
+        />
       )}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -255,7 +397,7 @@ function PhaseProgress({ query }: { query: string }) {
   )
 }
 
-function RunDetail({ run, onClose }: { run: ResearchRun; onClose: () => void }) {
+function RunDetail({ run, authToken, onClose }: { run: ResearchRun; authToken: string; onClose: () => void }) {
   const candidates = run.candidates ?? []
   const worthCount  = candidates.filter(c => c.final_recommendation === 'worth acquiring').length
   const investCount = candidates.filter(c => c.final_recommendation === 'investigate further').length
@@ -315,10 +457,10 @@ function RunDetail({ run, onClose }: { run: ResearchRun; onClose: () => void }) 
                   Candidates ({candidates.length})
                 </h3>
                 <span className="text-xs text-gray-400">
-                  Import button opens pre-fill preview (full import in sprint 9A)
+                  Import creates a patent record in your portfolio
                 </span>
               </div>
-              <CandidatesTable candidates={candidates} />
+              <CandidatesTable candidates={candidates} runId={run.id} authToken={authToken} />
             </div>
           ) : run.status === 'running' || run.status === 'pending' ? (
             <PhaseProgress query={run.query} />
@@ -343,8 +485,12 @@ export default function AdminResearchPage() {
   const [selectedRun, setSelectedRun] = useState<ResearchRun | null>(null)
 
   // Form state
+  const [searchMode, setSearchMode] = useState<'keyword' | 'patent_analysis'>('keyword')
   const [query, setQuery]     = useState('')
   const [runType, setRunType] = useState<'keyword' | 'patent_number' | 'category'>('keyword')
+  const [analysisType, setAnalysisType] = useState<'prior_art' | 'competitive' | 'acquisition'>('acquisition')
+  const [selectedPatentId, setSelectedPatentId] = useState('')
+  const [userPatents, setUserPatents] = useState<UserPatent[]>([])
   const [submitting, setSubmitting]   = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [runningMsg, setRunningMsg]   = useState('')
@@ -363,6 +509,23 @@ export default function AdminResearchPage() {
     })
     return () => subscription.unsubscribe()
   }, [router])
+
+  // ── Load user's patents for Patent Analysis mode ────────────────────────────
+  useEffect(() => {
+    if (!authToken) return
+    const loadPatents = async () => {
+      const anonClient = (await import('@/lib/supabase')).supabase
+      const { data } = await anonClient
+        .from('patents')
+        .select('id, title, filing_status, claims_draft')
+        .order('created_at', { ascending: false })
+      if (data) {
+        setUserPatents(data as UserPatent[])
+        if (data.length > 0 && !selectedPatentId) setSelectedPatentId(data[0].id)
+      }
+    }
+    loadPatents()
+  }, [authToken]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load run list ───────────────────────────────────────────────────────────
   const loadRuns = useCallback(async (token: string) => {
@@ -428,15 +591,22 @@ export default function AdminResearchPage() {
   // ── Submit new run ──────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!query.trim() || !authToken) return
+    const isPatentMode = searchMode === 'patent_analysis'
+    if (!authToken) return
+    if (!isPatentMode && !query.trim()) return
+    if (isPatentMode && !selectedPatentId) return
     setSubmitting(true)
     setSubmitError('')
     setRunningMsg('')
     try {
+      const body = isPatentMode
+        ? { run_type: 'patent_analysis', patent_id: selectedPatentId, analysis_type: analysisType, query: '' }
+        : { query: query.trim(), run_type: runType }
+
       const res = await fetch('/api/research/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ query: query.trim(), run_type: runType }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (!res.ok) { setSubmitError(data.error ?? 'Failed to start run'); return }
@@ -484,7 +654,7 @@ export default function AdminResearchPage() {
   return (
     <>
       {selectedRun && (
-        <RunDetail run={selectedRun} onClose={() => setSelectedRun(null)} />
+        <RunDetail run={selectedRun} authToken={authToken} onClose={() => setSelectedRun(null)} />
       )}
 
       <div className="min-h-screen bg-gray-50">
@@ -510,38 +680,114 @@ export default function AdminResearchPage() {
           {/* ── New Run Form ──────────────────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6">
             <h2 className="text-lg font-bold text-gray-900 mb-1">New Research Run</h2>
-            <p className="text-xs text-gray-400 mb-5">
-              Gemini 2.5 Pro scans USPTO records for abandoned/lapsed patents worth acquiring.
-              Two-phase loop: broad sweep + adversarial risk analysis. Runs in ~60 seconds.
+            <p className="text-xs text-gray-400 mb-4">
+              Gemini 2.5 Pro + CPC-filtered USPTO ODP. Phase 0: CPC lookup → Phase 1: candidate sweep → Phase 2: adversarial risk.
             </p>
 
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <div className="flex gap-3">
-                <select
-                  value={runType}
-                  onChange={e => setRunType(e.target.value as typeof runType)}
-                  className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 shrink-0"
-                >
-                  <option value="keyword">Keyword Search</option>
-                  <option value="patent_number">Patent Number</option>
-                  <option value="category">Technology Category</option>
-                </select>
-                <input
-                  type="text"
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder={RUN_PLACEHOLDERS[runType]}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                  disabled={submitting}
-                />
+            {/* Mode toggle */}
+            <div className="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1 mb-5">
+              {([['keyword', '🔍 Keyword Search'], ['patent_analysis', '🔬 Patent Analysis']] as const).map(([mode, label]) => (
                 <button
-                  type="submit"
-                  disabled={submitting || !query.trim()}
-                  className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors shrink-0"
+                  key={mode}
+                  type="button"
+                  onClick={() => setSearchMode(mode)}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                    searchMode === mode
+                      ? 'bg-white text-indigo-700 shadow-sm border border-indigo-100'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
                 >
-                  {submitting ? 'Starting…' : 'Run Research'}
+                  {label}
                 </button>
-              </div>
+              ))}
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-3">
+              {searchMode === 'keyword' ? (
+                <div className="flex gap-3">
+                  <select
+                    value={runType}
+                    onChange={e => setRunType(e.target.value as typeof runType)}
+                    className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 shrink-0"
+                  >
+                    <option value="keyword">Keyword Search</option>
+                    <option value="patent_number">Patent Number</option>
+                    <option value="category">Technology Category</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                    placeholder={RUN_PLACEHOLDERS[runType]}
+                    className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    disabled={submitting}
+                  />
+                  <button
+                    type="submit"
+                    disabled={submitting || !query.trim()}
+                    className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors shrink-0"
+                  >
+                    {submitting ? 'Starting…' : 'Run Research'}
+                  </button>
+                </div>
+              ) : (
+                /* Patent Analysis mode */
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 mb-1.5 block">Select Patent</label>
+                      {userPatents.length === 0 ? (
+                        <p className="text-xs text-gray-400 bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+                          No patents found in your portfolio
+                        </p>
+                      ) : (
+                        <select
+                          value={selectedPatentId}
+                          onChange={e => setSelectedPatentId(e.target.value)}
+                          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          disabled={submitting}
+                        >
+                          {userPatents.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.title.length > 55 ? p.title.slice(0, 55) + '…' : p.title}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-500 mb-1.5 block">Analysis Type</label>
+                      <select
+                        value={analysisType}
+                        onChange={e => setAnalysisType(e.target.value as typeof analysisType)}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        disabled={submitting}
+                      >
+                        <option value="acquisition">Acquisition Targets — find abandoned patents in your CPC class</option>
+                        <option value="prior_art">Prior Art Search — what existed before your filing</option>
+                        <option value="competitive">Competitive Landscape — who holds nearby patents</option>
+                      </select>
+                    </div>
+                  </div>
+                  {selectedPatentId && (
+                    <p className="text-xs text-gray-400 bg-indigo-50 rounded-lg px-3 py-2 border border-indigo-100">
+                      💡 Gemini will extract CPC codes and search queries from your patent's claims, then run the full 3-phase loop targeting that technology space.
+                      {!userPatents.find(p => p.id === selectedPatentId)?.claims_draft && (
+                        <span className="text-amber-600 font-semibold"> ⚠️ This patent has no claims draft — will use title as fallback query.</span>
+                      )}
+                    </p>
+                  )}
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={submitting || !selectedPatentId}
+                      className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                    >
+                      {submitting ? 'Starting…' : 'Run Analysis'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {runningMsg && !submitError && (
                 <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2 animate-pulse">
@@ -598,8 +844,12 @@ export default function AdminResearchPage() {
                           </td>
                           {/* Type */}
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                              {RUN_TYPE_LABELS[run.run_type]}
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              run.run_type === 'patent_analysis'
+                                ? 'text-purple-700 bg-purple-50 border border-purple-100'
+                                : 'text-gray-500 bg-gray-100'
+                            }`}>
+                              {RUN_TYPE_LABELS[run.run_type] ?? run.run_type}
                             </span>
                           </td>
                           {/* Status */}
