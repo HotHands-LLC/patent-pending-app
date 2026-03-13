@@ -362,36 +362,51 @@ ${worthAcquiring.slice(0, 3).map(c => `- ${c.patent_number}: ${c.title} — ${c.
 Write a concise, opinionated summary. Mention specific patents by number. Note the quality of this technology space for acquisition. Keep it under 150 words.`
 }
 
-// ── Patent analysis: extract queries + CPC codes from claims ─────────────────
+// ── Patent analysis: extract core invention + queries + CPC codes from claims ─
 function patentAnalysisExtractPrompt(
   claimsDraft: string,
   analysisType: string,
 ): string {
   const typeInstructions: Record<string, string> = {
-    prior_art:    'Focus on finding prior art — what existed before this invention was filed.',
-    competitive:  'Focus on competitive landscape — who holds patents in adjacent technology spaces.',
-    acquisition:  'Focus on acquisition targets — abandoned patents in the same CPC classes that could be acquired.',
+    prior_art:   'Focus on finding prior art — what existed before this invention was filed.',
+    competitive: 'Focus on competitive landscape — who holds patents in adjacent technology spaces.',
+    acquisition: 'Focus on acquisition targets — abandoned or lapsed patents in the same CPC classes.',
   }
   const typeNote = typeInstructions[analysisType] ?? typeInstructions.prior_art
 
-  return `You are a patent research analyst. Given the following patent claims, extract:
-1. The 3 best keyword search queries for a USPTO patent search covering this invention's core technology.
-   Queries should be specific enough to find relevant patents without being too narrow.
-2. The 2-4 most relevant CPC subclass codes for this invention.
+  return `You are a USPTO patent classification expert analyzing a patent application.
+
+Given these patent claims:
+${claimsDraft.slice(0, 4000)}
+
+Your task is to identify the CORE inventive concept — not peripheral elements, not dependent claim details.
+
+Ask yourself: "What is the single most novel thing this patent protects?"
+Look at independent claim 1. That is the broadest claim and defines the invention.
+Dependent claims add detail — do NOT use them to define the core concept.
 
 ${typeNote}
 
-Patent claims:
-${claimsDraft.slice(0, 4000)}
-
-Return ONLY this JSON:
+Return as JSON only:
 {
-  "queries": ["query one", "query two", "query three"],
-  "cpc_codes": [
-    { "cpc_code": "H04B10/11", "description": "...", "relevance_reason": "..." }
+  "core_invention": "One sentence: the primary novel concept from independent claim 1 — what makes this invention different from everything before it",
+  "primary_use_case": "Who uses this and what problem does it solve (one sentence)",
+  "queries": [
+    "most specific query targeting the primary mechanism of claim 1",
+    "medium specificity query — broader but still on-target",
+    "broad category query for the technology space"
   ],
-  "primary_query": "the single best query for this search"
-}`
+  "cpc_codes": [
+    { "cpc_code": "G06F3/01", "description": "...", "relevance_reason": "directly covers the primary mechanism from claim 1" }
+  ],
+  "primary_query": "the single best USPTO search query derived from independent claim 1"
+}
+
+IMPORTANT:
+- core_invention must come from independent claim 1, not a dependent claim
+- Do NOT extract peripheral elements (sensors, materials, packaging) as the core concept
+- queries[0] must be directly searchable in USPTO and return relevant prior art
+- Return ONLY the JSON object, no preamble`
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -427,20 +442,30 @@ export async function runGeminiResearch(
         try {
           const extractText = await callGemini(patentAnalysisExtractPrompt(patent.claims_draft, analysisType))
           const extracted = extractJSON(extractText) as {
-            queries?: string[]
-            cpc_codes?: CpcCode[]
-            primary_query?: string
+            core_invention?:  string
+            primary_use_case?: string
+            queries?:         string[]
+            cpc_codes?:       CpcCode[]
+            primary_query?:   string
           }
+
+          const coreInvention  = extracted?.core_invention  ?? null
+          const primaryUseCase = extracted?.primary_use_case ?? null
 
           // Override Phase 0 entirely — we have patent-specific CPC codes + query
           const extractedCpcCodes = Array.isArray(extracted?.cpc_codes) ? extracted.cpc_codes as CpcCode[] : []
           const primaryQuery      = extracted?.primary_query ?? extracted?.queries?.[0] ?? query
 
+          console.log(`[research:${runId}] Patent Analysis — core_invention: "${coreInvention}"`)
           console.log(`[research:${runId}] Patent Analysis — primary query: "${primaryQuery}", CPCs: ${extractedCpcCodes.map(c => c.cpc_code).join(', ')}`)
 
-          // Update the run with the derived query (so UI shows meaningful label)
-          const displayQuery = `${patent.title} — ${analysisType.replace('_', ' ')}: ${primaryQuery}`
-          await updateRun({ query: displayQuery })
+          // Update the run with the derived query + core_invention for debugging
+          const displayQuery = `${patent.title} — ${analysisType.replace(/_/g, ' ')}: ${primaryQuery}`
+          await updateRun({
+            query: displayQuery,
+            // Store as extra metadata on the summary field (pre-result, overwritten later)
+            summary: coreInvention ? `Core invention: ${coreInvention}${primaryUseCase ? ` | Use case: ${primaryUseCase}` : ''}` : null,
+          })
 
           // Skip Phase 0 and go straight to ODP with extracted CPC codes
           let odpCandidates: OdpPatent[] = []
@@ -518,14 +543,21 @@ export async function runGeminiResearch(
             summary = `Patent analysis for "${patent.title}" (${analysisType.replace('_', ' ')}) complete. ${candidates.length} candidates analyzed; ${worthCount} flagged as worth acquiring.`
           }
 
+          // Prepend core_invention to summary so it surfaces in UI
+          const fullSummary = [
+            coreInvention  ? `**Core invention:** ${coreInvention}` : null,
+            primaryUseCase ? `**Use case:** ${primaryUseCase}` : null,
+            summary || null,
+          ].filter(Boolean).join('\n\n')
+
           await updateRun({
             status:       'complete',
             candidates,
-            summary,
+            summary:      fullSummary,
             completed_at: new Date().toISOString(),
           })
 
-          console.log(`[research:${runId}] ✅ Patent Analysis complete — ${candidates.length} candidates`)
+          console.log(`[research:${runId}] ✅ Patent Analysis complete — core: "${coreInvention}" | CPCs: ${extractedCpcCodes.map(c => c.cpc_code).join(', ')} | ${candidates.length} candidates`)
           return
 
         } catch (e) {
