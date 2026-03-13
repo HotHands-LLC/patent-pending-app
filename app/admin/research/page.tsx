@@ -667,6 +667,8 @@ export default function AdminResearchPage() {
             <div className="flex items-center gap-3">
               <span className="font-bold text-lg">⚖️ PatentPending</span>
               <span className="text-gray-400 text-xs">›</span>
+              <Link href="/admin" className="text-gray-300 hover:text-white text-sm transition-colors">Admin</Link>
+              <span className="text-gray-400 text-xs">›</span>
               <span className="text-sm font-semibold">Patent Research</span>
               <span className="text-xs bg-red-700 text-red-100 px-2 py-0.5 rounded-full font-bold ml-1">ADMIN</span>
             </div>
