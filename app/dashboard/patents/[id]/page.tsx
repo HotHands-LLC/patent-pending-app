@@ -1565,14 +1565,21 @@ export default function PatentDetail() {
                   {(patent as Patent & { arc3_active?: boolean }).arc3_active ? (
                     <div>
                       <div className="text-xs text-green-700 font-semibold mb-2">✅ Deal page active</div>
-                      <a
-                        href={`/patents/${arc3Slug ?? (patent as Patent & { slug?: string }).slug ?? patent.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-indigo-600 underline block mb-2"
-                      >
-                        View public deal page →
-                      </a>
+                      {(() => {
+                        const mktSlug = (patent as Record<string, unknown>).marketplace_slug as string | null
+                        return mktSlug ? (
+                          <a
+                            href={`/marketplace/${mktSlug}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-indigo-600 underline block mb-2"
+                          >
+                            View public deal page →
+                          </a>
+                        ) : (
+                          <span className="text-xs text-gray-400 block mb-2">Set a marketplace slug to enable the public deal page</span>
+                        )
+                      })()}
                       {/* Research plan trigger */}
                       {(() => {
                         const researchStatus = (patent as Patent & { marketplace_research_status?: string }).marketplace_research_status

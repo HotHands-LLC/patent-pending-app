@@ -430,10 +430,10 @@ export default function MarketplaceDealClient({ patent }: { patent: DealPatent }
             </div>
           </div>
 
-          {/* ── Section 3: Watch Overview ─────────────────────────────── */}
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Watch Overview</h2>
-            {embedUrl ? (
+          {/* ── Section 3: Watch Overview (only when URL is set) ─────── */}
+          {embedUrl && (
+            <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Watch Overview</h2>
               <iframe
                 src={embedUrl}
                 title="Patent Overview"
@@ -441,13 +441,8 @@ export default function MarketplaceDealClient({ patent }: { patent: DealPatent }
                 className="w-full aspect-video rounded-lg"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               />
-            ) : (
-              <div className="w-full aspect-video rounded-lg bg-gray-50 border border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400">
-                <div className="text-4xl mb-3">🎬</div>
-                <p className="text-sm font-medium">Video walkthrough coming soon.</p>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* ── Section 2: Technology Brief ──────────────────────────── */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8">
