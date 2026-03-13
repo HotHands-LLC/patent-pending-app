@@ -207,6 +207,54 @@ function CandidatesTable({ candidates }: { candidates: PatentCandidate[] }) {
 }
 
 // ── Run detail panel ──────────────────────────────────────────────────────────
+// ── Phase progress indicator (running state) ─────────────────────────────────
+const PHASES = [
+  { label: 'CPC Classification', delay: 0 },
+  { label: 'Patent Sweep',       delay: 15 },
+  { label: 'Risk Analysis',      delay: 35 },
+]
+
+function PhaseProgress({ query }: { query: string }) {
+  const [activePhase, setActivePhase] = useState(0)
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = []
+    PHASES.forEach((phase, i) => {
+      if (i === 0) { setActivePhase(0); return }
+      timers.push(setTimeout(() => setActivePhase(i), phase.delay * 1000))
+    })
+    return () => timers.forEach(clearTimeout)
+  }, [])
+
+  return (
+    <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
+      <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Running</p>
+      <p className="text-sm font-semibold text-gray-800 mb-8">"{query || 'Research run'}"</p>
+
+      <div className="flex flex-col items-center gap-3 mb-8">
+        {PHASES.map((phase, i) => {
+          const done   = i < activePhase
+          const active = i === activePhase
+          return (
+            <div key={phase.label} className="flex items-center gap-3">
+              <span className={`text-lg transition-all ${done ? 'text-green-500' : active ? 'text-yellow-500 animate-pulse' : 'text-gray-300'}`}>
+                {done ? '✓' : active ? '●' : '○'}
+              </span>
+              <span className={`text-sm font-medium transition-colors ${
+                done ? 'text-green-700' : active ? 'text-yellow-700' : 'text-gray-400'
+              }`}>
+                {phase.label}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-xs text-gray-400 animate-pulse">Gemini is researching — refreshing every 5 seconds…</p>
+    </div>
+  )
+}
+
 function RunDetail({ run, onClose }: { run: ResearchRun; onClose: () => void }) {
   const candidates = run.candidates ?? []
   const worthCount  = candidates.filter(c => c.final_recommendation === 'worth acquiring').length
@@ -217,8 +265,8 @@ function RunDetail({ run, onClose }: { run: ResearchRun; onClose: () => void }) 
     : null
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto">
-      <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-5xl my-6">
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[88vh]">
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
           <div>
@@ -234,7 +282,7 @@ function RunDetail({ run, onClose }: { run: ResearchRun; onClose: () => void }) 
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 overflow-y-auto flex-1">
           {/* Stats strip */}
           {candidates.length > 0 && (
             <div className="grid grid-cols-3 gap-4">
@@ -273,10 +321,7 @@ function RunDetail({ run, onClose }: { run: ResearchRun; onClose: () => void }) 
               <CandidatesTable candidates={candidates} />
             </div>
           ) : run.status === 'running' || run.status === 'pending' ? (
-            <div className="text-center py-12 text-gray-400 bg-white rounded-xl border border-gray-200">
-              <div className="text-4xl mb-3">⚙️</div>
-              <p className="text-sm font-medium animate-pulse">Gemini is researching — refreshing every 5 seconds…</p>
-            </div>
+            <PhaseProgress query={run.query} />
           ) : run.status === 'failed' ? (
             <div className="text-center py-12 bg-red-50 rounded-xl border border-red-100">
               <p className="text-sm text-red-600 font-medium">Research run failed.</p>
