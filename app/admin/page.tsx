@@ -394,6 +394,12 @@ export default function AdminPage() {
             >
               <span className="mr-2">🎯</span>Marketplace Leads
             </Link>
+            <Link
+              href="/admin/research"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50"
+            >
+              <span className="mr-2">🔬</span>Patent Research
+            </Link>
           </div>
         </nav>
 

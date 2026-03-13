@@ -229,7 +229,7 @@ function RunDetail({ run, onClose }: { run: ResearchRun; onClose: () => void }) 
               <span className="text-xs text-gray-400">{RUN_TYPE_LABELS[run.run_type]}</span>
               {elapsed && <span className="text-xs text-gray-400">{elapsed}s</span>}
             </div>
-            <h2 className="font-bold text-gray-900 mt-0.5">"{run.query}"</h2>
+            <h2 className="font-bold text-gray-900 mt-0.5">"{run.query || 'Untitled Run'}"</h2>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
@@ -549,7 +549,7 @@ export default function AdminResearchPage() {
                         <tr key={run.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
                           {/* Query */}
                           <td className="px-4 py-3 max-w-xs">
-                            <span className="font-medium text-gray-900 line-clamp-1">"{run.query}"</span>
+                            <span className="font-medium text-gray-900 line-clamp-1">"{run.query || 'Untitled Run'}"</span>
                           </td>
                           {/* Type */}
                           <td className="px-4 py-3 whitespace-nowrap">
@@ -580,10 +580,12 @@ export default function AdminResearchPage() {
                           </td>
                           {/* Started */}
                           <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-400">
-                            {new Date(run.created_at).toLocaleDateString('en-US', {
-                              month: 'short', day: 'numeric',
-                              hour: '2-digit', minute: '2-digit'
-                            })}
+                            {run.created_at
+                              ? new Date(run.created_at).toLocaleDateString('en-US', {
+                                  month: 'short', day: 'numeric',
+                                  hour: '2-digit', minute: '2-digit'
+                                })
+                              : '—'}
                           </td>
                           {/* Actions */}
                           <td className="px-4 py-3 whitespace-nowrap">

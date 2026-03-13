@@ -40,9 +40,12 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
 
   const body = await req.json().catch(() => ({}))
-  const { query, run_type } = body as { query?: string; run_type?: string }
+  const { query: rawQuery, run_type } = body as { query?: string; run_type?: string }
 
-  if (!query?.trim()) {
+  // Strip surrounding quotes the user may have typed (e.g. "light-based communication")
+  const query = rawQuery?.trim().replace(/^["']|["']$/g, '').trim()
+
+  if (!query) {
     return NextResponse.json({ error: 'query is required' }, { status: 400 })
   }
   if (!['keyword', 'patent_number', 'category'].includes(run_type ?? '')) {
@@ -53,7 +56,7 @@ export async function POST(req: NextRequest) {
   const { data: run, error } = await supabaseService
     .from('research_runs')
     .insert({
-      query:      query.trim(),
+      query,
       run_type,
       status:     'pending',
       created_by: user.id,
@@ -66,7 +69,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Kick off async Gemini loop — doesn't block response
-  waitUntil(runGeminiResearch(run.id, query.trim(), run_type!))
+  waitUntil(runGeminiResearch(run.id, query, run_type!))
 
   return NextResponse.json({ run_id: run.id, status: 'pending' })
 }
