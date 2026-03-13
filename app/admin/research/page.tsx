@@ -402,8 +402,11 @@ function RunDetail({ run, authToken, onClose }: { run: ResearchRun; authToken: s
   const worthCount  = candidates.filter(c => c.final_recommendation === 'worth acquiring').length
   const investCount = candidates.filter(c => c.final_recommendation === 'investigate further').length
   const noiseCount  = candidates.filter(c => c.final_recommendation === 'noise').length
-  const elapsed = run.completed_at
-    ? Math.round((new Date(run.completed_at).getTime() - new Date(run.created_at).getTime()) / 1000)
+  const elapsed = (run.completed_at && run.created_at)
+    ? (() => {
+        const ms = new Date(run.completed_at).getTime() - new Date(run.created_at).getTime()
+        return isNaN(ms) || ms < 0 ? null : Math.round(ms / 1000)
+      })()
     : null
 
   return (
@@ -419,7 +422,7 @@ function RunDetail({ run, authToken, onClose }: { run: ResearchRun; authToken: s
               <span className="text-xs text-gray-400">{RUN_TYPE_LABELS[run.run_type]}</span>
               {elapsed && <span className="text-xs text-gray-400">{elapsed}s</span>}
             </div>
-            <h2 className="font-bold text-gray-900 mt-0.5">"{run.query || 'Untitled Run'}"</h2>
+            <h2 className="font-bold text-gray-900 mt-0.5">"{run?.query || 'Research Results'}"</h2>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>

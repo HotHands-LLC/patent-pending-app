@@ -1118,6 +1118,38 @@ export default function PatentDetail() {
           <span className="text-[#1a1f36] truncate">{patent.title}</span>
         </div>
 
+        {/* Research Import banner */}
+        {patent.status === 'research_import' && (
+          <div className="mb-5 bg-purple-50 border border-purple-200 rounded-xl px-5 py-4 flex items-start gap-3">
+            <span className="text-2xl flex-shrink-0">🔬</span>
+            <div>
+              <p className="text-sm font-bold text-purple-800">Research Import — Not a Filed Patent</p>
+              <p className="text-xs text-purple-700 mt-0.5 leading-relaxed">
+                This record was imported from the autoresearch tool for analysis purposes. It has{' '}
+                <strong>not been filed</strong> with the USPTO and is not part of your active portfolio.
+                Edit the record, add specification and claims, and change the status to begin a real filing.
+              </p>
+              <div className="flex gap-3 mt-2.5 flex-wrap">
+                <Link
+                  href="/admin/research"
+                  className="text-xs font-semibold text-purple-700 hover:text-purple-900 underline underline-offset-2"
+                >
+                  ← Back to Research Tool
+                </Link>
+                <span className="text-xs text-purple-400">|</span>
+                <a
+                  href={`https://patents.google.com/patent/${patent.patent_number ?? ''}/en`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-semibold text-purple-700 hover:text-purple-900 underline underline-offset-2"
+                >
+                  View Original on Google Patents →
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header — BUG 2 FIX: inline title editing */}
         <div className="flex items-start justify-between mb-4 sm:mb-6 gap-3">
           <div className="flex-1 min-w-0">

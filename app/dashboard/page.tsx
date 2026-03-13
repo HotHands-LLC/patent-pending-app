@@ -58,7 +58,7 @@ export default function Dashboard() {
       }
 
       const [{ data: p }, { data: d }] = await Promise.all([
-        supabase.from('patents').select('*').order('provisional_deadline', { ascending: true }),
+        supabase.from('patents').select('*').neq('status', 'research_import').order('provisional_deadline', { ascending: true }),
         supabase.from('patent_deadlines')
           .select('*, patents(title)')
           .eq('status', 'pending')

@@ -27,7 +27,9 @@ export default function PatentsPage() {
       const user = session?.user
       if (session?.access_token) setAuthToken(session.access_token)
       if (!user) { router.push('/login'); return }
-      const { data } = await supabase.from('patents').select('*').order('provisional_deadline', { ascending: true })
+      const { data } = await supabase.from('patents').select('*')
+        .neq('status', 'research_import')
+        .order('provisional_deadline', { ascending: true })
       setPatents(data || [])
       setLoading(false)
     }
