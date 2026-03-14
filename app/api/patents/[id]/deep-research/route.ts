@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { stripLlmAttribution, researchReportTitle } from '@/lib/ai-utils'
+import { logAiUsage } from '@/lib/ai-budget'
 
 export const maxDuration = 300 // 5 min max — Gemini Pro can take 2-3 min
 import { createClient } from '@supabase/supabase-js'
@@ -262,6 +263,15 @@ ${claimsInput}`
       .eq('patent_id', patentId)
       .order('created_at', { ascending: false })
       .limit(1)
+
+    // Log to ai_token_usage (account-level budget tracking, feature = 'deep_research')
+    await logAiUsage(supabaseService, {
+      userId:     userId,
+      patentId,
+      feature:    'deep_research',
+      tokensUsed: inputTok + outputTok,
+      model:      'gemini-2.5-pro',
+    })
 
     if (userEmail) {
       const appUrl  = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'

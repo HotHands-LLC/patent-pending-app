@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { getUserTierInfo, isPro, tierRequiredResponse } from '@/lib/tier'
 import { getUserTier, isTierPro } from '@/lib/subscription'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
+import { logAiUsage } from '@/lib/ai-budget'
 
 export const maxDuration = 300
 
@@ -210,6 +211,15 @@ ${claimsDraft.slice(0, 5000)}`
       .eq('patent_id', patentId)
       .order('created_at', { ascending: false })
       .limit(1)
+
+    // Also log to ai_token_usage (account-level budget tracking, feature = 'pattie_polish')
+    await logAiUsage(supabaseService, {
+      userId:     (await supabaseService.from('patents').select('owner_id').eq('id', patentId).single()).data?.owner_id ?? '',
+      patentId,
+      feature:    'pattie_polish',
+      tokensUsed: inputTok + outputTok,
+      model:      'claude-sonnet-4-6',
+    })
 
     // Send completion email via Resend
     if (ownerEmail && process.env.RESEND_API_KEY) {
