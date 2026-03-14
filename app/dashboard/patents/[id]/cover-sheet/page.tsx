@@ -210,9 +210,10 @@ export default function CoverSheetPage() {
           phone:          defaultContact?.phone || profile?.phone || '',
           email:          defaultContact?.email || profile?.email || '',
         },
+        entity_status:    (p.entity_status as 'micro' | 'small' | 'large' | null) ?? 'small',
         signature:        `/${sigStr}/`,
         signature_date:   todayShort,
-        customer_number:  profile?.uspto_customer_number ?? '',
+        customer_number:  (p as Record<string,unknown>).uspto_customer_number as string ?? profile?.uspto_customer_number ?? '',
         assignee_name:    profile?.default_assignee_name ?? '',
         assignee_address: profile?.default_assignee_address ?? '',
       }))
@@ -510,7 +511,18 @@ export default function CoverSheetPage() {
           <div className="text-xs font-sans text-gray-500 mb-2 uppercase tracking-wider">Entity Status</div>
           {(['micro', 'small', 'large'] as const).map(status => (
             <div key={status}
-              onClick={() => setForm(prev => ({ ...prev, entity_status: status }))}
+              onClick={async () => {
+                setForm(prev => ({ ...prev, entity_status: status }))
+                // Persist to DB so it's remembered across sessions
+                const { data: { session } } = await supabase.auth.getSession()
+                if (session?.access_token) {
+                  fetch(`/api/patents/${patentId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                    body: JSON.stringify({ entity_status: status }),
+                  }).catch(() => {/* non-blocking */})
+                }
+              }}
               className="flex items-start gap-3 mb-2 cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1 print:cursor-default print:hover:bg-transparent"
             >
               <span className="font-bold text-lg leading-none mt-0.5 select-none">

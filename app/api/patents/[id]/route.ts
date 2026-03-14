@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { computeIpReadinessScore } from '@/lib/ip-readiness'
+import { evaluatePatentPhase } from '@/lib/filing-pipeline'
 
 const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,6 +39,12 @@ const ALLOWED_UPDATE_FIELDS = [
   'youtube_embed_url',       // text — YouTube embed for deal page video
   'ip_readiness_score',      // integer 0-100 — computed readiness
   'is_locked',               // patent lock — read-only for everyone when true
+  'entity_status',           // micro | small | large — persisted from cover sheet
+  'claims_draft',            // allow Pattie suggest_field_update to PATCH this
+  'background',              // spec section
+  'summary_of_invention',    // spec section
+  'detailed_description',    // spec section
+  'brief_description_of_drawings', // spec section
 ] as const
 
 type AllowedField = typeof ALLOWED_UPDATE_FIELDS[number]
@@ -133,6 +140,10 @@ export async function PATCH(
     // GA4 Measurement Protocol — server-side filing_completed event
     waitUntil(trackFilingCompleted(user.id, id))
   }
+
+  // ── Filing pipeline: auto-advance phase if conditions met ─────────────────
+  // Run asynchronously — never blocks the PATCH response
+  waitUntil(evaluatePatentPhase(id, supabaseService))
 
   return NextResponse.json(updated)
 }

@@ -117,6 +117,23 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // ── Resolve owner display name for to_party (Bug fix: was hardcoded 'Hot Hands IP, LLC') ──
+  let ownerDisplayName = 'Patent Owner'
+  try {
+    const { data: ownerProfile } = await supabaseService
+      .from('patent_profiles')
+      .select('full_name, name_first, name_last, default_assignee_name')
+      .eq('id', patent.owner_id)
+      .single()
+    if (ownerProfile) {
+      ownerDisplayName =
+        ownerProfile.default_assignee_name ||
+        ownerProfile.full_name ||
+        [ownerProfile.name_first, ownerProfile.name_last].filter(Boolean).join(' ') ||
+        'Patent Owner'
+    }
+  } catch { /* non-blocking — use default */ }
+
   // ── Per-email-per-patent rate limit (3 max) ──────────────────────────────
   const { count: existingCount } = await supabaseService
     .from('marketplace_leads')
@@ -166,7 +183,7 @@ export async function POST(req: NextRequest) {
       content:             `Why interested: ${cleanWhy}${cleanPhone ? `\nPhone: ${cleanPhone}` : ''}`,
       type:                'marketplace_inquiry',
       from_party:          `${cleanName}${companyStr}`,
-      to_party:            'Hot Hands IP, LLC',
+      to_party:            ownerDisplayName,
       correspondence_date: new Date().toISOString(),
       tags:                ['marketplace', 'inquiry', cleanInterest, 'pending'],
     })
