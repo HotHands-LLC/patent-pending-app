@@ -144,7 +144,7 @@ export default function PricingPage() {
             <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
                 'Deep Research Pass (12 min)',
-                'AI Refinement Pass',
+                'Pattie Polish',
                 'Unlimited revision rounds',
                 'Prior art search report',
                 'Attorney-quality spec drafting',

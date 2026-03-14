@@ -53,6 +53,39 @@ const REVISION_CHIPS = [
   { id: 'custom', label: 'Custom note…' },
 ]
 
+// ── Research Report Viewer ────────────────────────────────────────────────────
+const RESEARCH_PREVIEW_CHARS = 500
+function ResearchReportViewer({ content, metadata }: { content: string; metadata: Record<string, unknown> | null }) {
+  const [expanded, setExpanded] = React.useState(false)
+  const isLong = content.length > RESEARCH_PREVIEW_CHARS
+  const displayContent = expanded || !isLong ? content : content.slice(0, RESEARCH_PREVIEW_CHARS) + '…'
+  const generatedAt = metadata?.generated_at as string | undefined
+  return (
+    <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/50 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border-b border-indigo-100">
+        <span className="text-sm">🔬</span>
+        <span className="text-xs font-bold text-indigo-700 uppercase tracking-wide">AI Research Report</span>
+        {generatedAt && (
+          <span className="ml-auto text-xs text-indigo-400">
+            {new Date(generatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </span>
+        )}
+      </div>
+      <div className="p-4 text-sm text-gray-800 prose prose-sm prose-headings:text-[#1a1f36] prose-headings:font-bold prose-h2:text-base prose-h2:mt-4 prose-h2:mb-2 max-w-none">
+        <ReactMarkdown>{displayContent}</ReactMarkdown>
+      </div>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="w-full text-xs text-indigo-600 hover:text-indigo-800 py-2 border-t border-indigo-100 hover:bg-indigo-50 transition-colors font-medium"
+        >
+          {expanded ? 'Show less ▲' : 'View full report ▾'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Filing readiness score card ───────────────────────────────────────────────
 function ScoreCard({ score }: { score: ClaimsScore }) {
   const readinessColor = score.provisional_ready ? '#059669' : '#d97706'
@@ -132,7 +165,7 @@ function ProBadge({ patentId }: { patentId: string }) {
         <ul className="space-y-2 mb-4">
           {[
             'Deep Research Pass (12 min)',
-            'AI Refinement Pass',
+            'Pattie Polish',
             'Unlimited revision rounds',
           ].map(f => (
             <li key={f} className="text-xs text-gray-600 flex items-center gap-2">
@@ -1669,7 +1702,7 @@ export default function PatentDetail() {
             <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
               <h3 className="text-lg font-bold text-[#1a1f36] mb-1">Before you approve — AI Refinement available</h3>
               <p className="text-sm text-gray-600 mb-4">
-                An AI Refinement Pass has already run on these claims. You can review the language improvements before locking them in. This won't change your inventive concepts — just sharpen the legal wording.
+                An Pattie Polish has already run on these claims. You can review the language improvements before locking them in. This won't change your inventive concepts — just sharpen the legal wording.
               </p>
               <div className="flex flex-col gap-3">
                 <button
@@ -1871,7 +1904,7 @@ export default function PatentDetail() {
                 </div>
                 <p className="text-amber-700 text-sm font-semibold mb-1">
                   {patent.claims_status === 'refining'
-                    ? 'AI Refinement Pass in progress…'
+                    ? 'Pattie Polish in progress…'
                     : patent.claims_status === 'generating'
                     ? 'Deep Research Pass in progress…'
                     : 'Generating your claims draft…'}
@@ -2010,12 +2043,12 @@ export default function PatentDetail() {
                     {(patent.claims_status as string) === 'refining' ? (
                       <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-sm font-semibold">
                         <span className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                        Refinement in progress…
+                        Pattie is polishing…
                       </div>
                     ) : (
                       <button
                         onClick={async () => {
-                          if (!confirm('Run AI Refinement Pass? Our AI will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
+                          if (!confirm('Run Pattie Polish? Our AI will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
                           const res = await fetch(`/api/patents/${patent.id}/refine-claims`, {
                             method: 'POST',
                             headers: { Authorization: `Bearer ${authToken}` },
@@ -2025,13 +2058,13 @@ export default function PatentDetail() {
                             if (res.status === 403 && d.code === 'TIER_REQUIRED') { setUpgradeFeature(d.feature ?? 'claims_edit'); return }
                             showToast(d.error ?? 'Failed')
                           } else {
-                            showToast("✨ Refinement started — we'll email you when done (~2-3 min)")
+                            showToast("✨ Pattie Polish started — we'll email you when done (~2-3 min)")
                             setPatent(prev => prev ? { ...prev, claims_status: 'refining' } : null)
                           }
                         }}
                         className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors"
                       >
-                        ✨ AI Refinement Pass
+                        ✨ Pattie Polish
                         <span className="text-xs bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
                       </button>
                     )}
@@ -2214,7 +2247,7 @@ export default function PatentDetail() {
                 {patent.filing_status === 'approved' && (patent.claims_status as string) === 'refined' && (patent as any).claims_draft_pre_refine && (
                   <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-5">
                     <p className="text-sm font-semibold text-indigo-900 mb-1">AI Refinement applied — review before re-approving</p>
-                    <p className="text-xs text-indigo-700 mb-4">The AI Refinement Pass ran after you approved. Review the before/after above, then re-approve or revert to your original claims.</p>
+                    <p className="text-xs text-indigo-700 mb-4">The Pattie Polish ran after you approved. Review the before/after above, then re-approve or revert to your original claims.</p>
                     <div className="flex flex-col sm:flex-row gap-3">
                       <button
                         onClick={() => refinementAction('accept')}
@@ -2924,9 +2957,7 @@ export default function PatentDetail() {
                         {item.content && (
                           item.type === 'ai_research'
                             ? (
-                              <div className="mt-3 p-4 bg-gray-50 rounded-lg text-sm text-gray-800 prose prose-sm prose-headings:text-[#1a1f36] prose-headings:font-bold prose-h2:text-base prose-h2:mt-5 prose-h2:mb-2 prose-ul:my-1 prose-li:my-0.5 max-w-none">
-                                <ReactMarkdown>{item.content}</ReactMarkdown>
-                              </div>
+                              <ResearchReportViewer content={item.content} metadata={!Array.isArray(item.attachments) && item.attachments ? (item.attachments as unknown) as Record<string, unknown> : null} />
                             )
                             : <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap">{item.content}</div>
                         )}

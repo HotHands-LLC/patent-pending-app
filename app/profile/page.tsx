@@ -456,7 +456,7 @@ export default function ProfilePage() {
                         ['Filings',            '$49 each',      'Unlimited'],
                         ['Revisions',          '2 per patent',  'Unlimited'],
                         ['Deep Research Pass', '—',             '✅'],
-                        ['AI Refinement Pass', '—',             '✅'],
+                        ['Pattie Polish', '—',             '✅'],
                         ['Co-inventors',       '—',             '✅'],
                         ['AI Figure Generation','—',            '✅'],
                       ].map(([feat, free, pro]) => (

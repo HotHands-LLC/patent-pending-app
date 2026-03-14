@@ -33,7 +33,7 @@ export async function POST(
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({
-      error: 'AI Refinement Pass is not yet configured.',
+      error: 'Pattie Polish is not yet configured.',
       detail: 'ANTHROPIC_API_KEY environment variable is missing.',
     }, { status: 503 })
   }
@@ -49,7 +49,7 @@ export async function POST(
   const tier = await getUserTier(user.id)
   if (!isTierPro(tier)) {
     return NextResponse.json({
-      error: 'AI Refinement Pass requires PatentPending Pro',
+      error: 'Pattie Polish requires PatentPending Pro',
       upgrade_url: '/pricing',
     }, { status: 403 })
   }
@@ -71,7 +71,7 @@ export async function POST(
 
   if (!patent.claims_draft) return NextResponse.json({ error: 'No claims draft to refine' }, { status: 400 })
   if (patent.claims_status === 'refining') {
-    return NextResponse.json({ error: 'A refinement pass is already in progress' }, { status: 409 })
+    return NextResponse.json({ error: 'Pattie Polish is already in progress' }, { status: 409 })
   }
 
   // Get owner email
@@ -221,7 +221,7 @@ ${claimsDraft.slice(0, 5000)}`
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
   <h2 style="color:#4f46e5">Your claims have been refined ✨</h2>
   <p>Hi ${ownerName},</p>
-  <p>AI has completed a precision language refinement pass on the claims for <strong>${title}</strong>.</p>
+  <p>Pattie has completed a Polish pass on the claims for <strong>${title}</strong>.</p>
   <p>What was improved:</p>
   <ul>
     <li>Antecedent basis verified for all dependent claim elements</li>

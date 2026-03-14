@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
+import { stripLlmAttribution, researchReportTitle } from '@/lib/ai-utils'
 
 export const maxDuration = 300 // 5 min max — Gemini Pro can take 2-3 min
 import { createClient } from '@supabase/supabase-js'
@@ -222,6 +223,28 @@ ${claimsInput}`
     const outputTok = data?.usageMetadata?.candidatesTokenCount ?? 0
     const cost      = (inputTok * COST_PER_M_INPUT + outputTok * COST_PER_M_OUTPUT) / 1_000_000
     console.log(`[deep-research] ✅ staged patent=${patentId} tokens=${inputTok}+${outputTok} cost=$${cost.toFixed(4)} analysis=${analysisSection.length}chars claims=${claimsSection.length}chars`)
+
+    // Save research report to patent_correspondence — LLM attribution stripped, non-blocking
+    const cleanedContent = stripLlmAttribution(stagedContent)
+    void supabaseService.from('patent_correspondence').insert({
+      patent_id:           patentId,
+      owner_id:            userId,
+      title:               researchReportTitle('deep_research'),
+      type:                'ai_research',
+      content:             cleanedContent,
+      from_party:          'PatentPending AI',
+      correspondence_date: new Date().toISOString().split('T')[0],
+      tags:                ['research_report', 'deep_research', 'ai_generated'],
+      attachments: {
+        query_used:    'Deep Research Pass (prior art + adversarial + claim strengthening)',
+        phases_run:    ['prior_art_sweep', 'adversarial_pass', 'claim_strengthening'],
+        generated_at:  new Date().toISOString(),
+        feature:       'deep_research',
+        tokens_input:  inputTok,
+        tokens_output: outputTok,
+        cost_usd:      cost,
+      },
+    }).then(({ error }) => { if (error) console.error('[deep-research] correspondence save failed:', error) })
 
     await supabaseService
       .from('patents')

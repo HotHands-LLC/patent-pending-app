@@ -101,7 +101,7 @@ export async function PATCH(req: NextRequest) {
   <p>Your PatentPending account has been upgraded to Pro — compliments of the PatentPending team.</p>
   <ul>
     <li><strong>Deep Research Pass</strong> — prior art analysis to strengthen your claims</li>
-    <li><strong>AI Refinement Pass</strong> — USPTO-precision language polish</li>
+    <li><strong>Pattie Polish</strong> — USPTO-precision language polish</li>
     <li><strong>Unlimited revision rounds</strong></li>
     <li><strong>AI Figure Generation</strong> — USPTO-style technical drawings</li>
   </ul>
