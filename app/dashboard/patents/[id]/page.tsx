@@ -675,6 +675,7 @@ export default function PatentDetail() {
   const [isPro, setIsPro] = useState(false)
   const [isAttorney, setIsAttorney] = useState(false)
   const [upgradeFeature, setUpgradeFeature] = useState<string | null>(null)
+  const [budgetWarning, setBudgetWarning] = useState<string | null>(null)
   const [figureUrls, setFigureUrls] = useState<Array<{ number: number; label: string; filename: string; url: string }>>([])
   const [figuresLoaded, setFiguresLoaded] = useState(false)
   const [userEmail, setUserEmail] = useState('')
@@ -2018,9 +2019,23 @@ export default function PatentDetail() {
                 {/* Pro AI passes — shown for Pro users, clickable */}
                 {!claimsReadOnly && (
                   <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3">
+                    {/* Budget warning banner — soft nudge only, never a blocker */}
+                    {budgetWarning && (
+                      <div className="w-full rounded-md bg-yellow-50 border border-yellow-200 px-4 py-2 text-sm text-yellow-800">
+                        ⚠️ {budgetWarning}
+                      </div>
+                    )}
                     <button
                       onClick={async () => {
                         if (!confirm('Run Deep Research Pass? Our AI will analyze prior art and strengthen your claims. This takes 8–12 minutes — we\'ll email you when done.')) return
+                        // Budget check — soft warning only, never a blocker
+                        const budgetRes = await fetch(`/api/budget/check`, {
+                          headers: { Authorization: `Bearer ${authToken}` },
+                        }).catch(() => null)
+                        if (budgetRes?.ok) {
+                          const bd = await budgetRes.json()
+                          if (bd.warning) setBudgetWarning(bd.warning)
+                        }
                         const res = await fetch(`/api/patents/${patent.id}/deep-research`, {
                           method: 'POST',
                           headers: { Authorization: `Bearer ${authToken}` },
@@ -2049,6 +2064,14 @@ export default function PatentDetail() {
                       <button
                         onClick={async () => {
                           if (!confirm('Run Pattie Polish? Our AI will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
+                          // Budget check — soft warning only, never a blocker
+                          const budgetRes = await fetch(`/api/budget/check`, {
+                            headers: { Authorization: `Bearer ${authToken}` },
+                          }).catch(() => null)
+                          if (budgetRes?.ok) {
+                            const bd = await budgetRes.json()
+                            if (bd.warning) setBudgetWarning(bd.warning)
+                          }
                           const res = await fetch(`/api/patents/${patent.id}/refine-claims`, {
                             method: 'POST',
                             headers: { Authorization: `Bearer ${authToken}` },
