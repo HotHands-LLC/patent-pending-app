@@ -1376,6 +1376,7 @@ export default function PatentDetail() {
                     { label: 'Status', key: 'status', value: patent.status },
                     { label: 'Provisional Number', key: 'provisional_number', value: patent.provisional_number || '—' },
                     { label: 'Application Number', key: 'application_number', value: patent.application_number || '—' },
+                    { label: 'USPTO Customer #', key: 'uspto_customer_number', value: (patent as Record<string, unknown>).uspto_customer_number as string || '—' },
                     { label: 'Filing Date', key: 'filing_date', value: patent.filing_date ? new Date(patent.filing_date + 'T00:00:00').toLocaleDateString() : '—' },
                     { label: 'Provisional Deadline', key: 'provisional_deadline', value: patent.provisional_deadline ? new Date(patent.provisional_deadline + 'T00:00:00').toLocaleDateString() : '—' },
                     { label: 'Inventors', key: 'inventors', value: patent.inventors?.join(', ') || '—' },
