@@ -91,6 +91,14 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await userClient.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Check pattie_intro_shown for first-run disclosure
+  const { data: profileRow } = await supabaseService
+    .from('patent_profiles')
+    .select('pattie_intro_shown')
+    .eq('id', user.id)
+    .single()
+  const introShown = (profileRow as Record<string,unknown>)?.pattie_intro_shown === true
+
   // Tier gate — Pro or complimentary only
   const tierInfo = await getUserTierInfo(user.id)
   if (!isPro(tierInfo, { isOwner: true, feature: 'pattie_interview' })) {
@@ -126,7 +134,9 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 2048,
-      system: SYSTEM_PROMPT,
+      system: SYSTEM_PROMPT + (!introShown
+        ? '\nFIRST-TIME USER: After generating the patent draft JSON, also include a key "intro_note" with the value: "By the way, you can turn my suggestions on or off in your Profile settings." — but only in the JSON response, not as a separate sentence.'
+        : ''),
       messages: [{ role: 'user', content: buildUserPrompt(answers) }],
     }),
   })
@@ -149,6 +159,15 @@ export async function POST(req: NextRequest) {
     tokensUsed: inputTok + outputTok,
     model:      'claude-sonnet-4-6',
   })
+
+  // Flip pattie_intro_shown after first Pattie interaction (non-blocking)
+  if (!introShown) {
+    void supabaseService
+      .from('patent_profiles')
+      .update({ pattie_intro_shown: true })
+      .eq('id', user.id)
+      .then(({ error }) => { if (error) console.error('[interview-draft] intro_shown update failed:', error) })
+  }
 
   // Parse JSON response (strip markdown fences if present)
   let draft: DraftResult

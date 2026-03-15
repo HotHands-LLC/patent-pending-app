@@ -24,6 +24,7 @@ interface Profile {
   firm_name: string | null
   bar_state: string | null
   attorney_tos_accepted_at: string | null
+  pattie_guidance: boolean
 }
 
 interface Contact {
@@ -519,6 +520,43 @@ export default function ProfilePage() {
                 className="mt-2 inline-block text-blue-700 hover:underline font-medium">
                 Learn more at USPTO.gov →
               </a>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* ── Section E+: Pattie AI Preferences ──────────────────────────────── */}
+      <div className="max-w-3xl mx-auto px-4 pb-4">
+        <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+            <h2 className="text-sm font-bold text-[#1a1f36] uppercase tracking-wider">Pattie AI Assistant</h2>
+          </div>
+          <div className="px-6 py-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold text-[#1a1f36]">Pattie guidance</div>
+                <div className="text-xs text-gray-400 mt-0.5">Show Pattie suggestions on empty fields throughout your patents</div>
+              </div>
+              <button
+                onClick={async () => {
+                  const newVal = !profile.pattie_guidance
+                  setProfile(prev => prev ? { ...prev, pattie_guidance: newVal } : null)
+                  const res = await fetch('/api/users/profile', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                    body: JSON.stringify({ pattie_guidance: newVal }),
+                  })
+                  if (!res.ok) {
+                    setProfile(prev => prev ? { ...prev, pattie_guidance: !newVal } : null)
+                    showToast('⚠️ Save failed')
+                  }
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${profile.pattie_guidance ? 'bg-[#4f46e5]' : 'bg-gray-200'}`}
+                role="switch"
+                aria-checked={profile.pattie_guidance}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${profile.pattie_guidance ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
             </div>
           </div>
         </section>

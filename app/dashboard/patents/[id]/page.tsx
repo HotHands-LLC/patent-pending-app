@@ -94,6 +94,7 @@ function PattieCTACard({
   isPro,
   onUpgrade,
   patentId,
+  pattieGuidance = true,
 }: {
   headline: string
   body: string
@@ -101,7 +102,12 @@ function PattieCTACard({
   isPro: boolean
   onUpgrade?: () => void
   patentId?: string
+  /** When false, render nothing — user has turned off Pattie guidance */
+  pattieGuidance?: boolean
 }) {
+  // Outer gate: if user has disabled guidance, show nothing at all
+  if (!pattieGuidance) return null
+
   if (!isPro) {
     return (
       <div className="my-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
@@ -302,6 +308,7 @@ function AbstractField({
   onUpdate,
   isPro,
   onPattieClick,
+  pattieGuidance = true,
 }: {
   patent: Patent
   authToken: string
@@ -309,6 +316,7 @@ function AbstractField({
   onUpdate: (val: string | null) => void
   isPro?: boolean
   onPattieClick?: () => void
+  pattieGuidance?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(patent.abstract_draft ?? '')
@@ -404,6 +412,7 @@ function AbstractField({
                 headline="No abstract yet"
                 body="Pattie can draft your abstract from your spec and claims."
                 isPro={isPro ?? false}
+                pattieGuidance={pattieGuidance}
                 onAskPattie={onPattieClick}
               />
             )}
@@ -935,6 +944,7 @@ export default function PatentDetail() {
   const [ownerId, setOwnerId] = useState('')
   const [authToken, setAuthToken] = useState('')
   const [isPro, setIsPro] = useState(false)
+  const [pattieGuidance, setPattieGuidance] = useState(true)
   const [isAttorney, setIsAttorney] = useState(false)
   const [upgradeFeature, setUpgradeFeature] = useState<string | null>(null)
   const [budgetWarning, setBudgetWarning] = useState<string | null>(null)
@@ -992,7 +1002,7 @@ export default function PatentDetail() {
       supabase.from('patent_deadlines').select('*').eq('patent_id', id).order('due_date', { ascending: true }),
       supabase.from('patent_correspondence').select('*').eq('patent_id', id).order('correspondence_date', { ascending: false }),
       supabase.from('patents').select('*').order('title'),
-      supabase.from('patent_profiles').select('subscription_status,subscription_period_end,is_attorney').eq('id', user.id).single(),
+      supabase.from('patent_profiles').select('subscription_status,subscription_period_end,is_attorney,pattie_guidance').eq('id', user.id).single(),
     ])
 
     // Determine Pro status from fresh DB read (not stale session token)
@@ -1002,6 +1012,8 @@ export default function PatentDetail() {
       (status === 'pro' && (!periodEnd || new Date(periodEnd) > new Date()))
     setIsPro(proActive)
     setIsAttorney(profileData?.is_attorney ?? false)
+    // Pattie guidance preference (default true if column not present)
+    setPattieGuidance((profileData as Record<string,unknown>)?.pattie_guidance !== false)
 
     if (!p) { router.push('/dashboard/patents'); return }
 
@@ -2268,6 +2280,7 @@ export default function PatentDetail() {
                   headline="Claims need attention"
                   body="Your patent's strength lives in its claims. Pattie can help you build a complete claim set."
                   isPro={isPro}
+                  pattieGuidance={pattieGuidance}
                   onAskPattie={() => openPattieWithPrompt('Help me build a stronger claim set for my patent. Start with the independent claim and suggest dependent claims that broaden protection.')}
                 />
               </div>
@@ -2777,6 +2790,7 @@ export default function PatentDetail() {
                           headline="Spec needs work"
                           body="A strong specification protects your claims. Pattie can help you develop it."
                           isPro={isPro}
+                          pattieGuidance={pattieGuidance}
                           onAskPattie={() => openPattieWithPrompt(guide.pattiePrompt!)}
                         />
                       )}
@@ -3010,6 +3024,7 @@ export default function PatentDetail() {
                 canWrite={canWrite}
                 onUpdate={(val) => setPatent(prev => prev ? { ...prev, abstract_draft: val } : null)}
                 isPro={isPro}
+                pattieGuidance={pattieGuidance}
                 onPattieClick={canWrite ? () => openPattieWithPrompt('Please draft a USPTO-compliant abstract for my patent based on the spec and claims.') : undefined}
               />
             )}
