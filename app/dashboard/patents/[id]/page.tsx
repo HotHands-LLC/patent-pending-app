@@ -41,7 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads'
+type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'marketplace'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -362,11 +362,13 @@ function MarketplaceSettingsCard({
   authToken,
   canWrite,
   onUpdate,
+  fullPage = false,
 }: {
   patent: Patent
   authToken: string
   canWrite: boolean
   onUpdate: (fields: Partial<Record<string, unknown>>) => void
+  fullPage?: boolean
 }) {
   const [open, setOpen]           = useState(false)
   const [saving, setSaving]       = useState(false)
@@ -451,6 +453,208 @@ function MarketplaceSettingsCard({
 
   const isListed = !!(patent as Record<string, unknown>).marketplace_enabled
   const liveSlug = (patent as Record<string, unknown>).marketplace_slug as string | null
+
+  // Full-page mode: always expanded, no collapsible header, section titles
+  if (fullPage) {
+    return (
+      <div className="space-y-6">
+        {/* ── Section 1: Listing Status ─────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center justify-between mb-1">
+            <div>
+              <div className="text-sm font-bold text-[#1a1f36]">🏪 List on Marketplace</div>
+              <div className="text-xs text-gray-400 mt-0.5">Make this patent discoverable to licensees and buyers</div>
+            </div>
+            <button
+              onClick={() => canWrite && setMktEnabled(e => !e)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${mktEnabled ? 'bg-purple-600' : 'bg-gray-200'} ${!canWrite ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${mktEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+          {!mktEnabled && (
+            <div className="mt-3 p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-700">
+              💡 <strong>Want Pattie to help you prepare this patent for market?</strong> She can draft your brief and suggest a price range. Enable listing above, then open Pattie chat.
+            </div>
+          )}
+        </div>
+
+        {mktEnabled && (
+          <>
+        {/* ── Section 2: Public Deal Page ───────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+          <div className="text-sm font-bold text-[#1a1f36] mb-1">🔗 Public Deal Page</div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Marketplace Slug</label>
+            <div className="flex gap-2 items-center">
+              <span className="text-xs text-gray-400 whitespace-nowrap">patentpending.app/marketplace/</span>
+              <input
+                disabled={!canWrite}
+                value={slug}
+                onChange={e => setSlug(e.target.value)}
+                onFocus={autoSlug}
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+                placeholder="e.g. light-communication-system"
+              />
+            </div>
+            {slug && <div className="text-xs text-gray-500 mt-1 font-mono bg-gray-50 rounded px-2 py-1">patentpending.app/marketplace/{slug}</div>}
+            {liveSlug && (
+              <div className="flex items-center gap-3 mt-2">
+                <a href={`/marketplace/${liveSlug}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-purple-600 hover:underline font-medium">
+                  View deal page →
+                </a>
+                <button
+                  onClick={() => navigator.clipboard.writeText(`https://patentpending.app/marketplace/${liveSlug}`)}
+                  className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-2 py-0.5"
+                >
+                  Copy URL
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Section 3: Listing Details ────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div className="text-sm font-bold text-[#1a1f36] mb-1">📋 Listing Details</div>
+
+          {/* Brief */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Deal Page Brief</label>
+            <p className="text-xs text-gray-400 mb-1.5">Describe your patent for potential licensees — what problem does it solve, who needs it?</p>
+            <textarea
+              disabled={!canWrite}
+              value={brief}
+              onChange={e => setBrief(e.target.value)}
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-y focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+              placeholder="Describe the technology and its applications in plain language…"
+            />
+            {!brief && canWrite && (
+              <p className="text-xs text-indigo-600 mt-1">
+                💡 Need help writing your brief?{' '}
+                <span className="underline cursor-pointer">Ask Pattie →</span>
+              </p>
+            )}
+          </div>
+
+          {/* Price */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Asking Price / Terms</label>
+            <input
+              disabled={!canWrite}
+              value={price}
+              onChange={e => setPrice(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+              placeholder='e.g. "$50K–$200K" or "Open to offers"'
+            />
+            {!price && <p className="text-xs text-gray-400 mt-1">Leave blank for "Contact for pricing". Not sure? Pattie can suggest a range.</p>}
+          </div>
+
+          {/* YouTube */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Demo URL <span className="font-normal text-gray-400">(optional)</span></label>
+            <input
+              disabled={!canWrite}
+              value={youtubeUrl}
+              onChange={e => setYoutubeUrl(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+              placeholder="https://www.youtube.com/watch?v=..."
+            />
+            {youtubeUrl && (() => {
+              const m = youtubeUrl.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
+              return m ? <p className="text-xs text-green-600 mt-1">✓ Valid YouTube URL (ID: {m[1]})</p>
+                       : <p className="text-xs text-amber-500 mt-1">⚠ Could not detect YouTube video ID</p>
+            })()}
+          </div>
+
+          {/* Tags */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Technology Tags <span className="font-normal text-gray-400">(max 5)</span></label>
+            <div className={`flex flex-wrap gap-1.5 items-center min-h-[38px] px-3 py-1.5 border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-purple-300`}>
+              {mktTags.map(t => (
+                <span key={t} className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full border border-indigo-100">
+                  #{t}
+                  {canWrite && <button type="button" onClick={() => setMktTags(tags => tags.filter(x => x !== t))} className="text-indigo-400 hover:text-indigo-700 leading-none">×</button>}
+                </span>
+              ))}
+              {canWrite && mktTags.length < 5 && (
+                <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleTagKeyDown} onBlur={() => tagInput && addTag(tagInput)}
+                  className="flex-1 min-w-[80px] text-sm outline-none bg-transparent py-0.5"
+                  placeholder={mktTags.length === 0 ? 'e.g. IoT, energy, wireless…' : ''} />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Section 4: IP Readiness Score ─────────────────────────────────── */}
+        {(() => {
+          const scoreInput = {
+            provisional_filed_at: (patent as Record<string, unknown>).provisional_filed_at as string | null,
+            filing_status: (patent as Record<string, unknown>).filing_status as string | null,
+            spec_draft: (patent as Record<string, unknown>).spec_draft as string | null,
+            claims_draft: (patent as Record<string, unknown>).claims_draft as string | null,
+            abstract_draft: (patent as Record<string, unknown>).abstract_draft as string | null,
+            figures: (patent as Record<string, unknown>).figures as unknown[] | null,
+            deal_page_brief: brief,
+            marketplace_tags: mktTags,
+            asking_price_range: price || null,
+          }
+          const score = computeIpReadinessScore(scoreInput)
+          const criteria = getIpReadinessCriteria(scoreInput)
+          return (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-sm font-bold text-[#1a1f36]">📊 IP Readiness Score</div>
+                  <div className="text-xs text-gray-400 mt-0.5">How ready this patent is for licensing or sale</div>
+                </div>
+                <span className={`text-xl font-extrabold ${score >= 70 ? 'text-green-600' : score >= 40 ? 'text-yellow-500' : 'text-red-500'}`}>
+                  {score}/100
+                </span>
+              </div>
+              <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-4">
+                <div
+                  className={`h-full rounded-full transition-all ${score >= 70 ? 'bg-green-500' : score >= 40 ? 'bg-yellow-400' : 'bg-red-400'}`}
+                  style={{ width: `${score}%` }}
+                />
+              </div>
+              <div className="space-y-1 mb-3">
+                {criteria.map(c => (
+                  <div key={c.label} className="flex items-center justify-between text-xs">
+                    <span className={c.met ? 'text-gray-700' : 'text-gray-400'}>{c.met ? '✅' : '❌'} {c.label}</span>
+                    <span className={c.met ? 'text-green-600 font-semibold' : 'text-gray-300'}>+{c.points}</span>
+                  </div>
+                ))}
+              </div>
+              {score < 70 && (
+                <div className="text-xs text-indigo-600 mt-2">
+                  💡 Pattie can suggest improvements to raise your IP Readiness Score. Open Pattie chat →
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
+        {/* ── Section 5: Save ────────────────────────────────────────────────── */}
+        {canWrite && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-6 py-2.5 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save Marketplace Settings'}
+            </button>
+            {saved && <span className="text-sm text-green-600 font-medium">✓ Saved</span>}
+          </div>
+        )}
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className={`bg-white rounded-xl border overflow-hidden mt-4 ${isListed ? 'border-purple-200' : 'border-gray-200'}`}>
@@ -1352,10 +1556,11 @@ export default function PatentDetail() {
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
           const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
-          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement'] as Tab[])
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement', 'marketplace'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
+              if (t === 'marketplace') return !isCollaborator
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               return canView(t)
@@ -1403,6 +1608,7 @@ export default function PatentDetail() {
                     )}
                   </span>
                 ) : t === 'enhancement' ? '✨ Enhancement'
+                : t === 'marketplace' ? '🏪 Marketplace'
                 : t === 'details' ? 'Overview'
                 : 'Details'
               }
@@ -1892,6 +2098,20 @@ export default function PatentDetail() {
               setTab('leads')
             }}
           />
+        )}
+
+
+        {/* ── MARKETPLACE TAB ─────────────────────────────────────────────────── */}
+        {tab === 'marketplace' && !isCollaborator && (
+          <div className="space-y-0">
+            <MarketplaceSettingsCard
+              patent={patent}
+              authToken={authToken}
+              canWrite={canWrite}
+              onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
+              fullPage
+            />
+          </div>
         )}
 
         {/* ── LEADS TAB ───────────────────────────────────────────────────────── */}
@@ -3043,15 +3263,7 @@ export default function PatentDetail() {
         )}
 
         {/* Save/cancel when editing details */}
-        {/* ── MARKETPLACE SETTINGS (Overview tab, owner only) ─────────────────── */}
-        {tab === 'details' && !isCollaborator && (
-          <MarketplaceSettingsCard
-            patent={patent}
-            authToken={authToken}
-            canWrite={canWrite}
-            onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
-          />
-        )}
+        {/* Marketplace moved to dedicated tab — see tab === 'marketplace' above */}
 
         {tab === 'details' && editing && (
           <div className="mt-4 flex gap-3">
