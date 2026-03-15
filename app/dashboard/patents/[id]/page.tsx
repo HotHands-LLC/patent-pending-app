@@ -950,6 +950,8 @@ export default function PatentDetail() {
   const [budgetWarning, setBudgetWarning] = useState<string | null>(null)
   const [figureUrls, setFigureUrls] = useState<Array<{ number: number; label: string; filename: string; url: string }>>([])
   const [figuresLoaded, setFiguresLoaded] = useState(false)
+  const [figureDescriptions, setFigureDescriptions] = useState<Record<string, string>>({})
+  const [figureDescSaving, setFigureDescSaving] = useState<Record<string, 'saving' | 'saved' | null>>({})
   const [userEmail, setUserEmail] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollStartRef = useRef<number | null>(null)
@@ -1103,6 +1105,11 @@ export default function PatentDetail() {
       }).catch(() => setFiguresLoaded(true))
     } else {
       setFiguresLoaded(true)
+    }
+
+    // Load existing figure descriptions from patent record
+    if (p?.figure_descriptions) {
+      setFigureDescriptions(p.figure_descriptions as Record<string, string>)
     }
   }
 
@@ -3038,8 +3045,8 @@ export default function PatentDetail() {
                   {/* Figures info CTA — shown when no figures */}
                   {!patent.figures_uploaded && (
                     <div className="mb-3 p-4 bg-gray-50 border border-dashed border-gray-300 rounded-xl">
-                      <p className="text-sm font-semibold text-gray-700 mb-1">📐 No figures uploaded</p>
-                      <p className="text-xs text-gray-500">Figures aren&apos;t required for a provisional, but they strengthen your application. Add one and Pattie can help write the description.</p>
+                      <p className="text-sm font-semibold text-gray-700 mb-1">📐 No figures yet</p>
+                      <p className="text-xs text-gray-500">Figures strengthen your application. Upload one and Pattie can help write USPTO-compliant descriptions.</p>
                     </div>
                   )}
                   {/* AI Generate Figures — Pro */}
@@ -3085,29 +3092,70 @@ export default function PatentDetail() {
                           ⬇ Download All
                         </a>
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {figureUrls.map(fig => (
-                          <div key={fig.number} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
-                            <a href={fig.url} target="_blank" rel="noreferrer" className="block">
-                              <img
-                                src={fig.url}
-                                alt={fig.label}
-                                className="w-full h-32 object-contain bg-gray-50 hover:opacity-90 transition-opacity"
-                                loading="lazy"
-                              />
-                            </a>
-                            <div className="px-2 py-1.5 flex items-center justify-between">
-                              <span className="text-xs font-medium text-gray-700">{fig.label}</span>
-                              <a
-                                href={fig.url}
-                                download={fig.filename}
-                                className="text-xs text-indigo-600 hover:underline"
-                              >
-                                ⬇
-                              </a>
+                      <div className="space-y-3">
+                        {figureUrls.map(fig => {
+                          const desc = figureDescriptions[fig.filename] ?? ''
+                          const saveStatus = figureDescSaving[fig.filename]
+                          async function saveDesc(value: string) {
+                            setFigureDescSaving(s => ({ ...s, [fig.filename]: 'saving' }))
+                            try {
+                              await fetch(`/api/patents/${patent!.id}/figure-description`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                                body: JSON.stringify({ filename: fig.filename, description: value }),
+                              })
+                              setFigureDescriptions(d => ({ ...d, [fig.filename]: value }))
+                              setFigureDescSaving(s => ({ ...s, [fig.filename]: 'saved' }))
+                              setTimeout(() => setFigureDescSaving(s => ({ ...s, [fig.filename]: null })), 2000)
+                            } catch {
+                              setFigureDescSaving(s => ({ ...s, [fig.filename]: null }))
+                            }
+                          }
+                          return (
+                            <div key={fig.number} className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                              <div className="flex gap-3 p-3">
+                                <a href={fig.url} target="_blank" rel="noreferrer" className="flex-shrink-0">
+                                  <img
+                                    src={fig.url}
+                                    alt={fig.label}
+                                    className="w-24 h-20 object-contain bg-gray-50 rounded border border-gray-100 hover:opacity-90 transition-opacity"
+                                    loading="lazy"
+                                  />
+                                </a>
+                                <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-semibold text-gray-700">{fig.label}</span>
+                                    <a href={fig.url} download={fig.filename} className="text-xs text-indigo-500 hover:underline">⬇</a>
+                                  </div>
+                                  {/* Description input */}
+                                  <input
+                                    type="text"
+                                    defaultValue={desc}
+                                    placeholder={`e.g. FIG. ${fig.number} is a perspective view of the mounting assembly.`}
+                                    onBlur={e => { if (e.target.value !== desc) saveDesc(e.target.value) }}
+                                    className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder-gray-300"
+                                  />
+                                  <div className="flex items-center gap-2 min-h-[16px]">
+                                    {saveStatus === 'saved' && (
+                                      <span className="text-[10px] text-green-600 font-medium">Saved ✓</span>
+                                    )}
+                                    {saveStatus === 'saving' && (
+                                      <span className="text-[10px] text-gray-400">Saving…</span>
+                                    )}
+                                    {!saveStatus && !desc && pattieGuidance && canWrite && (
+                                      <button
+                                        onClick={() => openPattieWithPrompt(`Please write a USPTO-compliant figure description for FIG. ${fig.number}. The figure is from the patent: "${patent.title}". Format: "FIG. ${fig.number} is a [view type] of [description]."`)}
+                                        className="text-[10px] text-indigo-500 hover:underline font-medium"
+                                      >
+                                        Ask Pattie to describe this figure →
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   )}
