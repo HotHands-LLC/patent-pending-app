@@ -136,7 +136,17 @@ export async function POST(
     return new Response(JSON.stringify({ error: 'Patent not found' }), { status: 404 })
   }
   if (patent.owner_id !== user.id) {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })
+    // Allow collaborators — check patent_collaborators for accepted invite
+    const { data: collab } = await supabaseService
+      .from('patent_collaborators')
+      .select('id, role')
+      .eq('patent_id', patentId)
+      .eq('user_id', user.id)
+      .not('accepted_at', 'is', null)
+      .single()
+    if (!collab) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })
+    }
   }
 
   // ── Tier gate ─────────────────────────────────────────────────────────────
