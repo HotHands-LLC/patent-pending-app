@@ -81,6 +81,32 @@ function TypingDots() {
   )
 }
 
+// ── Contextual thinking status messages ─────────────────────────────────────
+function getThinkingMessages(text: string): string[] {
+  const t = text.toLowerCase()
+  if (/\bclaim|independent|dependent|prior art|claim set/.test(t))
+    return ['Reading your claims…', 'Checking claim structure…', 'Drafting claim language…']
+  if (/\bspec|description|embodiment|figure|drawing/.test(t))
+    return ['Reviewing your specification…', 'Analyzing technical details…', 'Drafting description…']
+  if (/\babstract/.test(t))
+    return ['Reading your abstract…', 'Checking USPTO format…', 'Drafting abstract…']
+  if (/\bsearch|prior art|novel|similar|patent landscape/.test(t))
+    return ['Thinking through prior art…', 'Reviewing patent landscape…', 'Checking novelty…']
+  return ['Reading your patent…', 'Thinking…', 'Drafting response…']
+}
+
+function ThinkingChip({ status }: { status: string }) {
+  return (
+    <div className="flex justify-start items-end gap-2 mb-1">
+      <PattieAvatar size={26} />
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-full text-xs text-indigo-600 font-medium animate-pulse">
+        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDuration: '0.8s' }} />
+        {status}
+      </div>
+    </div>
+  )
+}
+
 // ── Suggestion Card ────────────────────────────────────────────────────────────
 function SuggestionCard({
   suggestion,
@@ -212,7 +238,9 @@ export default function PattieChatDrawer({
   const [streaming, setStreaming]  = useState(false)
   const [error, setError]         = useState('')
   const [closePending, setClosePending] = useState(false)   // close warning dialog
-  const [summaryToast, setSummaryToast] = useState<'saving' | 'saved' | null>(null)
+  const [summaryToast, setSummaryToast] = useState<'saving' | 'saved' | 'error' | null>(null)
+  const [thinkingStatus, setThinkingStatus] = useState<string | null>(null)
+  const thinkingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
   const abortRef  = useRef<AbortController | null>(null)
@@ -244,10 +272,14 @@ export default function PattieChatDrawer({
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ messages: plainMsgs, patent_title: patentTitle }),
-    }).then(() => {
+    }).then(r => {
+      if (!r.ok) throw new Error('save failed')
       setSummaryToast('saved')
-      setTimeout(() => { setSummaryToast(null); onClose() }, 1500)
-    }).catch(() => { setSummaryToast(null); onClose() })
+      setTimeout(() => { setSummaryToast(null); onClose() }, 2000)
+    }).catch(() => {
+      setSummaryToast('error')
+      setTimeout(() => { setSummaryToast(null); onClose() }, 2000)
+    })
   }, [authToken, patentId, patentTitle, onClose])
 
   // ── Close handler (checks for pending suggestions) ────────────────────────
@@ -307,6 +339,16 @@ export default function PattieChatDrawer({
     setMessages(prev => [...prev, userMsg])
     setStreaming(true)
 
+    // Start thinking status rotation
+    const thinkingMsgs = getThinkingMessages(text)
+    let thinkIdx = 0
+    setThinkingStatus(thinkingMsgs[0])
+    if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current)
+    thinkingTimerRef.current = setInterval(() => {
+      thinkIdx = (thinkIdx + 1) % thinkingMsgs.length
+      setThinkingStatus(thinkingMsgs[thinkIdx])
+    }, 2500)
+
     // Add empty assistant bubble
     setMessages(prev => [...prev, { role: 'assistant', content: '', suggestionState: undefined }])
 
@@ -350,6 +392,9 @@ export default function PattieChatDrawer({
 
             // Text delta
             if (parsed.text) {
+              // First token — clear thinking status
+              if (thinkingTimerRef.current) { clearInterval(thinkingTimerRef.current); thinkingTimerRef.current = null }
+              setThinkingStatus(null)
               setMessages(prev => {
                 const copy = [...prev]
                 const last = copy[copy.length - 1]
@@ -388,6 +433,9 @@ export default function PattieChatDrawer({
         return copy
       })
     } finally {
+      // Clear thinking status
+      if (thinkingTimerRef.current) { clearInterval(thinkingTimerRef.current); thinkingTimerRef.current = null }
+      setThinkingStatus(null)
       // Auto-save completed assistant message
       setMessages(prev => {
         const last = prev[prev.length - 1]
@@ -533,6 +581,14 @@ export default function PattieChatDrawer({
             </div>
           )}
 
+          {/* Thinking status chip — shows before first stream token */}
+          {thinkingStatus && !streaming && (
+            <ThinkingChip status={thinkingStatus} />
+          )}
+          {thinkingStatus && streaming && (
+            <ThinkingChip status={thinkingStatus} />
+          )}
+
           {error && (
             <div className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
               ⚠️ {error}
@@ -576,9 +632,16 @@ export default function PattieChatDrawer({
       </div>
 
       {/* ── Summary saving toast ─────────────────────────────────────────── */}
+      {/* Summary saving toast — bottom-right, non-blocking */}
       {summaryToast && (
-        <div className="fixed bottom-20 right-6 z-[60] bg-[#1a1f36] text-white text-xs font-medium px-4 py-2 rounded-xl shadow-lg">
-          {summaryToast === 'saving' ? '🦞 Saving conversation summary…' : '✓ Saved to Correspondence'}
+        <div className={`fixed bottom-6 right-6 z-[60] text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg transition-all ${
+          summaryToast === 'saving' ? 'bg-[#1a1f36] text-white' :
+          summaryToast === 'saved'  ? 'bg-green-600 text-white' :
+          'bg-gray-100 text-gray-500'
+        }`}>
+          {summaryToast === 'saving' ? '🦞 Saving conversation summary…' :
+           summaryToast === 'saved'  ? '✓ Saved to Correspondence' :
+           'Couldn\'t save summary'}
         </div>
       )}
 

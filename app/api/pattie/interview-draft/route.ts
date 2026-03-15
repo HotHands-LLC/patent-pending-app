@@ -125,6 +125,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 })
   }
 
+  // Check for optional prior patent_id to inject existing correspondence
+  let priorCorrespondenceContext = ''
+  const patentId = (await req.clone().json().catch(() => ({})) as Record<string,unknown>).patent_id as string | undefined
+  if (patentId) {
+    const { data: priorCorr } = await supabaseService
+      .from('patent_correspondence')
+      .select('type, title, content, correspondence_date')
+      .eq('patent_id', patentId)
+      .in('type', ['pattie_session', 'ai_research', 'boclaw_note'])
+      .order('created_at', { ascending: false })
+      .limit(3)
+    if (priorCorr?.length) {
+      priorCorrespondenceContext = '\n\n## Prior Work on This Patent\n' +
+        priorCorr.map(c =>
+          `[${c.correspondence_date}] ${c.type.toUpperCase()} — ${c.title}\n${(c.content ?? '').slice(0, 600)}`
+        ).join('\n\n---\n\n')
+    }
+  }
+
   // Call Claude Sonnet
   const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -136,7 +155,7 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 2048,
-      system: SYSTEM_PROMPT + (!introShown
+      system: SYSTEM_PROMPT + priorCorrespondenceContext + (!introShown
         ? '\nFIRST-TIME USER: After generating the patent draft JSON, also include a key "intro_note" with the value: "By the way, you can turn my suggestions on or off in your Profile settings." — but only in the JSON response, not as a separate sentence.'
         : ''),
       messages: [{ role: 'user', content: buildUserPrompt(answers) }],
