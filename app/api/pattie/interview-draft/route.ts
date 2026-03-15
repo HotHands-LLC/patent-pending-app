@@ -210,6 +210,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: insertErr.message }, { status: 500 })
   }
 
+  // Save interview Q&A to patent_correspondence (non-blocking)
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const interviewContent = [
+    `## Pattie Interview — ${dateStr}`,
+    `**Patent:** ${draft.title}`,
+    '',
+    '### Inventor Answers',
+    `**What does it do?**\n${answers.what_it_does}`,
+    `**Problem solved:**\n${answers.problem_solved}`,
+    `**How it works:**\n${answers.how_it_works}`,
+    `**What makes it different:**\n${answers.what_makes_different}`,
+    `**Inventors:** ${answers.inventors}`,
+    `**Has figures:** ${answers.has_figures ? 'Yes' : 'No'}`,
+    '',
+    '### Extracted Draft',
+    `**Title:** ${draft.title}`,
+    draft.abstract_draft ? `**Abstract:** ${draft.abstract_draft}` : '',
+    draft.tags?.length ? `**Tags:** ${(draft.tags as string[]).join(', ')}` : '',
+  ].filter(Boolean).join('\n\n')
+
+  void supabaseService.from('patent_correspondence').insert({
+    patent_id:           patent.id,
+    owner_id:            user.id,
+    title:               `Pattie Interview — ${dateStr}`,
+    type:                'pattie_session',
+    content:             interviewContent,
+    from_party:          'Pattie (PatentPending AI)',
+    correspondence_date: new Date().toISOString().split('T')[0],
+    tags:                ['pattie_interview', 'pattie_session'],
+  }).then(({ error }) => { if (error) console.error('[interview-draft] correspondence save failed:', error) })
+
   return NextResponse.json({
     ok:       true,
     patent_id: patent.id,

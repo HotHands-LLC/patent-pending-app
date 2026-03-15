@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Suggestion {
@@ -211,12 +211,56 @@ export default function PattieChatDrawer({
   const [input, setInput]         = useState('')
   const [streaming, setStreaming]  = useState(false)
   const [error, setError]         = useState('')
+  const [closePending, setClosePending] = useState(false)   // close warning dialog
+  const [summaryToast, setSummaryToast] = useState<'saving' | 'saved' | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
   const abortRef  = useRef<AbortController | null>(null)
   const initialPromptFiredRef = useRef(false)
+  // Session ID: stable per drawer open
+  const sessionId = useMemo(() => crypto.randomUUID(), [])
 
   const isFirstMessage = messages.length === 0
+
+  // ── Auto-save a single message (fire-and-forget) ──────────────────────────
+  const saveMessage = useCallback((role: 'user' | 'assistant', content: string) => {
+    if (!authToken || !content.trim()) return
+    fetch(`/api/patents/${patentId}/chat-messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ session_id: sessionId, role, content }),
+    }).catch(() => {/* non-blocking */})
+  }, [authToken, patentId, sessionId])
+
+  // ── Session summary on close (if 3+ exchanges) ────────────────────────────
+  const saveSummaryAndClose = useCallback(async (msgs: Message[]) => {
+    const exchanges = msgs.filter(m => !m.suggestion || m.suggestionState !== 'pending').length
+    if (exchanges < 3) { onClose(); return }
+
+    setSummaryToast('saving')
+    const plainMsgs = msgs.map(m => ({ role: m.role, content: m.content }))
+
+    fetch(`/api/patents/${patentId}/chat-summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ messages: plainMsgs, patent_title: patentTitle }),
+    }).then(() => {
+      setSummaryToast('saved')
+      setTimeout(() => { setSummaryToast(null); onClose() }, 1500)
+    }).catch(() => { setSummaryToast(null); onClose() })
+  }, [authToken, patentId, patentTitle, onClose])
+
+  // ── Close handler (checks for pending suggestions) ────────────────────────
+  const handleClose = useCallback(() => {
+    const hasPendingSuggestions = messages.some(
+      m => m.suggestion && m.suggestionState === 'pending'
+    )
+    if (hasPendingSuggestions) {
+      setClosePending(true)
+    } else {
+      saveSummaryAndClose(messages)
+    }
+  }, [messages, saveSummaryAndClose])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streaming])
   useEffect(() => { inputRef.current?.focus() }, [])
@@ -256,6 +300,8 @@ export default function PattieChatDrawer({
     setInput('')
     setError('')
     const userMsg: Message = { role: 'user', content: text }
+    // Auto-save user message
+    saveMessage('user', text)
     // Strip suggestion/state from messages when building API payload
     const apiMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
     setMessages(prev => [...prev, userMsg])
@@ -342,11 +388,19 @@ export default function PattieChatDrawer({
         return copy
       })
     } finally {
+      // Auto-save completed assistant message
+      setMessages(prev => {
+        const last = prev[prev.length - 1]
+        if (last?.role === 'assistant' && last.content) {
+          saveMessage('assistant', last.content)
+        }
+        return prev
+      })
       setStreaming(false)
       abortRef.current = null
       setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }, [input, messages, streaming, patentId, authToken, onTierRequired])
+  }, [input, messages, streaming, patentId, authToken, onTierRequired, saveMessage])
 
   // Auto-fire initialPrompt as first message (only once on open)
   useEffect(() => {
@@ -378,7 +432,7 @@ export default function PattieChatDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/30 z-40 sm:hidden" onClick={onClose} aria-hidden />
+      <div className="fixed inset-0 bg-black/30 z-40 sm:hidden" onClick={handleClose} aria-hidden />
       <div
         className="fixed inset-0 z-50 flex flex-col bg-white shadow-2xl sm:inset-auto sm:right-0 sm:top-0 sm:bottom-0 sm:w-[420px] sm:border-l sm:border-gray-200"
         role="dialog" aria-label="Pattie Chat" aria-modal="true"
@@ -397,7 +451,7 @@ export default function PattieChatDrawer({
               className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
               Clear
             </button>
-            <button onClick={onClose} aria-label="Close chat"
+            <button onClick={handleClose} aria-label="Close chat"
               className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded hover:bg-gray-100">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -520,6 +574,65 @@ export default function PattieChatDrawer({
           </p>
         </div>
       </div>
+
+      {/* ── Summary saving toast ─────────────────────────────────────────── */}
+      {summaryToast && (
+        <div className="fixed bottom-20 right-6 z-[60] bg-[#1a1f36] text-white text-xs font-medium px-4 py-2 rounded-xl shadow-lg">
+          {summaryToast === 'saving' ? '🦞 Saving conversation summary…' : '✓ Saved to Correspondence'}
+        </div>
+      )}
+
+      {/* ── Close warning: pending suggestions ──────────────────────────────── */}
+      {closePending && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+            <h3 className="font-bold text-[#1a1f36] text-base mb-2">Unsaved Pattie suggestions</h3>
+            <p className="text-sm text-gray-500 mb-4 leading-relaxed">
+              Your conversation will be saved to Correspondence, but pending suggestions won&apos;t be applied automatically.
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  // Apply all pending suggestions
+                  setMessages(prev => {
+                    const copy = [...prev]
+                    copy.forEach((m, i) => {
+                      if (m.suggestion && m.suggestionState === 'pending') {
+                        copy[i] = { ...m, suggestionState: 'applied' }
+                        // Fire the PATCH
+                        fetch(`/api/patents/${patentId}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                          body: JSON.stringify({ [m.suggestion.field_name]: m.suggestion.proposed_value }),
+                        }).catch(() => {})
+                        onFieldApplied?.(m.suggestion.field_name, m.suggestion.proposed_value)
+                      }
+                    })
+                    return copy
+                  })
+                  setClosePending(false)
+                  saveSummaryAndClose(messages)
+                }}
+                className="w-full py-2.5 bg-[#4f46e5] text-white rounded-xl text-sm font-semibold hover:bg-[#4338ca] transition-colors"
+              >
+                Apply all suggestions &amp; close
+              </button>
+              <button
+                onClick={() => { setClosePending(false); saveSummaryAndClose(messages) }}
+                className="w-full py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                Close anyway
+              </button>
+              <button
+                onClick={() => setClosePending(false)}
+                className="w-full py-2 text-gray-400 text-sm hover:text-gray-600 transition-colors"
+              >
+                Stay in chat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
