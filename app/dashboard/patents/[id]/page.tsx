@@ -1152,6 +1152,20 @@ export default function PatentDetail() {
           <span className="text-[#1a1f36] truncate">{patent.title}</span>
         </div>
 
+        {/* Pattie Interview drafted banner */}
+        {searchParams.get('pattie_drafted') === '1' && (
+          <div className="mb-5 bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-4 flex items-start gap-3">
+            <span className="text-2xl flex-shrink-0">✨</span>
+            <div>
+              <p className="text-sm font-bold text-indigo-800">Pattie drafted this — review before filing</p>
+              <p className="text-xs text-indigo-700 mt-0.5 leading-relaxed">
+                Pattie generated a draft title, abstract, and spec from your answers. Review each section, refine the language,
+                and add your claims before filing. You can also run a Deep Research pass to strengthen the claims.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Research Import banner */}
         {patent.status === 'research_import' && (
           <div className="mb-5 bg-purple-50 border border-purple-200 rounded-xl px-5 py-4 flex items-start gap-3">
