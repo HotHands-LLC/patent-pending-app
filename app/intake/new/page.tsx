@@ -32,7 +32,7 @@ const CONFIDENTIALITY_TEXT = {
     {
       icon: '🔒',
       title: 'Your invention description is encrypted and private.',
-      detail: 'Everything you enter is stored encrypted and is accessible only by you and authorized Hot Hands LLC systems operating on your behalf. PatentPending.app and Hot Hands LLC do not share, sell, license, or disclose your invention to any third party.'
+      detail: 'Everything you enter is stored encrypted and is accessible only by you and authorized PatentPending systems. We do not share, sell, license, or disclose your invention to any third party.'
     },
     {
       icon: '🚫',
@@ -42,7 +42,7 @@ const CONFIDENTIALITY_TEXT = {
     {
       icon: '📋',
       title: 'This is a confidential business relationship.',
-      detail: 'By using PatentPending.app, you are engaging in a confidential business relationship with Hot Hands LLC. We maintain your invention data in confidence and limit internal access to what is necessary to provide the service.'
+      detail: 'By using PatentPending.app, we maintain your invention data in confidence and limit internal access to what is necessary to provide the service.'
     },
     {
       icon: '⚖️',

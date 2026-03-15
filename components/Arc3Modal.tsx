@@ -111,7 +111,7 @@ export default function Arc3Modal({ patentId, patentTitle, authToken, onSuccess,
                 <div className="border border-amber-200 rounded-xl p-4 bg-amber-50">
                   <div className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-2">Agency Agreement — v1</div>
                   <div className="text-xs text-amber-900 space-y-2 max-h-36 overflow-y-auto">
-                    <p>By activating Arc 3, you authorize Hot Hands LLC (&ldquo;Agency&rdquo;) to represent your patent for licensing and sale on the PatentPending marketplace.</p>
+                    <p>By activating Arc 3, you authorize PatentPending Agency to represent your patent for licensing and sale on the PatentPending marketplace.</p>
                     <p>
                       <strong>Deal structures available:</strong>{' '}
                       Licensor makes this patent available for the following deal structures:{' '}
@@ -135,7 +135,7 @@ export default function Arc3Modal({ patentId, patentTitle, authToken, onSuccess,
                     className="mt-0.5 w-4 h-4 rounded accent-indigo-600 flex-shrink-0"
                   />
                   <span className="text-sm text-gray-700">
-                    I agree to the Agency Agreement above. I understand Hot Hands LLC will receive a 20% commission on deals originating from my deal page.
+                    I agree to the Agency Agreement above. I understand PatentPending Agency will receive a 20% commission on deals originating from my deal page.
                     {!atLeastOne && <span className="block text-xs text-amber-600 mt-0.5">Select at least one license type above to proceed.</span>}
                   </span>
                 </label>

@@ -181,7 +181,7 @@ export default async function PartnerProfilePage({ params }: { params: { slug: s
 
       {/* Footer */}
       <footer className="py-6 px-4 text-center text-xs text-gray-400 border-t border-gray-100">
-        <p>PatentPending.app — Hot Hands LLC · Lubbock, TX</p>
+        <p>PatentPending.app</p>
         <p className="mt-1">PatentPending.app is not a law firm and does not provide legal advice. This page is published by a PatentPending Partner.</p>
       </footer>
     </div>

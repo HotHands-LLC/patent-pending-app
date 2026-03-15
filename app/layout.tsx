@@ -6,8 +6,8 @@ import GoogleAnalytics from '@/components/GoogleAnalytics'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'PatentPending — Patent Management',
-  description: 'Manage your patents, track deadlines, monitor USPTO status.',
+  title: 'PatentPending — Patent Filing, Simplified',
+  description: 'PatentPending helps inventors file, manage, and protect their patents with AI-powered guidance. No attorney required.',
 }
 
 export default function RootLayout({

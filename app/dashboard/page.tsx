@@ -128,7 +128,7 @@ export default function Dashboard() {
         {/* Header */}
         <div className="mb-6 sm:mb-8">
           <h1 className="text-xl sm:text-2xl font-bold text-[#1a1f36]">Dashboard</h1>
-          <p className="text-gray-500 mt-1 text-sm">Hot Hands LLC Patent Portfolio</p>
+          <p className="text-gray-500 mt-1 text-sm">My Patent Portfolio</p>
         </div>
 
         {/* Stats */}

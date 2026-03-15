@@ -88,7 +88,7 @@ function buildWelcomeEmail(partnerName: string, referralCode: string, firmName: 
   </div>
 
   <p style="font-size:13px;color:#6b7280">Questions? Reply to this email or write directly to <a href="mailto:support@hotdeck.com" style="color:#4f46e5">support@hotdeck.com</a>.<br>
-  — Chad Bostwick, Hot Hands LLC / PatentPending.app</p>
+  — PatentPending</p>
 
   <p style="font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:12px;margin-top:24px">
     PatentPending.app is not a law firm. Referral partnership does not constitute legal practice or create an attorney-client relationship between partners and PatentPending or its users.
