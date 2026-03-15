@@ -135,22 +135,29 @@ export async function POST(
   if (patentError || !patent) {
     return new Response(JSON.stringify({ error: 'Patent not found' }), { status: 404 })
   }
+  // ── Ownership + collaborator check ───────────────────────────────────────
+  // isCollaborator = user has an accepted invite but isn't the owner
+  let isCollaborator = false
   if (patent.owner_id !== user.id) {
-    // Allow collaborators — check patent_collaborators for accepted invite
+    // Check by user_id (accepted and signed up) OR by email (accepted via link, no signup yet)
     const { data: collab } = await supabaseService
       .from('patent_collaborators')
       .select('id, role')
       .eq('patent_id', patentId)
-      .eq('user_id', user.id)
       .not('accepted_at', 'is', null)
+      .or(`user_id.eq.${user.id},invited_email.eq.${user.email ?? ''}`)
+      .limit(1)
       .single()
     if (!collab) {
       return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })
     }
+    isCollaborator = true
   }
 
-  // ── Tier gate ─────────────────────────────────────────────────────────────
-  const tierInfo = await getUserTierInfo(user.id)
+  // ── Tier gate — check patent OWNER's tier, not the collaborator's ─────────
+  // Collaborators inherit Pattie access from the patent owner's subscription.
+  const tierUserId = isCollaborator ? patent.owner_id : user.id
+  const tierInfo = await getUserTierInfo(tierUserId)
   if (!isPro(tierInfo, { isOwner: true, feature: 'pattie' })) {
     return new Response(JSON.stringify({
       error: 'This feature requires PatentPending Pro.',
