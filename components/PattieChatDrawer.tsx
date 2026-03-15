@@ -38,6 +38,8 @@ interface PattieChatDrawerProps {
   patentStatus?: string
   onTierRequired?: (feature: string) => void
   onFieldApplied?: (fieldName: string, value: string) => void  // callback when suggestion applied
+  /** When provided, Pattie fires this as the first message automatically on open */
+  initialPrompt?: string
 }
 
 const STARTER_CHIPS_DEFAULT = [
@@ -196,6 +198,7 @@ export default function PattieChatDrawer({
   canEdit = false,
   patentStatus,
   onFieldApplied,
+  initialPrompt,
 }: PattieChatDrawerProps) {
   void canEdit
   const isGrantedPatent = patentStatus === 'granted'
@@ -211,6 +214,7 @@ export default function PattieChatDrawer({
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
   const abortRef  = useRef<AbortController | null>(null)
+  const initialPromptFiredRef = useRef(false)
 
   const isFirstMessage = messages.length === 0
 
@@ -343,6 +347,16 @@ export default function PattieChatDrawer({
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [input, messages, streaming, patentId, authToken, onTierRequired])
+
+  // Auto-fire initialPrompt as first message (only once on open)
+  useEffect(() => {
+    if (initialPrompt && !initialPromptFiredRef.current && !streaming) {
+      initialPromptFiredRef.current = true
+      // Small delay so the drawer renders first
+      setTimeout(() => sendMessage(initialPrompt), 300)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }

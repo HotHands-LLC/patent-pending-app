@@ -86,6 +86,50 @@ function ResearchReportViewer({ content, metadata }: { content: string; metadata
   )
 }
 
+// ── Pattie CTA Card — reusable empty state invitation ────────────────────────
+function PattieCTACard({
+  headline,
+  body,
+  onAskPattie,
+  isPro,
+  onUpgrade,
+  patentId,
+}: {
+  headline: string
+  body: string
+  onAskPattie: () => void
+  isPro: boolean
+  onUpgrade?: () => void
+  patentId?: string
+}) {
+  if (!isPro) {
+    return (
+      <div className="my-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
+        <span className="text-lg flex-shrink-0">🦞</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-indigo-700">{headline}</p>
+          <p className="text-xs text-indigo-500 mt-0.5">Pattie can help — <a href="/pricing" className="underline font-medium">upgrade to Pro</a></p>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="my-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-start gap-3">
+      <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#4f46e5] text-white text-xs font-bold flex-shrink-0 mt-0.5" aria-hidden>PP</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-bold text-indigo-800">{headline}</p>
+        <p className="text-xs text-indigo-600 mt-0.5 leading-relaxed">{body}</p>
+      </div>
+      <button
+        onClick={onAskPattie}
+        className="flex-shrink-0 text-xs font-semibold bg-[#4f46e5] text-white px-3 py-1.5 rounded-lg hover:bg-[#4338ca] transition-colors whitespace-nowrap"
+      >
+        Ask Pattie
+      </button>
+    </div>
+  )
+}
+
 // ── Filing readiness score card ───────────────────────────────────────────────
 function ScoreCard({ score }: { score: ClaimsScore }) {
   const readinessColor = score.provisional_ready ? '#059669' : '#d97706'
@@ -256,11 +300,15 @@ function AbstractField({
   authToken,
   canWrite,
   onUpdate,
+  isPro,
+  onPattieClick,
 }: {
   patent: Patent
   authToken: string
   canWrite: boolean
   onUpdate: (val: string | null) => void
+  isPro?: boolean
+  onPattieClick?: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(patent.abstract_draft ?? '')
@@ -344,12 +392,22 @@ function AbstractField({
         ) : patent.abstract_draft ? (
           <p className="text-sm text-gray-700 leading-relaxed">{patent.abstract_draft}</p>
         ) : (
-          <p className="text-sm text-gray-400 italic">
-            No abstract yet. Abstracts must be 150 words or less. Required for non-provisional applications.
-            {canWrite && (
-              <> <button onClick={() => { setValue(''); setEditing(true) }} className="ml-1 text-indigo-500 hover:underline not-italic">Add one now →</button></>
+          <div>
+            <p className="text-sm text-gray-400 italic mb-2">
+              No abstract yet. Abstracts must be 150 words or less. Required for non-provisional applications.
+              {canWrite && (
+                <> <button onClick={() => { setValue(''); setEditing(true) }} className="ml-1 text-indigo-500 hover:underline not-italic">Write manually →</button></>
+              )}
+            </p>
+            {onPattieClick && canWrite && (
+              <PattieCTACard
+                headline="No abstract yet"
+                body="Pattie can draft your abstract from your spec and claims."
+                isPro={isPro ?? false}
+                onAskPattie={onPattieClick}
+              />
             )}
-          </p>
+          </div>
         )}
       </div>
     </div>
@@ -895,6 +953,13 @@ export default function PatentDetail() {
   const [showArc3Modal, setShowArc3Modal] = useState(false)
   const [showArc3Interview, setShowArc3Interview] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
+  const [pattieInitialPrompt, setPattieInitialPrompt] = useState<string | undefined>(undefined)
+
+  // Helper: open Pattie with an optional pre-primed field prompt
+  const openPattieWithPrompt = (prompt?: string) => {
+    setPattieInitialPrompt(prompt)
+    setShowPattie(true)
+  }
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -1646,7 +1711,17 @@ export default function PatentDetail() {
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a1f36] min-h-[44px]"
                         />
                       ) : (
-                        <div className="text-sm text-[#1a1f36]">{field.value}</div>
+                        <div className="text-sm text-[#1a1f36]">
+                          {field.value}
+                          {field.key === 'tags' && (!patent.tags || patent.tags.length === 0) && canWrite && (
+                            <button
+                              onClick={() => openPattieWithPrompt('Please suggest USPTO classification tags and relevant keywords for my patent.')}
+                              className="ml-2 text-xs text-indigo-500 hover:underline font-medium"
+                            >
+                              Ask Pattie →
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   ))}
@@ -2183,10 +2258,18 @@ export default function PatentDetail() {
                 </button>
               </div>
             ) : !patent.claims_draft ? (
-              <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-                <div className="text-3xl mb-3">⏳</div>
-                <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
-                <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
+              <div className="space-y-0">
+                <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+                  <div className="text-3xl mb-3">⏳</div>
+                  <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
+                  <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
+                </div>
+                <PattieCTACard
+                  headline="Claims need attention"
+                  body="Your patent's strength lives in its claims. Pattie can help you build a complete claim set."
+                  isPro={isPro}
+                  onAskPattie={() => openPattieWithPrompt('Help me build a stronger claim set for my patent. Start with the independent claim and suggest dependent claims that broaden protection.')}
+                />
               </div>
             ) : (
               <div className="space-y-5">
@@ -2398,6 +2481,23 @@ export default function PatentDetail() {
                           text={patent.claims_draft!}
                           onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
                         />
+                        {/* 1-claim soft nudge */}
+                        {(() => {
+                          const claimCount = (patent.claims_draft ?? '').split(/(?=^\d+\.\s)/m).filter(s => s.trim()).length
+                          return claimCount === 1 ? (
+                            <div className="px-5 pb-3">
+                              <p className="text-xs text-gray-400">
+                                Most patents have 5–20 claims.{' '}
+                                <button
+                                  onClick={() => openPattieWithPrompt('Help me build a stronger claim set for my patent. Start with the independent claim and suggest dependent claims that broaden protection.')}
+                                  className="text-indigo-500 hover:underline font-medium"
+                                >
+                                  Ask Pattie to suggest more →
+                                </button>
+                              </p>
+                            </div>
+                          ) : null
+                        })()}
                         {hasRefined && (
                           <div id="claims-orig-panel" className="hidden border-t border-indigo-100">
                             <div className="px-5 py-2 bg-indigo-50 flex items-center gap-2">
@@ -2624,7 +2724,7 @@ export default function PatentDetail() {
               const cur = currentStep(statuses)
 
               const GUIDANCE: Record<number, {
-                icon: string; title: string; body: string; action?: { label: string; href?: string; onClick?: () => void }
+                icon: string; title: string; body: string; pattiePrompt?: string; action?: { label: string; href?: string; onClick?: () => void }
               }> = {
                 4: {
                   icon: '✍️',
@@ -2635,7 +2735,8 @@ export default function PatentDetail() {
                 5: {
                   icon: '📋',
                   title: 'Step 5: Upload your specification document',
-                  body: 'A provisional filing requires a written description: Background, Summary, and Detailed Description. Upload your spec below (PDF, DOCX, or MD). Don\'t have one yet? We\'ll help you draft it in a future step.',
+                  body: 'A provisional filing requires a written description: Background, Summary, and Detailed Description. Upload your spec below (PDF, DOCX, or MD). Don\'t have one yet? Pattie can help you develop it.',
+                  pattiePrompt: 'My patent specification needs development. Can you help me strengthen it based on what I\'ve described?',
                 },
                 6: {
                   icon: '📐',
@@ -2671,6 +2772,14 @@ export default function PatentDetail() {
                     <div className="flex-1">
                       <div className="font-semibold text-blue-900 text-sm mb-1">{guide.title}</div>
                       <p className="text-sm text-blue-700 leading-relaxed mb-3">{guide.body}</p>
+                      {guide.pattiePrompt && canWrite && (
+                        <PattieCTACard
+                          headline="Spec needs work"
+                          body="A strong specification protects your claims. Pattie can help you develop it."
+                          isPro={isPro}
+                          onAskPattie={() => openPattieWithPrompt(guide.pattiePrompt!)}
+                        />
+                      )}
                       {guide.action && (
                         guide.action.href ? (
                           <Link
@@ -2900,6 +3009,8 @@ export default function PatentDetail() {
                 authToken={authToken}
                 canWrite={canWrite}
                 onUpdate={(val) => setPatent(prev => prev ? { ...prev, abstract_draft: val } : null)}
+                isPro={isPro}
+                onPattieClick={canWrite ? () => openPattieWithPrompt('Please draft a USPTO-compliant abstract for my patent based on the spec and claims.') : undefined}
               />
             )}
 
@@ -2909,6 +3020,13 @@ export default function PatentDetail() {
               const specUploaded = statuses[4] // step 5
               return (
                 <div>
+                  {/* Figures info CTA — shown when no figures */}
+                  {!patent.figures_uploaded && (
+                    <div className="mb-3 p-4 bg-gray-50 border border-dashed border-gray-300 rounded-xl">
+                      <p className="text-sm font-semibold text-gray-700 mb-1">📐 No figures uploaded</p>
+                      <p className="text-xs text-gray-500">Figures aren&apos;t required for a provisional, but they strengthen your application. Add one and Pattie can help write the description.</p>
+                    </div>
+                  )}
                   {/* AI Generate Figures — Pro */}
                   {specUploaded && !patent.figures_uploaded && (
                     <div className="mb-3 p-4 bg-violet-50 border border-violet-200 rounded-xl flex items-center justify-between gap-4">
@@ -3308,10 +3426,11 @@ export default function PatentDetail() {
           patentId={patent.id}
           patentTitle={patent.title}
           authToken={authToken}
-          onClose={() => setShowPattie(false)}
+          onClose={() => { setShowPattie(false); setPattieInitialPrompt(undefined) }}
           canEdit={canWrite}
           patentStatus={patent.filing_status ?? patent.status}
           onTierRequired={(feature) => { setShowPattie(false); setUpgradeFeature(feature) }}
+          initialPrompt={pattieInitialPrompt}
         />
       )}
     </div>
