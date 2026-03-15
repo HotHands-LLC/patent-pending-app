@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+export const dynamic = 'force-dynamic'
+
 // GET /api/patents/lookup-uspto?q=<number>
 // Looks up a patent by number using:
 //   1. Google Patents scrape for publication/grant numbers (US\d+[A-Z]\d*)
@@ -12,8 +14,8 @@ export async function GET(req: NextRequest) {
   if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const anonClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
   const { data: { user } } = await anonClient.auth.getUser()

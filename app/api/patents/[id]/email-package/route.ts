@@ -6,6 +6,8 @@ import JSZip from 'jszip'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 import { buildCoverSheetPdf } from '@/lib/cover-sheet-pdf'
 
+export const dynamic = 'force-dynamic'
+
 export const maxDuration = 60
 
 type Scenario = 'provisional_filing' | 'assignment' | 'non_provisional_prep'
@@ -18,17 +20,17 @@ const SCENARIO_LABELS: Record<Scenario, string> = {
 
 const MAX_ATTACH_BYTES = 20 * 1024 * 1024  // 20MB Resend limit
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+const resend = new Resend(process.env.RESEND_API_KEY ?? 'placeholder-resend-key')
 
 const supabaseService = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
 function getUserClient(token: string) {
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }

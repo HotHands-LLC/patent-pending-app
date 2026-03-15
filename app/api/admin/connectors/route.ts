@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+export const dynamic = 'force-dynamic'
+
 const serviceClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
 async function getAdminUser(req: NextRequest) {
@@ -11,8 +13,8 @@ async function getAdminUser(req: NextRequest) {
   const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null
   if (!token) return null
   const userClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
   const { data: { user } } = await userClient.auth.getUser()
@@ -108,7 +110,7 @@ export async function GET(req: NextRequest) {
   const supabaseUsers = supabaseStatsRes.count ?? 0
   const supabasePing  = await pingUrl(
     `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/patents?select=id&limit=1`,
-    { headers: { apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`, 'User-Agent': 'BoClaw/1.0' } }
+    { headers: { apikey: (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key'), Authorization: `Bearer ${(process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')}`, 'User-Agent': 'BoClaw/1.0' } }
   )
 
   // ── AI Usage (OpenAI / Claude via ai_usage_log) ────────────────────────

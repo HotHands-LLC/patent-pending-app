@@ -1,4 +1,5 @@
 // USPTO Fee Schedule — Effective January 19, 2025 (Last Revised January 1, 2026)
+
 // Source: https://www.uspto.gov/sites/default/files/documents/USPTO-fee-schedule_current.pdf
 // Fee codes: provisional 1005 (large) / 2005 (small) / 3005 (micro) — 37 CFR 1.16(d)
 // WISHLIST: Auto-sync from USPTO API when one becomes available

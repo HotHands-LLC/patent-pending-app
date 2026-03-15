@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Navbar from '@/components/Navbar'
 import { supabase } from '@/lib/supabase'
@@ -67,7 +67,7 @@ function PattieAvatar({ size = 36 }: { size?: number }) {
   )
 }
 
-export default function NewPatentPage() {
+function NewPatentPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   // Support ?mode=interview from intent screen
@@ -458,5 +458,13 @@ export default function NewPatentPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function NewPatentPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+      <NewPatentPageInner />
+    </Suspense>
   )
 }

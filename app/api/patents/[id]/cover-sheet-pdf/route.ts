@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { buildCoverSheetPdf } from '@/lib/cover-sheet-pdf'
 
+export const dynamic = 'force-dynamic'
+
 export const maxDuration = 30
 
 // GET /api/patents/[id]/cover-sheet-pdf
@@ -19,16 +21,16 @@ export async function GET(
   if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const userClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
   const { data: { user } } = await userClient.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const serviceClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
   )
 
   // ── Fetch patent ───────────────────────────────────────────────────────────

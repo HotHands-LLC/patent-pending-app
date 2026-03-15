@@ -6,17 +6,19 @@ import { getUserTier, isTierPro } from '@/lib/subscription'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
 import { logAiUsage } from '@/lib/ai-budget'
 
+export const dynamic = 'force-dynamic'
+
 export const maxDuration = 300
 
 const supabaseService = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
 function getUserClient(token: string) {
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -163,7 +165,7 @@ ${claimsDraft.slice(0, 5000)}`
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'x-api-key': (process.env.ANTHROPIC_API_KEY ?? ''),
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({

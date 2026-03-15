@@ -4,9 +4,11 @@ import { generateClaimsDraft } from '@/lib/claims-draft'
 import { sendClaimsReadyEmail } from '@/lib/email'
 import { scoreClaimsDraft } from '@/lib/claims-score'
 
+export const dynamic = 'force-dynamic'
+
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
 // GET /api/cron/generate-claims

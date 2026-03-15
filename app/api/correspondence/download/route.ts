@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+export const dynamic = 'force-dynamic'
+
 // GET /api/correspondence/download?path=ENCODED_STORAGE_PATH&token=JWT
 // Auth-gated: verifies user owns the file, generates a fresh 1-hour signed URL,
 // redirects browser to it.
@@ -22,8 +24,8 @@ export async function GET(req: NextRequest) {
   if (!jwt) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const userClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
     { global: { headers: { Authorization: `Bearer ${jwt}` } } }
   )
   const { data: { user } } = await userClient.auth.getUser()
@@ -33,8 +35,8 @@ export async function GET(req: NextRequest) {
   if (!storagePath) return NextResponse.json({ error: 'Missing path' }, { status: 400 })
 
   const serviceClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
   )
 
   // ── Ownership check ──────────────────────────────────────────────────────────

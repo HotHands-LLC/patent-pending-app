@@ -9,19 +9,21 @@ import { buildSpecPdf } from '@/lib/spec-pdf'
 import { getUserTierInfo, isPro, tierRequiredResponse } from '@/lib/tier'
 import { sanitizeForUspto } from '@/lib/text-sanitize'
 
+export const dynamic = 'force-dynamic'
+
 export const maxDuration = 60
 
 type Scenario = 'provisional_filing' | 'assignment' | 'non_provisional_prep'
 
 const supabaseService = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
 function getUserClient(token: string) {
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }

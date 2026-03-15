@@ -1,4 +1,5 @@
 /**
+
  * lib/ai-utils.ts
  * Shared AI utility functions for PatentPending.app
  */

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
 
+
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
 
 /**
@@ -14,8 +15,8 @@ export async function maybeQualifyReferral(
   filedAt: string
 ): Promise<void> {
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
   )
 
   // Check if owner was referred

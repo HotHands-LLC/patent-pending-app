@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 
+export const dynamic = 'force-dynamic'
+
 // ── Auth ─────────────────────────────────────────────────────────────────────
 // Vercel sets Authorization: Bearer <CRON_SECRET> automatically on cron invocations.
 // Manual trigger: pass the same header, or SUPABASE_SERVICE_ROLE_KEY as fallback.
@@ -56,12 +58,12 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key'),
     { global: { headers: { 'User-Agent': 'BoClaw/1.0' } } }
   )
 
-  const resend = new Resend(process.env.RESEND_API_KEY)
+  const resend = new Resend(process.env.RESEND_API_KEY ?? 'placeholder-resend-key')
 
   const today = new Date()
   today.setUTCHours(0, 0, 0, 0)

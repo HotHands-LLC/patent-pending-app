@@ -21,14 +21,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 
+export const dynamic = 'force-dynamic'
+
 export const maxDuration = 300  // 5 min — may process multiple patents
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+const resend = new Resend(process.env.RESEND_API_KEY ?? 'placeholder-resend-key')
 
 const RESEARCH_PROMPT = (title: string, claims: string, specExcerpt: string) => `
 You are a patent researcher assisting an inventor during the 12-month enhancement period after their provisional patent filing.

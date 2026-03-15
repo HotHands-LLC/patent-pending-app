@@ -1,14 +1,16 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+
+export const dynamic = 'force-dynamic'
 const supabaseService = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
 function getUserClient(token: string) {
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -79,7 +81,7 @@ export async function POST(
         const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
-            'x-api-key': process.env.ANTHROPIC_API_KEY!,
+            'x-api-key': (process.env.ANTHROPIC_API_KEY ?? ''),
             'anthropic-version': '2023-06-01',
             'content-type': 'application/json',
           },

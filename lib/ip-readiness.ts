@@ -1,4 +1,5 @@
 // lib/ip-readiness.ts
+
 // Computes a 0–100 IP Readiness Score for a patent.
 // This is a *display metric* only — not a legal valuation.
 

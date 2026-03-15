@@ -2,15 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserTier, isTierPro } from '@/lib/subscription'
 
+export const dynamic = 'force-dynamic'
+
 const supabaseService = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
 function getUserClient(token: string) {
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -223,8 +225,8 @@ Return ONLY valid JSON array of 6 figure objects. No preamble.`
       {
         method: 'POST',
         headers: {
-          apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
-          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`,
+          apikey: (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key'),
+          Authorization: `Bearer ${(process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')}`,
           'Content-Type': 'image/svg+xml',
           'x-upsert': 'true',
         },

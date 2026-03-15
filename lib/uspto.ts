@@ -1,4 +1,5 @@
 export async function getPatentStatus(applicationNumber: string) {
+
   const apiKey = process.env.USPTO_ODP_API_KEY
   if (!apiKey || !applicationNumber) return null
   try {
