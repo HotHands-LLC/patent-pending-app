@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Navbar from '@/components/Navbar'
 import { supabase } from '@/lib/supabase'
 
@@ -69,7 +69,10 @@ function PattieAvatar({ size = 36 }: { size?: number }) {
 
 export default function NewPatentPage() {
   const router = useRouter()
-  const [mode, setMode]               = useState<Mode>('choose')
+  const searchParams = useSearchParams()
+  // Support ?mode=interview from intent screen
+  const initialMode = searchParams.get('mode') === 'interview' ? 'interview' : 'choose'
+  const [mode, setMode]               = useState<Mode>(initialMode)
   const [isPro, setIsPro]             = useState<boolean | null>(null)
   const [authToken, setAuthToken]     = useState('')
   const [step, setStep]               = useState(0)

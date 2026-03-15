@@ -20,6 +20,7 @@ const ALLOWED = [
   'default_assignee_name', 'default_assignee_address',
   'referred_by_code', 'referred_by_partner_id',
   'pattie_guidance',
+  'onboarding_shown',
 ] as const
 
 /** GET /api/users/profile — returns current user's profile */
@@ -71,7 +72,7 @@ export async function PATCH(req: NextRequest) {
     .from('patent_profiles')
     .update(updates)
     .eq('id', user.id)
-    .select('id, email, full_name, name_first, name_middle, name_last, phone, address_line_1, address_line_2, city, state, zip, country, company, uspto_customer_number, default_assignee_name, default_assignee_address, pattie_guidance')
+    .select('id, email, full_name, name_first, name_middle, name_last, phone, address_line_1, address_line_2, city, state, zip, country, company, uspto_customer_number, default_assignee_name, default_assignee_address, pattie_guidance, onboarding_shown')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
