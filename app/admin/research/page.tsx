@@ -480,6 +480,406 @@ function RunDetail({ run, authToken, onClose }: { run: ResearchRun; authToken: s
   )
 }
 
+// ── USPTO Discovery Panel ─────────────────────────────────────────────────────
+interface UsptoResult {
+  id?: string            // set after DB cache
+  query_id?: string
+  patent_number: string | null
+  application_number: string | null
+  title: string
+  filing_date: string | null
+  abandonment_date: string | null
+  abandonment_reason: string | null
+  cpc_codes: string[] | null
+  claim_count: number | null
+  assignee: string | null
+  inventor_names: string[] | null
+  readiness_score: number
+  desjardins_flag: boolean
+  imported_to_marketplace?: boolean
+  imported_patent_id?: string | null
+  _breakdown?: Record<string, number>
+  // local UI state
+  _importState?: 'idle' | 'importing' | 'done' | 'error'
+  _importedUrl?: string
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  const cls = score >= 70
+    ? 'bg-green-100 text-green-800 border border-green-200'
+    : score >= 40
+    ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
+    : 'bg-red-100 text-red-800 border border-red-200'
+  return (
+    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${cls}`}>{score}</span>
+  )
+}
+
+function USPTODiscovery({ authToken }: { authToken: string }) {
+  const [keywords, setKeywords]     = useState('')
+  const [cpcCode, setCpcCode]       = useState('')
+  const [dateFrom, setDateFrom]     = useState('')
+  const [dateTo, setDateTo]         = useState('')
+  const [statusFilter, setStatusFilter] = useState('abandoned')
+  const [searching, setSearching]   = useState(false)
+  const [error, setError]           = useState<string | null>(null)
+  const [results, setResults]       = useState<UsptoResult[]>([])
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [queryId, setQueryId]       = useState<string | null>(null)
+
+  // Previous searches from DB
+  const [prevSearches, setPrevSearches] = useState<Array<{
+    query_id: string
+    query_params: Record<string, string>
+    created_at: string
+    count: number
+  }>>([])
+  const [loadingPrev, setLoadingPrev] = useState(true)
+
+  React.useEffect(() => {
+    loadPrevSearches()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function loadPrevSearches() {
+    setLoadingPrev(true)
+    try {
+      const res = await fetch('/api/admin/research/prev-searches', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setPrevSearches(data.searches ?? [])
+      }
+    } catch { /* non-fatal */ }
+    finally { setLoadingPrev(false) }
+  }
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault()
+    if (!keywords.trim() && !cpcCode.trim()) return
+    setSearching(true)
+    setError(null)
+    setResults([])
+    setQueryId(null)
+    try {
+      const res = await fetch('/api/admin/research/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ keywords, cpcCode, dateFrom, dateTo, statusFilter }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? 'USPTO search failed')
+        return
+      }
+      setResults((data.results ?? []).map((r: UsptoResult) => ({ ...r, _importState: 'idle' as const })))
+      setQueryId(data.queryId)
+      await loadPrevSearches()
+    } catch {
+      setError('Network error — please try again')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  async function handleImport(resultIndex: number) {
+    const result = results[resultIndex]
+    if (!result.query_id) return
+
+    setResults(prev => prev.map((r, i) => i === resultIndex ? { ...r, _importState: 'importing' as const } : r))
+
+    try {
+      // Get the DB id for this result — query by query_id + patent/app number
+      const lookupRes = await fetch(`/api/admin/research/lookup?queryId=${result.query_id}&appNum=${encodeURIComponent(result.application_number ?? result.patent_number ?? '')}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      const { resultId } = lookupRes.ok ? await lookupRes.json() : {}
+
+      if (!resultId) {
+        setResults(prev => prev.map((r, i) => i === resultIndex ? { ...r, _importState: 'error' as const } : r))
+        return
+      }
+
+      const res = await fetch('/api/admin/research/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ resultId }),
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setResults(prev => prev.map((r, i) => i === resultIndex ? { ...r, _importState: 'error' as const } : r))
+        return
+      }
+
+      setResults(prev => prev.map((r, i) =>
+        i === resultIndex
+          ? { ...r, _importState: 'done' as const, _importedUrl: data.patentUrl }
+          : r
+      ))
+    } catch {
+      setResults(prev => prev.map((r, i) => i === resultIndex ? { ...r, _importState: 'error' as const } : r))
+    }
+  }
+
+  async function loadPrevResults(qId: string) {
+    setSearching(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/admin/research/results?queryId=${qId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setResults((data.results ?? []).map((r: UsptoResult) => ({
+          ...r,
+          _importState: r.imported_to_marketplace ? 'done' as const : 'idle' as const,
+          _importedUrl: r.imported_patent_id ? `/dashboard/patents/${r.imported_patent_id}` : undefined,
+        })))
+        setQueryId(qId)
+      }
+    } catch { /* non-fatal */ }
+    finally { setSearching(false) }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <h2 className="text-lg font-bold text-gray-900">USPTO Discovery</h2>
+        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold border border-blue-200">Direct ODP Search</span>
+      </div>
+      <p className="text-xs text-gray-400 mb-5">
+        Find abandoned and undervalued patents for the marketplace. Scored by IP Readiness. Desjardins §101 revival candidates flagged automatically.
+      </p>
+
+      {/* Search form */}
+      <form onSubmit={handleSearch} className="space-y-3 mb-6">
+        <div>
+          <input
+            type="text"
+            value={keywords}
+            onChange={e => setKeywords(e.target.value)}
+            placeholder="e.g. machine learning, computer vision, NLP…"
+            className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            disabled={searching}
+          />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <input
+            type="text"
+            value={cpcCode}
+            onChange={e => setCpcCode(e.target.value)}
+            placeholder="CPC Code (e.g. G06N)"
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            disabled={searching}
+          />
+          <input
+            type="number"
+            value={dateFrom}
+            onChange={e => setDateFrom(e.target.value)}
+            placeholder="From year (e.g. 2015)"
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            min="1990" max="2025"
+            disabled={searching}
+          />
+          <input
+            type="number"
+            value={dateTo}
+            onChange={e => setDateTo(e.target.value)}
+            placeholder="To year (e.g. 2023)"
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            min="1990" max="2025"
+            disabled={searching}
+          />
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            disabled={searching}
+          >
+            <option value="abandoned">Abandoned only</option>
+            <option value="all">All statuses</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={searching || (!keywords.trim() && !cpcCode.trim())}
+            className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+          >
+            {searching ? '⚙️ Querying USPTO…' : 'Search USPTO'}
+          </button>
+          {searching && (
+            <span className="text-xs text-indigo-500 animate-pulse">Searching USPTO ODP…</span>
+          )}
+        </div>
+      </form>
+
+      {/* Error state */}
+      {error && (
+        <div className="mb-5 text-sm text-red-600 bg-red-50 rounded-xl px-4 py-3 border border-red-100">
+          {error === 'USPTO API unavailable'
+            ? '⚠️ USPTO API unavailable — try again shortly. The ODP may be undergoing maintenance.'
+            : error}
+        </div>
+      )}
+
+      {/* Results table */}
+      {results.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400">
+              Results ({results.length}) {queryId && <span className="font-normal normal-case text-gray-300 ml-1">· cached</span>}
+            </h3>
+          </div>
+          <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  {['Title', 'Filed', 'Abandoned', 'Score', 'Desjardins', 'Actions'].map(h => (
+                    <th key={h} className="text-left px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-gray-400">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((r, i) => {
+                  const rowKey = r.application_number ?? r.patent_number ?? String(i)
+                  const isExpanded = expandedId === rowKey
+
+                  return (
+                    <React.Fragment key={rowKey}>
+                      <tr className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
+                        {/* Title */}
+                        <td className="px-3 py-3 max-w-[260px]">
+                          <button
+                            onClick={() => setExpandedId(isExpanded ? null : rowKey)}
+                            className="text-left text-sm font-medium text-gray-900 hover:text-indigo-700 line-clamp-2 transition-colors"
+                          >
+                            {r.title}
+                          </button>
+                          {r.application_number && (
+                            <div className="text-xs text-gray-400 font-mono mt-0.5">{r.application_number}</div>
+                          )}
+                        </td>
+                        {/* Filed */}
+                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500">
+                          {r.filing_date ?? '—'}
+                        </td>
+                        {/* Abandoned */}
+                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500">
+                          {r.abandonment_date ?? '—'}
+                        </td>
+                        {/* Score */}
+                        <td className="px-3 py-3 whitespace-nowrap">
+                          <ScoreBadge score={r.readiness_score} />
+                        </td>
+                        {/* Desjardins */}
+                        <td className="px-3 py-3 whitespace-nowrap">
+                          {r.desjardins_flag
+                            ? <span className="text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">⚡ Revival Candidate</span>
+                            : <span className="text-gray-300 text-xs">—</span>
+                          }
+                        </td>
+                        {/* Actions */}
+                        <td className="px-3 py-3 whitespace-nowrap">
+                          {r._importState === 'done' ? (
+                            <a href={r._importedUrl} className="text-xs text-green-700 font-semibold hover:underline">
+                              Imported ✓ →
+                            </a>
+                          ) : r._importState === 'importing' ? (
+                            <span className="text-xs text-indigo-500 animate-pulse">Importing…</span>
+                          ) : r._importState === 'error' ? (
+                            <span className="text-xs text-red-500">Failed — retry</span>
+                          ) : (
+                            <button
+                              onClick={() => handleImport(i)}
+                              className="text-xs text-indigo-600 font-semibold hover:text-indigo-800 transition-colors"
+                            >
+                              Import →
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {/* Expanded abstract row */}
+                      {isExpanded && (
+                        <tr className="bg-indigo-50/60">
+                          <td colSpan={6} className="px-4 py-3">
+                            <div className="text-xs text-gray-600 leading-relaxed space-y-1.5">
+                              {r.abandonment_reason && (
+                                <p><span className="font-semibold text-gray-500">Abandonment reason:</span> {r.abandonment_reason}</p>
+                              )}
+                              {r.assignee && (
+                                <p><span className="font-semibold text-gray-500">Assignee:</span> {r.assignee}</p>
+                              )}
+                              {r.cpc_codes && r.cpc_codes.length > 0 && (
+                                <p><span className="font-semibold text-gray-500">CPC:</span> {r.cpc_codes.join(', ')}</p>
+                              )}
+                              {r._breakdown && (
+                                <div className="mt-2 pt-2 border-t border-indigo-100">
+                                  <span className="font-semibold text-gray-500">Score breakdown:</span>{' '}
+                                  {Object.entries(r._breakdown)
+                                    .filter(([, v]) => v > 0)
+                                    .map(([k, v]) => `${k}: +${v}`)
+                                    .join(' · ')}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!searching && !error && results.length === 0 && (
+        <p className="text-sm text-gray-400 text-center py-6">
+          No results yet. Run a search above.
+        </p>
+      )}
+
+      {/* Previous searches */}
+      {!loadingPrev && prevSearches.length > 0 && (
+        <div>
+          <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Previous Searches</h3>
+          <div className="space-y-2">
+            {prevSearches.map(s => (
+              <div key={s.query_id} className="flex items-center justify-between px-4 py-2.5 bg-gray-50 rounded-xl border border-gray-100 text-sm">
+                <div>
+                  <span className="font-medium text-gray-700">{s.query_params?.keywords || s.query_params?.cpcCode || 'Search'}</span>
+                  {s.query_params?.statusFilter && (
+                    <span className="ml-2 text-xs text-gray-400">{s.query_params.statusFilter}</span>
+                  )}
+                  <span className="ml-2 text-xs text-gray-400">· {s.count} results</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-gray-400">
+                    {new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                  <button
+                    onClick={() => loadPrevResults(s.query_id)}
+                    className="text-xs text-indigo-600 font-semibold hover:text-indigo-800 transition-colors"
+                  >
+                    Load results →
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function AdminResearchPage() {
   const router = useRouter()
@@ -809,6 +1209,9 @@ export default function AdminResearchPage() {
               🔒 Admin-only. Results never exposed to patent holders or marketplace visitors.
             </p>
           </div>
+
+          {/* ── USPTO Discovery Panel ────────────────────────────────────── */}
+          <USPTODiscovery authToken={authToken} />
 
           {/* ── Run History Table ────────────────────────────────────────── */}
           <div>
