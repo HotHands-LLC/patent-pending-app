@@ -79,7 +79,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'people' | 'collabs' | 'roles' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'billing' | 'connectors'>('overview')
+  const [activeSection, setActiveSection] = useState<'overview' | 'patents' | 'people' | 'collabs' | 'roles' | 'ai-costs' | 'activity' | 'inbox' | 'agency' | 'partners' | 'billing' | 'connectors' | 'demo-sessions'>('overview')
   const [authToken, setAuthToken] = useState('')
   const [mfaWarning, setMfaWarning] = useState<'setup' | 'verify' | null>(null)
 
@@ -323,6 +323,7 @@ export default function AdminPage() {
     { key: 'ai-costs', label: 'AI Costs', icon: '🤖' },
     { key: 'activity', label: 'Activity', icon: '📡' },
     { key: 'connectors', label: 'Connectors', icon: '🔌' },
+    { key: 'demo-sessions', label: 'Demo Analytics', icon: '📺' },
   ]
 
   // Agency state (loaded on demand)
@@ -629,9 +630,6 @@ export default function AdminPage() {
                 <strong>Note:</strong> AI costs are logged when the draft-spec, generate-claims, or score endpoints run.
                 Costs not yet logged: generate-claims cron (update cron to insert ai_usage_log rows). Gemini 2.5 Pro ≈ $1.25/1M input + $10/1M output.
               </div>
-
-              {/* ── Per-User AI Usage Table ─────────────────────────────────── */}
-              <AdminAiUsageTable authToken={authToken} />
             </div>
           )}
 
@@ -949,6 +947,10 @@ export default function AdminPage() {
 
           {activeSection === 'connectors' && (
             <AdminConnectorsPanel authToken={authToken} />
+          )}
+
+          {activeSection === 'demo-sessions' && (
+            <DemoAnalyticsPanel authToken={authToken} />
           )}
 
         </main>
@@ -2411,82 +2413,182 @@ function AdminRolesPanel({ authToken }: { authToken: string }) {
   )
 }
 
-// ── Admin AI Usage Table ─────────────────────────────────────────────────────
-interface AiUsageRow {
-  email: string
-  monthly_ai_budget_pct: number
-  total_tokens: number
-  chat_tokens: number
-  polish_tokens: number
-  research_tokens: number
+// ─── Demo Analytics Panel ────────────────────────────────────────────────────
+
+interface DemoSession {
+  id: string
+  session_id: string
+  message_count: number
+  intents: string[]
+  dominant_intent: string | null
+  started_at: string
+  last_activity_at: string
 }
 
-function AdminAiUsageTable({ authToken }: { authToken: string }) {
-  const [rows, setRows] = React.useState<AiUsageRow[]>([])
+const INTENT_LABELS: Record<string, string> = {
+  attorney_evaluating: 'Attorney Evaluating',
+  inventor_filing: 'Inventor Filing',
+  investor_exploring: 'Investor Exploring',
+  pricing_inquiry: 'Pricing Inquiry',
+  technical_question: 'Technical Question',
+  objection_handling: 'Objection Handling',
+  general_curiosity: 'General Curiosity',
+  unknown: 'Unknown',
+}
+
+const INTENT_COLORS: Record<string, string> = {
+  attorney_evaluating: 'bg-purple-500',
+  inventor_filing: 'bg-blue-500',
+  investor_exploring: 'bg-green-500',
+  pricing_inquiry: 'bg-amber-500',
+  technical_question: 'bg-cyan-500',
+  objection_handling: 'bg-red-400',
+  general_curiosity: 'bg-gray-400',
+  unknown: 'bg-gray-300',
+}
+
+function DemoAnalyticsPanel({ authToken }: { authToken: string }) {
+  const [sessions, setSessions] = React.useState<DemoSession[]>([])
   const [loading, setLoading] = React.useState(true)
-  const [error, setError] = React.useState('')
 
   React.useEffect(() => {
-    if (!authToken) return
-    setLoading(true)
-    fetch('/api/admin/ai-usage', { headers: { Authorization: `Bearer ${authToken}` } })
-      .then(r => r.json())
-      .then(d => { setRows(d.rows ?? []); setLoading(false) })
-      .catch(e => { setError(String(e)); setLoading(false) })
+    async function load() {
+      setLoading(true)
+      try {
+        const res = await fetch('/api/admin/demo-analytics', {
+          headers: { Authorization: `Bearer ${authToken}` },
+        })
+        if (res.ok) {
+          const d = await res.json()
+          setSessions(d.sessions ?? [])
+        }
+      } catch { /* ignore */ } finally {
+        setLoading(false)
+      }
+    }
+    load()
   }, [authToken])
 
-  const statusBadge = (pct: number, budgetPct: number) => {
-    // pct = tokens as % of budget (rough: 1 token ≈ $0.000003; budget = 19.99 * budgetPct/100)
-    if (pct >= 100) return <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">🔴 Over</span>
-    if (pct >= 80)  return <span className="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold">🟡 Near</span>
-    return               <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-bold">🟢 OK</span>
+  if (loading) return <div className="p-6 text-gray-400">Loading demo analytics...</div>
+
+  // Stats
+  const totalSessions = sessions.length
+  const totalMessages = sessions.reduce((s, x) => s + (x.message_count ?? 0), 0)
+  const avgMsgs = totalSessions > 0 ? (totalMessages / totalSessions).toFixed(1) : '0'
+  const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+  const sessionsThisWeek = sessions.filter(s => new Date(s.started_at).getTime() > oneWeekAgo).length
+
+  // Intent breakdown
+  const intentCounts: Record<string, number> = {}
+  sessions.forEach(s => {
+    const k = s.dominant_intent ?? 'unknown'
+    intentCounts[k] = (intentCounts[k] ?? 0) + 1
+  })
+  const sortedIntents = Object.entries(intentCounts).sort((a, b) => b[1] - a[1])
+  const maxCount = sortedIntents[0]?.[1] ?? 1
+
+  function fmt(dateStr: string) {
+    return new Date(dateStr).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    })
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mt-6">
-      <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-        <span className="text-xs font-bold uppercase tracking-wider text-gray-500">AI Usage — This Month (Per User)</span>
-        <span className="text-xs text-gray-400">{loading ? 'Loading…' : `${rows.length} users`}</span>
+    <div className="p-6 max-w-5xl">
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Demo Analytics</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Session data from <a href="/demo" className="text-blue-600 hover:underline" target="_blank">patentpending.app/demo</a>.
+          No PII stored — IPs are hashed.
+        </p>
       </div>
-      {error && <div className="p-4 text-sm text-red-600">{error}</div>}
-      {!loading && rows.length === 0 && !error && (
-        <div className="p-5 text-sm text-gray-400">No AI usage logged this month.</div>
-      )}
-      {rows.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left px-4 py-2 font-semibold text-gray-500">User</th>
-                <th className="text-right px-4 py-2 font-semibold text-gray-500">Budget %</th>
-                <th className="text-right px-4 py-2 font-semibold text-gray-500">Total Tokens</th>
-                <th className="text-right px-4 py-2 font-semibold text-gray-500">Chat</th>
-                <th className="text-right px-4 py-2 font-semibold text-gray-500">Polish</th>
-                <th className="text-right px-4 py-2 font-semibold text-gray-500">Research</th>
-                <th className="text-center px-4 py-2 font-semibold text-gray-500">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => {
-                // Rough budget utilisation: cost = total_tokens * 0.003/1000; budget = 19.99 * pct/100
-                const estimatedCost = row.total_tokens * 0.003 / 1000
-                const budget = 19.99 * (row.monthly_ai_budget_pct / 100)
-                const utilPct = budget > 0 ? Math.round((estimatedCost / budget) * 100) : 0
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        {[
+          { label: 'Total Sessions', value: totalSessions },
+          { label: 'Total Messages', value: totalMessages },
+          { label: 'Avg Msgs / Session', value: avgMsgs },
+          { label: 'Sessions This Week', value: sessionsThisWeek },
+        ].map(card => (
+          <div key={card.label} className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">{card.label}</div>
+            <div className="text-2xl font-bold text-gray-900 tabular-nums">{card.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {totalSessions === 0 ? (
+        <div className="text-center py-16 text-gray-400 bg-white rounded-xl border border-gray-200">
+          <p className="text-lg mb-1">No demo sessions yet.</p>
+          <p className="text-sm">Share <span className="font-mono text-gray-600">patentpending.app/demo</span> to get started.</p>
+        </div>
+      ) : (
+        <>
+          {/* Intent breakdown */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">Intent Breakdown (by dominant intent)</h3>
+            <div className="space-y-2.5">
+              {sortedIntents.map(([intent, count]) => {
+                const pct = Math.round((count / totalSessions) * 100)
+                const barWidth = Math.round((count / maxCount) * 100)
                 return (
-                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-2 text-gray-700 font-mono">{row.email}</td>
-                    <td className="px-4 py-2 text-right text-gray-500">{row.monthly_ai_budget_pct}%</td>
-                    <td className="px-4 py-2 text-right font-bold text-gray-800">{row.total_tokens.toLocaleString()}</td>
-                    <td className="px-4 py-2 text-right text-gray-500">{row.chat_tokens.toLocaleString()}</td>
-                    <td className="px-4 py-2 text-right text-gray-500">{row.polish_tokens.toLocaleString()}</td>
-                    <td className="px-4 py-2 text-right text-gray-500">{row.research_tokens.toLocaleString()}</td>
-                    <td className="px-4 py-2 text-center">{statusBadge(utilPct, row.monthly_ai_budget_pct)}</td>
-                  </tr>
+                  <div key={intent} className="flex items-center gap-3">
+                    <div className="w-40 text-xs text-gray-600 truncate shrink-0">{INTENT_LABELS[intent] ?? intent}</div>
+                    <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${INTENT_COLORS[intent] ?? 'bg-gray-400'}`}
+                        style={{ width: `${barWidth}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 tabular-nums w-14 text-right shrink-0">
+                      {count} ({pct}%)
+                    </div>
+                  </div>
                 )
               })}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </div>
+
+          {/* Recent sessions table */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+              <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Recent Sessions (last {Math.min(sessions.length, 20)})
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">Session ID</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">Messages</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">Dominant Intent</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">Started</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">Last Active</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {sessions.slice(0, 20).map(s => (
+                    <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-2.5">
+                        <span className="font-mono text-xs text-gray-500">{s.session_id?.slice(0, 8)}…</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-700 font-medium tabular-nums">{s.message_count}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium text-white ${INTENT_COLORS[s.dominant_intent ?? 'unknown'] ?? 'bg-gray-400'}`}>
+                          {INTENT_LABELS[s.dominant_intent ?? 'unknown'] ?? s.dominant_intent ?? '—'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-500 text-xs">{fmt(s.started_at)}</td>
+                      <td className="px-4 py-2.5 text-gray-500 text-xs">{fmt(s.last_activity_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

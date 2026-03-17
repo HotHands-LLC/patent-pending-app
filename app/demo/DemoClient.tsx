@@ -9,8 +9,18 @@ interface ChatMessage {
   intent?: string
 }
 
-// ── Session storage key ───────────────────────────────────────────────────────
+// ── Session storage keys ──────────────────────────────────────────────────────
 const SESSION_KEY = 'pattie_demo_history'
+const SESSION_ID_KEY = 'pattie_demo_session_id'
+
+function getDemoSessionId(): string {
+  if (typeof window === 'undefined') return 'ssr'
+  const existing = sessionStorage.getItem(SESSION_ID_KEY)
+  if (existing) return existing
+  const id = crypto.randomUUID()
+  sessionStorage.setItem(SESSION_ID_KEY, id)
+  return id
+}
 
 function loadHistory(): ChatMessage[] {
   if (typeof window === 'undefined') return []
@@ -140,7 +150,7 @@ export default function DemoClient() {
       const res = await fetch('/api/pattie/demo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({ messages: apiMessages, session_id: getDemoSessionId() }),
       })
 
       if (res.status === 429) {

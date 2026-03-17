@@ -3,12 +3,20 @@
  * Public (no auth). Pattie in sales/demo mode for live prospect calls.
  * Streaming SSE response matching the existing Pattie chat pattern.
  * Rate limit: 20 messages per IP per hour (in-memory map, resets on redeploy).
+ * Session analytics: writes to demo_sessions table (IP hashed, no PII).
  */
 
 import { NextRequest } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { createHash } from 'crypto'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
+
+const supabaseService = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 // ── Rate limiter (in-memory, per IP, resets on cold start) ───────────────────
 const ipMessageCounts = new Map<string, { count: number; resetAt: number }>()
@@ -38,6 +46,10 @@ function getClientIp(req: NextRequest): string {
     req.headers.get('x-real-ip') ||
     'unknown'
   )
+}
+
+function hashIp(ip: string): string {
+  return createHash('sha256').update(ip).digest('hex')
 }
 
 // ── Prompt injection sanitizer ───────────────────────────────────────────────
@@ -81,6 +93,59 @@ function detectIntent(message: string): DemoIntent {
   return 'unknown'
 }
 
+// ── Session analytics upsert ──────────────────────────────────────────────────
+async function recordSession(
+  sessionId: string,
+  ipHash: string,
+  intent: DemoIntent
+): Promise<void> {
+  try {
+    // Check if session exists
+    const { data: existing } = await supabaseService
+      .from('demo_sessions')
+      .select('id, message_count, intents')
+      .eq('session_id', sessionId)
+      .single()
+
+    if (existing) {
+      // Update existing session
+      const updatedIntents = [...(existing.intents ?? []), intent]
+      // Calculate dominant intent
+      const intentCounts = updatedIntents.reduce<Record<string, number>>((acc, i) => {
+        acc[i] = (acc[i] ?? 0) + 1
+        return acc
+      }, {})
+      const dominantIntent = Object.entries(intentCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? intent
+
+      await supabaseService
+        .from('demo_sessions')
+        .update({
+          message_count: (existing.message_count ?? 0) + 1,
+          intents: updatedIntents,
+          dominant_intent: dominantIntent,
+          last_activity_at: new Date().toISOString(),
+        })
+        .eq('session_id', sessionId)
+    } else {
+      // Insert new session
+      await supabaseService
+        .from('demo_sessions')
+        .insert({
+          session_id: sessionId,
+          ip_hash: ipHash,
+          message_count: 1,
+          intents: [intent],
+          dominant_intent: intent,
+          started_at: new Date().toISOString(),
+          last_activity_at: new Date().toISOString(),
+        })
+    }
+  } catch (err) {
+    // Analytics failure is non-fatal — never block the response
+    console.warn('[pattie/demo] session log failed (non-fatal):', err)
+  }
+}
+
 // ── System prompt ─────────────────────────────────────────────────────────────
 const DEMO_SYSTEM_PROMPT = `You are Pattie, the AI patent assistant for patentpending.app — a USPTO patent filing and management platform built for inventors and IP attorneys.
 
@@ -119,6 +184,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({})) as {
     messages?: Array<{ role: 'user' | 'assistant'; content: string }>
+    session_id?: string
   }
 
   const messages = (body.messages ?? []).map(m => ({
@@ -136,7 +202,10 @@ export async function POST(req: NextRequest) {
   // Detect and log intent from last user message
   const lastUserMsg = messages[messages.length - 1].content
   const intent: DemoIntent = detectIntent(lastUserMsg)
-  console.log('[Pattie Demo Intent]', intent, '| ip:', ip, '| remaining:', remaining)
+  const ipHash = hashIp(ip)
+  const sessionId = body.session_id ?? ipHash // fallback to ip_hash if no session_id
+
+  console.log('[Pattie Demo Intent]', intent, '| session:', sessionId.slice(0, 8), '| remaining:', remaining)
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return new Response(
@@ -144,6 +213,9 @@ export async function POST(req: NextRequest) {
       { status: 503, headers: { 'Content-Type': 'application/json' } }
     )
   }
+
+  // Record session analytics (non-blocking — fire and continue)
+  const analyticsPromise = recordSession(sessionId, ipHash, intent)
 
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
@@ -202,6 +274,9 @@ export async function POST(req: NextRequest) {
             } catch { /* skip malformed */ }
           }
         }
+
+        // Wait for analytics write (non-critical, but log if it fails)
+        await analyticsPromise
 
         emitDone()
         controller.close()
