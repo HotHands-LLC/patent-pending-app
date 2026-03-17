@@ -2,23 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { createClient } from '@supabase/supabase-js'
 import { getUserTierInfo, isPro, tierRequiredResponse } from '@/lib/tier'
+import { isAIMLPatent, DESJARDINS_BLOCK } from '@/lib/pattie-desjardins'
 import { getUserTier, isTierPro } from '@/lib/subscription'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
-import { logAiUsage } from '@/lib/ai-budget'
-
-export const dynamic = 'force-dynamic'
 
 export const maxDuration = 300
 
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 function getUserClient(token: string) {
   return createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -36,7 +34,7 @@ export async function POST(
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({
-      error: 'Pattie Polish is not yet configured.',
+      error: 'AI Refinement Pass is not yet configured.',
       detail: 'ANTHROPIC_API_KEY environment variable is missing.',
     }, { status: 503 })
   }
@@ -52,14 +50,14 @@ export async function POST(
   const tier = await getUserTier(user.id)
   if (!isTierPro(tier)) {
     return NextResponse.json({
-      error: 'Pattie Polish requires PatentPending Pro',
+      error: 'AI Refinement Pass requires PatentPending Pro',
       upgrade_url: '/pricing',
     }, { status: 403 })
   }
 
   const { data: patent } = await supabaseService
     .from('patents')
-    .select('id, title, owner_id, description, claims_draft, claims_status')
+    .select('id, title, owner_id, description, claims_draft, claims_status, tags, abstract_draft')
     .eq('id', patentId)
     .single()
 
@@ -74,7 +72,7 @@ export async function POST(
 
   if (!patent.claims_draft) return NextResponse.json({ error: 'No claims draft to refine' }, { status: 400 })
   if (patent.claims_status === 'refining') {
-    return NextResponse.json({ error: 'Pattie Polish is already in progress' }, { status: 409 })
+    return NextResponse.json({ error: 'A refinement pass is already in progress' }, { status: 409 })
   }
 
   // Get owner email
@@ -134,9 +132,15 @@ async function runRefinementPass(
   ownerEmail: string,
   ownerName: string
 ) {
+  const aimlSupplement = isAIMLPatent({ title, description, claims_draft: claimsDraft }) ? `
+
+${DESJARDINS_BLOCK}
+
+Apply Desjardins awareness during this refinement pass: if any claim reads as a pure mathematical concept or abstract algorithm, tighten the language to ground it in a specific technical architecture or measurable improvement. Flag such claims in a brief note after the refined claims block (prefixed with "⚡ DESJARDINS NOTE:").` : ''
+
   const systemPrompt = `You are a senior patent attorney with 25 years of USPTO prosecution experience. Your specialty is claim language precision — removing ambiguity, tightening scope without losing coverage, and ensuring every claim would survive an examiner's § 112 written description rejection.
 
-You write in precise, formal patent English. You do not use marketing language. You do not add claims — you refine what exists.`
+You write in precise, formal patent English. You do not use marketing language. You do not add claims — you refine what exists.${aimlSupplement}`
 
   const userPrompt = `Perform a precision language refinement pass on the following patent claims.
 
@@ -165,7 +169,7 @@ ${claimsDraft.slice(0, 5000)}`
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': (process.env.ANTHROPIC_API_KEY ?? ''),
+        'x-api-key': process.env.ANTHROPIC_API_KEY!,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -214,15 +218,6 @@ ${claimsDraft.slice(0, 5000)}`
       .order('created_at', { ascending: false })
       .limit(1)
 
-    // Also log to ai_token_usage (account-level budget tracking, feature = 'pattie_polish')
-    await logAiUsage(supabaseService, {
-      userId:     (await supabaseService.from('patents').select('owner_id').eq('id', patentId).single()).data?.owner_id ?? '',
-      patentId,
-      feature:    'pattie_polish',
-      tokensUsed: inputTok + outputTok,
-      model:      'claude-sonnet-4-6',
-    })
-
     // Send completion email via Resend
     if (ownerEmail && process.env.RESEND_API_KEY) {
       const patentUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'}/dashboard/patents/${patentId}?tab=claims`
@@ -233,7 +228,7 @@ ${claimsDraft.slice(0, 5000)}`
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
   <h2 style="color:#4f46e5">Your claims have been refined ✨</h2>
   <p>Hi ${ownerName},</p>
-  <p>Pattie has completed a Polish pass on the claims for <strong>${title}</strong>.</p>
+  <p>AI has completed a precision language refinement pass on the claims for <strong>${title}</strong>.</p>
   <p>What was improved:</p>
   <ul>
     <li>Antecedent basis verified for all dependent claim elements</li>

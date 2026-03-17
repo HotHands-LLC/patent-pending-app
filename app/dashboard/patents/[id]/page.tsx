@@ -41,7 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'marketplace'
+type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -52,89 +52,6 @@ const REVISION_CHIPS = [
   { id: 'prior_art', label: 'Run prior art check and strengthen novelty' },
   { id: 'custom', label: 'Custom note…' },
 ]
-
-// ── Research Report Viewer ────────────────────────────────────────────────────
-const RESEARCH_PREVIEW_CHARS = 500
-function ResearchReportViewer({ content, metadata }: { content: string; metadata: Record<string, unknown> | null }) {
-  const [expanded, setExpanded] = React.useState(false)
-  const isLong = content.length > RESEARCH_PREVIEW_CHARS
-  const displayContent = expanded || !isLong ? content : content.slice(0, RESEARCH_PREVIEW_CHARS) + '…'
-  const generatedAt = metadata?.generated_at as string | undefined
-  return (
-    <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/50 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border-b border-indigo-100">
-        <span className="text-sm">🔬</span>
-        <span className="text-xs font-bold text-indigo-700 uppercase tracking-wide">AI Research Report</span>
-        {generatedAt && (
-          <span className="ml-auto text-xs text-indigo-400">
-            {new Date(generatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </span>
-        )}
-      </div>
-      <div className="p-4 text-sm text-gray-800 prose prose-sm prose-headings:text-[#1a1f36] prose-headings:font-bold prose-h2:text-base prose-h2:mt-4 prose-h2:mb-2 max-w-none">
-        <ReactMarkdown>{displayContent}</ReactMarkdown>
-      </div>
-      {isLong && (
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="w-full text-xs text-indigo-600 hover:text-indigo-800 py-2 border-t border-indigo-100 hover:bg-indigo-50 transition-colors font-medium"
-        >
-          {expanded ? 'Show less ▲' : 'View full report ▾'}
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ── Pattie CTA Card — reusable empty state invitation ────────────────────────
-function PattieCTACard({
-  headline,
-  body,
-  onAskPattie,
-  isPro,
-  onUpgrade,
-  patentId,
-  pattieGuidance = true,
-}: {
-  headline: string
-  body: string
-  onAskPattie: () => void
-  isPro: boolean
-  onUpgrade?: () => void
-  patentId?: string
-  /** When false, render nothing — user has turned off Pattie guidance */
-  pattieGuidance?: boolean
-}) {
-  // Outer gate: if user has disabled guidance, show nothing at all
-  if (!pattieGuidance) return null
-
-  if (!isPro) {
-    return (
-      <div className="my-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center gap-3">
-        <span className="text-lg flex-shrink-0">🦞</span>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-indigo-700">{headline}</p>
-          <p className="text-xs text-indigo-500 mt-0.5">Pattie can help — <a href="/pricing" className="underline font-medium">upgrade to Pro</a></p>
-        </div>
-      </div>
-    )
-  }
-  return (
-    <div className="my-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-start gap-3">
-      <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#4f46e5] text-white text-xs font-bold flex-shrink-0 mt-0.5" aria-hidden>PP</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold text-indigo-800">{headline}</p>
-        <p className="text-xs text-indigo-600 mt-0.5 leading-relaxed">{body}</p>
-      </div>
-      <button
-        onClick={onAskPattie}
-        className="flex-shrink-0 text-xs font-semibold bg-[#4f46e5] text-white px-3 py-1.5 rounded-lg hover:bg-[#4338ca] transition-colors whitespace-nowrap"
-      >
-        Ask Pattie
-      </button>
-    </div>
-  )
-}
 
 // ── Filing readiness score card ───────────────────────────────────────────────
 function ScoreCard({ score }: { score: ClaimsScore }) {
@@ -215,7 +132,7 @@ function ProBadge({ patentId }: { patentId: string }) {
         <ul className="space-y-2 mb-4">
           {[
             'Deep Research Pass (12 min)',
-            'Pattie Polish',
+            'AI Refinement Pass',
             'Unlimited revision rounds',
           ].map(f => (
             <li key={f} className="text-xs text-gray-600 flex items-center gap-2">
@@ -306,17 +223,11 @@ function AbstractField({
   authToken,
   canWrite,
   onUpdate,
-  isPro,
-  onPattieClick,
-  pattieGuidance = true,
 }: {
   patent: Patent
   authToken: string
   canWrite: boolean
   onUpdate: (val: string | null) => void
-  isPro?: boolean
-  onPattieClick?: () => void
-  pattieGuidance?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(patent.abstract_draft ?? '')
@@ -400,23 +311,12 @@ function AbstractField({
         ) : patent.abstract_draft ? (
           <p className="text-sm text-gray-700 leading-relaxed">{patent.abstract_draft}</p>
         ) : (
-          <div>
-            <p className="text-sm text-gray-400 italic mb-2">
-              No abstract yet. Abstracts must be 150 words or less. Required for non-provisional applications.
-              {canWrite && (
-                <> <button onClick={() => { setValue(''); setEditing(true) }} className="ml-1 text-indigo-500 hover:underline not-italic">Write manually →</button></>
-              )}
-            </p>
-            {onPattieClick && canWrite && (
-              <PattieCTACard
-                headline="No abstract yet"
-                body="Pattie can draft your abstract from your spec and claims."
-                isPro={isPro ?? false}
-                pattieGuidance={pattieGuidance}
-                onAskPattie={onPattieClick}
-              />
+          <p className="text-sm text-gray-400 italic">
+            No abstract yet. Abstracts must be 150 words or less. Required for non-provisional applications.
+            {canWrite && (
+              <> <button onClick={() => { setValue(''); setEditing(true) }} className="ml-1 text-indigo-500 hover:underline not-italic">Add one now →</button></>
             )}
-          </div>
+          </p>
         )}
       </div>
     </div>
@@ -429,13 +329,11 @@ function MarketplaceSettingsCard({
   authToken,
   canWrite,
   onUpdate,
-  fullPage = false,
 }: {
   patent: Patent
   authToken: string
   canWrite: boolean
   onUpdate: (fields: Partial<Record<string, unknown>>) => void
-  fullPage?: boolean
 }) {
   const [open, setOpen]           = useState(false)
   const [saving, setSaving]       = useState(false)
@@ -520,210 +418,6 @@ function MarketplaceSettingsCard({
 
   const isListed = !!(patent as Record<string, unknown>).marketplace_enabled
   const liveSlug = (patent as Record<string, unknown>).marketplace_slug as string | null
-
-  // Full-page mode: always expanded, no collapsible header, section titles
-  if (fullPage) {
-    return (
-      <div className="space-y-6">
-        {/* ── Section 1: Listing Status ─────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-1">
-            <div>
-              <div className="text-sm font-bold text-[#1a1f36]">🏪 List on Marketplace</div>
-              <div className="text-xs text-gray-400 mt-0.5">Make this patent discoverable to licensees and buyers</div>
-            </div>
-            <button
-              onClick={() => canWrite && setMktEnabled(e => !e)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${mktEnabled ? 'bg-purple-600' : 'bg-gray-200'} ${!canWrite ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${mktEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
-          {!mktEnabled && (
-            <div className="mt-3 p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-700">
-              💡 <strong>Want Pattie to help you prepare this patent for market?</strong> She can draft your brief and suggest a price range. Enable listing above, then open Pattie chat.
-            </div>
-          )}
-        </div>
-
-        {mktEnabled && (
-          <>
-        {/* ── Section 2: Public Deal Page ───────────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-          <div className="text-sm font-bold text-[#1a1f36] mb-1">🔗 Public Deal Page</div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Marketplace Slug</label>
-            <div className="flex gap-2 items-center">
-              <span className="text-xs text-gray-400 whitespace-nowrap">patentpending.app/marketplace/</span>
-              <input
-                disabled={!canWrite}
-                value={slug}
-                onChange={e => setSlug(e.target.value)}
-                onFocus={autoSlug}
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
-                placeholder="e.g. light-communication-system"
-              />
-            </div>
-            {slug && <div className="text-xs text-gray-500 mt-1 font-mono bg-gray-50 rounded px-2 py-1">patentpending.app/marketplace/{slug}</div>}
-            {liveSlug && (
-              <div className="flex items-center gap-3 mt-2">
-                <a href={`/marketplace/${liveSlug}`} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-purple-600 hover:underline font-medium">
-                  View deal page →
-                </a>
-                <button
-                  onClick={() => navigator.clipboard.writeText(`https://patentpending.app/marketplace/${liveSlug}`)}
-                  className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-2 py-0.5"
-                >
-                  Copy URL
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Section 3: Listing Details ────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-          <div className="text-sm font-bold text-[#1a1f36] mb-1">📋 Listing Details</div>
-
-          {/* Brief */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Deal Page Brief</label>
-            <p className="text-xs text-gray-400 mb-1.5">Describe your patent for potential licensees — what problem does it solve, who needs it?</p>
-            <textarea
-              disabled={!canWrite}
-              value={brief}
-              onChange={e => setBrief(e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-y focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
-              placeholder="Describe the technology and its applications in plain language…"
-            />
-            {!brief && canWrite && (
-              <p className="text-xs text-indigo-600 mt-1">
-                💡 Need help writing your brief?{' '}
-                <span className="underline cursor-pointer">Ask Pattie →</span>
-              </p>
-            )}
-          </div>
-
-          {/* Price */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Asking Price / Terms</label>
-            <input
-              disabled={!canWrite}
-              value={price}
-              onChange={e => setPrice(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
-              placeholder='e.g. "$50K–$200K" or "Open to offers"'
-            />
-            {!price && <p className="text-xs text-gray-400 mt-1">Leave blank for "Contact for pricing". Not sure? Pattie can suggest a range.</p>}
-          </div>
-
-          {/* YouTube */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Demo / Pitch Video <span className="font-normal text-gray-400">(optional)</span></label>
-            <input
-              disabled={!canWrite}
-              value={youtubeUrl}
-              onChange={e => setYoutubeUrl(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
-              placeholder="https://www.youtube.com/watch?v=..."
-            />
-            {youtubeUrl && (() => {
-              const isValid = /^https:\/\/(www\.youtube\.com\/|youtu\.be\/)/.test(youtubeUrl)
-              const m = youtubeUrl.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
-              if (!isValid) return <p className="text-xs text-red-500 mt-1">Please enter a valid YouTube URL</p>
-              return m ? <p className="text-xs text-green-600 mt-1">✓ Valid YouTube URL — will embed on your deal page</p>
-                       : <p className="text-xs text-amber-500 mt-1">⚠ Could not detect YouTube video ID — check the URL format</p>
-            })()}
-          </div>
-
-          {/* Tags */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Technology Tags <span className="font-normal text-gray-400">(max 5)</span></label>
-            <div className={`flex flex-wrap gap-1.5 items-center min-h-[38px] px-3 py-1.5 border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-purple-300`}>
-              {mktTags.map(t => (
-                <span key={t} className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full border border-indigo-100">
-                  #{t}
-                  {canWrite && <button type="button" onClick={() => setMktTags(tags => tags.filter(x => x !== t))} className="text-indigo-400 hover:text-indigo-700 leading-none">×</button>}
-                </span>
-              ))}
-              {canWrite && mktTags.length < 5 && (
-                <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleTagKeyDown} onBlur={() => tagInput && addTag(tagInput)}
-                  className="flex-1 min-w-[80px] text-sm outline-none bg-transparent py-0.5"
-                  placeholder={mktTags.length === 0 ? 'e.g. IoT, energy, wireless…' : ''} />
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* ── Section 4: IP Readiness Score ─────────────────────────────────── */}
-        {(() => {
-          const scoreInput = {
-            provisional_filed_at: (patent as Record<string, unknown>).provisional_filed_at as string | null,
-            filing_status: (patent as Record<string, unknown>).filing_status as string | null,
-            spec_draft: (patent as Record<string, unknown>).spec_draft as string | null,
-            claims_draft: (patent as Record<string, unknown>).claims_draft as string | null,
-            abstract_draft: (patent as Record<string, unknown>).abstract_draft as string | null,
-            figures: (patent as Record<string, unknown>).figures as unknown[] | null,
-            deal_page_brief: brief,
-            marketplace_tags: mktTags,
-            asking_price_range: price || null,
-          }
-          const score = computeIpReadinessScore(scoreInput)
-          const criteria = getIpReadinessCriteria(scoreInput)
-          return (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <div className="text-sm font-bold text-[#1a1f36]">📊 IP Readiness Score</div>
-                  <div className="text-xs text-gray-400 mt-0.5">How ready this patent is for licensing or sale</div>
-                </div>
-                <span className={`text-xl font-extrabold ${score >= 70 ? 'text-green-600' : score >= 40 ? 'text-yellow-500' : 'text-red-500'}`}>
-                  {score}/100
-                </span>
-              </div>
-              <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-4">
-                <div
-                  className={`h-full rounded-full transition-all ${score >= 70 ? 'bg-green-500' : score >= 40 ? 'bg-yellow-400' : 'bg-red-400'}`}
-                  style={{ width: `${score}%` }}
-                />
-              </div>
-              <div className="space-y-1 mb-3">
-                {criteria.map(c => (
-                  <div key={c.label} className="flex items-center justify-between text-xs">
-                    <span className={c.met ? 'text-gray-700' : 'text-gray-400'}>{c.met ? '✅' : '❌'} {c.label}</span>
-                    <span className={c.met ? 'text-green-600 font-semibold' : 'text-gray-300'}>+{c.points}</span>
-                  </div>
-                ))}
-              </div>
-              {score < 70 && (
-                <div className="text-xs text-indigo-600 mt-2">
-                  💡 Pattie can suggest improvements to raise your IP Readiness Score. Open Pattie chat →
-                </div>
-              )}
-            </div>
-          )
-        })()}
-
-        {/* ── Section 5: Save ────────────────────────────────────────────────── */}
-        {canWrite && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-6 py-2.5 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-50"
-            >
-              {saving ? 'Saving…' : 'Save Marketplace Settings'}
-            </button>
-            {saved && <span className="text-sm text-green-600 font-medium">✓ Saved</span>}
-          </div>
-        )}
-          </>
-        )}
-      </div>
-    )
-  }
 
   return (
     <div className={`bg-white rounded-xl border overflow-hidden mt-4 ${isListed ? 'border-purple-200' : 'border-gray-200'}`}>
@@ -842,9 +536,9 @@ function MarketplaceSettingsCard({
             <p className="text-xs text-gray-400 mt-1">{mktTags.length} tag{mktTags.length !== 1 ? 's' : ''} · 3+ unlocks 5 IP Readiness points</p>
           </div>
 
-          {/* YouTube Demo / Pitch Video */}
+          {/* YouTube Video URL */}
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Demo / Pitch Video <span className="font-normal text-gray-400">(optional)</span></label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Video URL</label>
             <p className="text-xs text-gray-400 mb-1.5">Appears as the "Watch Overview" embed on the public deal page.</p>
             <input
               disabled={!canWrite}
@@ -854,12 +548,10 @@ function MarketplaceSettingsCard({
               placeholder="https://www.youtube.com/watch?v=..."
             />
             {youtubeUrl && (() => {
-              const isValid = /^https:\/\/(www\.youtube\.com\/|youtu\.be\/)/.test(youtubeUrl)
               const match = youtubeUrl.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
-              if (!isValid) return <p className="text-xs text-red-500 mt-1">Please enter a valid YouTube URL</p>
               return match
-                ? <p className="text-xs text-green-600 mt-1">✓ Valid YouTube URL — will embed on your deal page</p>
-                : <p className="text-xs text-amber-500 mt-1">⚠ Could not detect YouTube video ID — check the URL format</p>
+                ? <p className="text-xs text-green-600 mt-1">✓ Valid YouTube URL — video ID: {match[1]}</p>
+                : <p className="text-xs text-amber-500 mt-1">⚠ Could not detect a YouTube video ID in this URL</p>
             })()}
           </div>
 
@@ -948,14 +640,10 @@ export default function PatentDetail() {
   const [ownerId, setOwnerId] = useState('')
   const [authToken, setAuthToken] = useState('')
   const [isPro, setIsPro] = useState(false)
-  const [pattieGuidance, setPattieGuidance] = useState(true)
   const [isAttorney, setIsAttorney] = useState(false)
   const [upgradeFeature, setUpgradeFeature] = useState<string | null>(null)
-  const [budgetWarning, setBudgetWarning] = useState<string | null>(null)
   const [figureUrls, setFigureUrls] = useState<Array<{ number: number; label: string; filename: string; url: string }>>([])
   const [figuresLoaded, setFiguresLoaded] = useState(false)
-  const [figureDescriptions, setFigureDescriptions] = useState<Record<string, string>>({})
-  const [figureDescSaving, setFigureDescSaving] = useState<Record<string, 'saving' | 'saved' | null>>({})
   const [userEmail, setUserEmail] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollStartRef = useRef<number | null>(null)
@@ -969,13 +657,6 @@ export default function PatentDetail() {
   const [showArc3Modal, setShowArc3Modal] = useState(false)
   const [showArc3Interview, setShowArc3Interview] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
-  const [pattieInitialPrompt, setPattieInitialPrompt] = useState<string | undefined>(undefined)
-
-  // Helper: open Pattie with an optional pre-primed field prompt
-  const openPattieWithPrompt = (prompt?: string) => {
-    setPattieInitialPrompt(prompt)
-    setShowPattie(true)
-  }
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -1008,7 +689,7 @@ export default function PatentDetail() {
       supabase.from('patent_deadlines').select('*').eq('patent_id', id).order('due_date', { ascending: true }),
       supabase.from('patent_correspondence').select('*').eq('patent_id', id).order('correspondence_date', { ascending: false }),
       supabase.from('patents').select('*').order('title'),
-      supabase.from('patent_profiles').select('subscription_status,subscription_period_end,is_attorney,pattie_guidance').eq('id', user.id).single(),
+      supabase.from('patent_profiles').select('subscription_status,subscription_period_end,is_attorney').eq('id', user.id).single(),
     ])
 
     // Determine Pro status from fresh DB read (not stale session token)
@@ -1018,8 +699,6 @@ export default function PatentDetail() {
       (status === 'pro' && (!periodEnd || new Date(periodEnd) > new Date()))
     setIsPro(proActive)
     setIsAttorney(profileData?.is_attorney ?? false)
-    // Pattie guidance preference (default true if column not present)
-    setPattieGuidance((profileData as Record<string,unknown>)?.pattie_guidance !== false)
 
     if (!p) { router.push('/dashboard/patents'); return }
 
@@ -1109,11 +788,6 @@ export default function PatentDetail() {
       }).catch(() => setFiguresLoaded(true))
     } else {
       setFiguresLoaded(true)
-    }
-
-    // Load existing figure descriptions from patent record
-    if (p?.figure_descriptions) {
-      setFigureDescriptions(p.figure_descriptions as Record<string, string>)
     }
   }
 
@@ -1444,20 +1118,6 @@ export default function PatentDetail() {
           <span className="text-[#1a1f36] truncate">{patent.title}</span>
         </div>
 
-        {/* Pattie Interview drafted banner */}
-        {searchParams.get('pattie_drafted') === '1' && (
-          <div className="mb-5 bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-4 flex items-start gap-3">
-            <span className="text-2xl flex-shrink-0">✨</span>
-            <div>
-              <p className="text-sm font-bold text-indigo-800">Pattie drafted this — review before filing</p>
-              <p className="text-xs text-indigo-700 mt-0.5 leading-relaxed">
-                Pattie generated a draft title, abstract, and spec from your answers. Review each section, refine the language,
-                and add your claims before filing. You can also run a Deep Research pass to strengthen the claims.
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* Research Import banner */}
         {patent.status === 'research_import' && (
           <div className="mb-5 bg-purple-50 border border-purple-200 rounded-xl px-5 py-4 flex items-start gap-3">
@@ -1528,6 +1188,20 @@ export default function PatentDetail() {
                 </span>
               )}
               {/* Granted ✓ badge removed — status pill ("granted") is sufficient */}
+              {/* ⚡ AI/ML Desjardins badge — shows when patent is AI/ML-related */}
+              {(() => {
+                const AI_ML_TAGS_CHECK = ['ai', 'ml', 'machine learning', 'artificial intelligence', 'neural network', 'deep learning', 'computer vision', 'nlp', 'natural language', 'ai/ml invention', 'software', 'algorithm', 'llm', 'generative', 'predictive model']
+                const isAiMl = (patent.tags ?? []).some((tag: string) => AI_ML_TAGS_CHECK.some(ai => tag.toLowerCase().includes(ai)))
+                  || AI_ML_TAGS_CHECK.some(ai => (patent.title ?? '').toLowerCase().includes(ai))
+                return isAiMl ? (
+                  <span
+                    className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                    title="AI/ML patent — Pattie has Desjardins §101 guidance active for this patent"
+                  >
+                    ⚡ AI/ML · Desjardins guidance active
+                  </span>
+                ) : null
+              })()}
             </div>
             {/* Inline lock suggestion for granted + unlocked patents (owner only) */}
             {isGranted && !isLocked && !isCollaborator && (
@@ -1644,11 +1318,10 @@ export default function PatentDetail() {
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
           const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
-          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement', 'marketplace'] as Tab[])
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
-              if (t === 'marketplace') return !isCollaborator
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               return canView(t)
@@ -1696,7 +1369,6 @@ export default function PatentDetail() {
                     )}
                   </span>
                 ) : t === 'enhancement' ? '✨ Enhancement'
-                : t === 'marketplace' ? '🏪 Marketplace'
                 : t === 'details' ? 'Overview'
                 : 'Details'
               }
@@ -1734,17 +1406,7 @@ export default function PatentDetail() {
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a1f36] min-h-[44px]"
                         />
                       ) : (
-                        <div className="text-sm text-[#1a1f36]">
-                          {field.value}
-                          {field.key === 'tags' && (!patent.tags || patent.tags.length === 0) && canWrite && (
-                            <button
-                              onClick={() => openPattieWithPrompt('Please suggest USPTO classification tags and relevant keywords for my patent.')}
-                              className="ml-2 text-xs text-indigo-500 hover:underline font-medium"
-                            >
-                              Ask Pattie →
-                            </button>
-                          )}
-                        </div>
+                        <div className="text-sm text-[#1a1f36]">{field.value}</div>
                       )}
                     </div>
                   ))}
@@ -2021,7 +1683,7 @@ export default function PatentDetail() {
             <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
               <h3 className="text-lg font-bold text-[#1a1f36] mb-1">Before you approve — AI Refinement available</h3>
               <p className="text-sm text-gray-600 mb-4">
-                An Pattie Polish has already run on these claims. You can review the language improvements before locking them in. This won't change your inventive concepts — just sharpen the legal wording.
+                An AI Refinement Pass has already run on these claims. You can review the language improvements before locking them in. This won't change your inventive concepts — just sharpen the legal wording.
               </p>
               <div className="flex flex-col gap-3">
                 <button
@@ -2198,20 +1860,6 @@ export default function PatentDetail() {
           />
         )}
 
-
-        {/* ── MARKETPLACE TAB ─────────────────────────────────────────────────── */}
-        {tab === 'marketplace' && !isCollaborator && (
-          <div className="space-y-0">
-            <MarketplaceSettingsCard
-              patent={patent}
-              authToken={authToken}
-              canWrite={canWrite}
-              onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
-              fullPage
-            />
-          </div>
-        )}
-
         {/* ── LEADS TAB ───────────────────────────────────────────────────────── */}
         {tab === 'leads' && (
           <LeadsPanel patentId={patent.id} authToken={authToken} />
@@ -2237,7 +1885,7 @@ export default function PatentDetail() {
                 </div>
                 <p className="text-amber-700 text-sm font-semibold mb-1">
                   {patent.claims_status === 'refining'
-                    ? 'Pattie Polish in progress…'
+                    ? 'AI Refinement Pass in progress…'
                     : patent.claims_status === 'generating'
                     ? 'Deep Research Pass in progress…'
                     : 'Generating your claims draft…'}
@@ -2281,19 +1929,10 @@ export default function PatentDetail() {
                 </button>
               </div>
             ) : !patent.claims_draft ? (
-              <div className="space-y-0">
-                <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                  <div className="text-3xl mb-3">⏳</div>
-                  <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
-                  <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
-                </div>
-                <PattieCTACard
-                  headline="Claims need attention"
-                  body="Your patent's strength lives in its claims. Pattie can help you build a complete claim set."
-                  isPro={isPro}
-                  pattieGuidance={pattieGuidance}
-                  onAskPattie={() => openPattieWithPrompt('Help me build a stronger claim set for my patent. Start with the independent claim and suggest dependent claims that broaden protection.')}
-                />
+              <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+                <div className="text-3xl mb-3">⏳</div>
+                <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
+                <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
               </div>
             ) : (
               <div className="space-y-5">
@@ -2360,23 +1999,9 @@ export default function PatentDetail() {
                 {/* Pro AI passes — shown for Pro users, clickable */}
                 {!claimsReadOnly && (
                   <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3">
-                    {/* Budget warning banner — soft nudge only, never a blocker */}
-                    {budgetWarning && (
-                      <div className="w-full rounded-md bg-yellow-50 border border-yellow-200 px-4 py-2 text-sm text-yellow-800">
-                        ⚠️ {budgetWarning}
-                      </div>
-                    )}
                     <button
                       onClick={async () => {
                         if (!confirm('Run Deep Research Pass? Our AI will analyze prior art and strengthen your claims. This takes 8–12 minutes — we\'ll email you when done.')) return
-                        // Budget check — soft warning only, never a blocker
-                        const budgetRes = await fetch(`/api/budget/check`, {
-                          headers: { Authorization: `Bearer ${authToken}` },
-                        }).catch(() => null)
-                        if (budgetRes?.ok) {
-                          const bd = await budgetRes.json()
-                          if (bd.warning) setBudgetWarning(bd.warning)
-                        }
                         const res = await fetch(`/api/patents/${patent.id}/deep-research`, {
                           method: 'POST',
                           headers: { Authorization: `Bearer ${authToken}` },
@@ -2399,20 +2024,12 @@ export default function PatentDetail() {
                     {(patent.claims_status as string) === 'refining' ? (
                       <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-lg text-sm font-semibold">
                         <span className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                        Pattie is polishing…
+                        Refinement in progress…
                       </div>
                     ) : (
                       <button
                         onClick={async () => {
-                          if (!confirm('Run Pattie Polish? Our AI will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
-                          // Budget check — soft warning only, never a blocker
-                          const budgetRes = await fetch(`/api/budget/check`, {
-                            headers: { Authorization: `Bearer ${authToken}` },
-                          }).catch(() => null)
-                          if (budgetRes?.ok) {
-                            const bd = await budgetRes.json()
-                            if (bd.warning) setBudgetWarning(bd.warning)
-                          }
+                          if (!confirm('Run AI Refinement Pass? Our AI will polish your claim language for USPTO precision. Takes 2–4 minutes — we\'ll email you when done.')) return
                           const res = await fetch(`/api/patents/${patent.id}/refine-claims`, {
                             method: 'POST',
                             headers: { Authorization: `Bearer ${authToken}` },
@@ -2422,13 +2039,13 @@ export default function PatentDetail() {
                             if (res.status === 403 && d.code === 'TIER_REQUIRED') { setUpgradeFeature(d.feature ?? 'claims_edit'); return }
                             showToast(d.error ?? 'Failed')
                           } else {
-                            showToast("✨ Pattie Polish started — we'll email you when done (~2-3 min)")
+                            showToast("✨ Refinement started — we'll email you when done (~2-3 min)")
                             setPatent(prev => prev ? { ...prev, claims_status: 'refining' } : null)
                           }
                         }}
                         className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors"
                       >
-                        ✨ Pattie Polish
+                        ✨ AI Refinement Pass
                         <span className="text-xs bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded font-bold">Pro</span>
                       </button>
                     )}
@@ -2505,23 +2122,6 @@ export default function PatentDetail() {
                           text={patent.claims_draft!}
                           onCopy={(claim) => copyToClipboard(claim, '📋 Claim copied!')}
                         />
-                        {/* 1-claim soft nudge */}
-                        {(() => {
-                          const claimCount = (patent.claims_draft ?? '').split(/(?=^\d+\.\s)/m).filter(s => s.trim()).length
-                          return claimCount === 1 ? (
-                            <div className="px-5 pb-3">
-                              <p className="text-xs text-gray-400">
-                                Most patents have 5–20 claims.{' '}
-                                <button
-                                  onClick={() => openPattieWithPrompt('Help me build a stronger claim set for my patent. Start with the independent claim and suggest dependent claims that broaden protection.')}
-                                  className="text-indigo-500 hover:underline font-medium"
-                                >
-                                  Ask Pattie to suggest more →
-                                </button>
-                              </p>
-                            </div>
-                          ) : null
-                        })()}
                         {hasRefined && (
                           <div id="claims-orig-panel" className="hidden border-t border-indigo-100">
                             <div className="px-5 py-2 bg-indigo-50 flex items-center gap-2">
@@ -2628,7 +2228,7 @@ export default function PatentDetail() {
                 {patent.filing_status === 'approved' && (patent.claims_status as string) === 'refined' && (patent as any).claims_draft_pre_refine && (
                   <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-5">
                     <p className="text-sm font-semibold text-indigo-900 mb-1">AI Refinement applied — review before re-approving</p>
-                    <p className="text-xs text-indigo-700 mb-4">The Pattie Polish ran after you approved. Review the before/after above, then re-approve or revert to your original claims.</p>
+                    <p className="text-xs text-indigo-700 mb-4">The AI Refinement Pass ran after you approved. Review the before/after above, then re-approve or revert to your original claims.</p>
                     <div className="flex flex-col sm:flex-row gap-3">
                       <button
                         onClick={() => refinementAction('accept')}
@@ -2748,7 +2348,7 @@ export default function PatentDetail() {
               const cur = currentStep(statuses)
 
               const GUIDANCE: Record<number, {
-                icon: string; title: string; body: string; pattiePrompt?: string; action?: { label: string; href?: string; onClick?: () => void }
+                icon: string; title: string; body: string; action?: { label: string; href?: string; onClick?: () => void }
               }> = {
                 4: {
                   icon: '✍️',
@@ -2759,8 +2359,7 @@ export default function PatentDetail() {
                 5: {
                   icon: '📋',
                   title: 'Step 5: Upload your specification document',
-                  body: 'A provisional filing requires a written description: Background, Summary, and Detailed Description. Upload your spec below (PDF, DOCX, or MD). Don\'t have one yet? Pattie can help you develop it.',
-                  pattiePrompt: 'My patent specification needs development. Can you help me strengthen it based on what I\'ve described?',
+                  body: 'A provisional filing requires a written description: Background, Summary, and Detailed Description. Upload your spec below (PDF, DOCX, or MD). Don\'t have one yet? We\'ll help you draft it in a future step.',
                 },
                 6: {
                   icon: '📐',
@@ -2796,15 +2395,6 @@ export default function PatentDetail() {
                     <div className="flex-1">
                       <div className="font-semibold text-blue-900 text-sm mb-1">{guide.title}</div>
                       <p className="text-sm text-blue-700 leading-relaxed mb-3">{guide.body}</p>
-                      {guide.pattiePrompt && canWrite && (
-                        <PattieCTACard
-                          headline="Spec needs work"
-                          body="A strong specification protects your claims. Pattie can help you develop it."
-                          isPro={isPro}
-                          pattieGuidance={pattieGuidance}
-                          onAskPattie={() => openPattieWithPrompt(guide.pattiePrompt!)}
-                        />
-                      )}
                       {guide.action && (
                         guide.action.href ? (
                           <Link
@@ -3034,9 +2624,6 @@ export default function PatentDetail() {
                 authToken={authToken}
                 canWrite={canWrite}
                 onUpdate={(val) => setPatent(prev => prev ? { ...prev, abstract_draft: val } : null)}
-                isPro={isPro}
-                pattieGuidance={pattieGuidance}
-                onPattieClick={canWrite ? () => openPattieWithPrompt('Please draft a USPTO-compliant abstract for my patent based on the spec and claims.') : undefined}
               />
             )}
 
@@ -3046,13 +2633,6 @@ export default function PatentDetail() {
               const specUploaded = statuses[4] // step 5
               return (
                 <div>
-                  {/* Figures info CTA — shown when no figures */}
-                  {!patent.figures_uploaded && (
-                    <div className="mb-3 p-4 bg-gray-50 border border-dashed border-gray-300 rounded-xl">
-                      <p className="text-sm font-semibold text-gray-700 mb-1">📐 No figures yet</p>
-                      <p className="text-xs text-gray-500">Figures strengthen your application. Upload one and Pattie can help write USPTO-compliant descriptions.</p>
-                    </div>
-                  )}
                   {/* AI Generate Figures — Pro */}
                   {specUploaded && !patent.figures_uploaded && (
                     <div className="mb-3 p-4 bg-violet-50 border border-violet-200 rounded-xl flex items-center justify-between gap-4">
@@ -3096,70 +2676,29 @@ export default function PatentDetail() {
                           ⬇ Download All
                         </a>
                       </div>
-                      <div className="space-y-3">
-                        {figureUrls.map(fig => {
-                          const desc = figureDescriptions[fig.filename] ?? ''
-                          const saveStatus = figureDescSaving[fig.filename]
-                          async function saveDesc(value: string) {
-                            setFigureDescSaving(s => ({ ...s, [fig.filename]: 'saving' }))
-                            try {
-                              await fetch(`/api/patents/${patent!.id}/figure-description`, {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-                                body: JSON.stringify({ filename: fig.filename, description: value }),
-                              })
-                              setFigureDescriptions(d => ({ ...d, [fig.filename]: value }))
-                              setFigureDescSaving(s => ({ ...s, [fig.filename]: 'saved' }))
-                              setTimeout(() => setFigureDescSaving(s => ({ ...s, [fig.filename]: null })), 2000)
-                            } catch {
-                              setFigureDescSaving(s => ({ ...s, [fig.filename]: null }))
-                            }
-                          }
-                          return (
-                            <div key={fig.number} className="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                              <div className="flex gap-3 p-3">
-                                <a href={fig.url} target="_blank" rel="noreferrer" className="flex-shrink-0">
-                                  <img
-                                    src={fig.url}
-                                    alt={fig.label}
-                                    className="w-24 h-20 object-contain bg-gray-50 rounded border border-gray-100 hover:opacity-90 transition-opacity"
-                                    loading="lazy"
-                                  />
-                                </a>
-                                <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-semibold text-gray-700">{fig.label}</span>
-                                    <a href={fig.url} download={fig.filename} className="text-xs text-indigo-500 hover:underline">⬇</a>
-                                  </div>
-                                  {/* Description input */}
-                                  <input
-                                    type="text"
-                                    defaultValue={desc}
-                                    placeholder={`e.g. FIG. ${fig.number} is a perspective view of the mounting assembly.`}
-                                    onBlur={e => { if (e.target.value !== desc) saveDesc(e.target.value) }}
-                                    className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-200 placeholder-gray-300"
-                                  />
-                                  <div className="flex items-center gap-2 min-h-[16px]">
-                                    {saveStatus === 'saved' && (
-                                      <span className="text-[10px] text-green-600 font-medium">Saved ✓</span>
-                                    )}
-                                    {saveStatus === 'saving' && (
-                                      <span className="text-[10px] text-gray-400">Saving…</span>
-                                    )}
-                                    {!saveStatus && !desc && pattieGuidance && canWrite && (
-                                      <button
-                                        onClick={() => openPattieWithPrompt(`Please write a USPTO-compliant figure description for FIG. ${fig.number}. The figure is from the patent: "${patent.title}". Format: "FIG. ${fig.number} is a [view type] of [description]."`)}
-                                        className="text-[10px] text-indigo-500 hover:underline font-medium"
-                                      >
-                                        Ask Pattie to describe this figure →
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {figureUrls.map(fig => (
+                          <div key={fig.number} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                            <a href={fig.url} target="_blank" rel="noreferrer" className="block">
+                              <img
+                                src={fig.url}
+                                alt={fig.label}
+                                className="w-full h-32 object-contain bg-gray-50 hover:opacity-90 transition-opacity"
+                                loading="lazy"
+                              />
+                            </a>
+                            <div className="px-2 py-1.5 flex items-center justify-between">
+                              <span className="text-xs font-medium text-gray-700">{fig.label}</span>
+                              <a
+                                href={fig.url}
+                                download={fig.filename}
+                                className="text-xs text-indigo-600 hover:underline"
+                              >
+                                ⬇
+                              </a>
                             </div>
-                          )
-                        })}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -3399,7 +2938,9 @@ export default function PatentDetail() {
                         {item.content && (
                           item.type === 'ai_research'
                             ? (
-                              <ResearchReportViewer content={item.content} metadata={!Array.isArray(item.attachments) && item.attachments ? (item.attachments as unknown) as Record<string, unknown> : null} />
+                              <div className="mt-3 p-4 bg-gray-50 rounded-lg text-sm text-gray-800 prose prose-sm prose-headings:text-[#1a1f36] prose-headings:font-bold prose-h2:text-base prose-h2:mt-5 prose-h2:mb-2 prose-ul:my-1 prose-li:my-0.5 max-w-none">
+                                <ReactMarkdown>{item.content}</ReactMarkdown>
+                              </div>
                             )
                             : <div className="mt-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap">{item.content}</div>
                         )}
@@ -3448,7 +2989,15 @@ export default function PatentDetail() {
         )}
 
         {/* Save/cancel when editing details */}
-        {/* Marketplace moved to dedicated tab — see tab === 'marketplace' above */}
+        {/* ── MARKETPLACE SETTINGS (Overview tab, owner only) ─────────────────── */}
+        {tab === 'details' && !isCollaborator && (
+          <MarketplaceSettingsCard
+            patent={patent}
+            authToken={authToken}
+            canWrite={canWrite}
+            onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
+          />
+        )}
 
         {tab === 'details' && editing && (
           <div className="mt-4 flex gap-3">
@@ -3493,11 +3042,10 @@ export default function PatentDetail() {
           patentId={patent.id}
           patentTitle={patent.title}
           authToken={authToken}
-          onClose={() => { setShowPattie(false); setPattieInitialPrompt(undefined) }}
+          onClose={() => setShowPattie(false)}
           canEdit={canWrite}
           patentStatus={patent.filing_status ?? patent.status}
           onTierRequired={(feature) => { setShowPattie(false); setUpgradeFeature(feature) }}
-          initialPrompt={pattieInitialPrompt}
         />
       )}
     </div>
