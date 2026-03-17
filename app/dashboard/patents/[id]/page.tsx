@@ -621,7 +621,7 @@ function MarketplaceSettingsCard({
 
           {/* YouTube */}
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Demo URL <span className="font-normal text-gray-400">(optional)</span></label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Demo / Pitch Video <span className="font-normal text-gray-400">(optional)</span></label>
             <input
               disabled={!canWrite}
               value={youtubeUrl}
@@ -630,9 +630,11 @@ function MarketplaceSettingsCard({
               placeholder="https://www.youtube.com/watch?v=..."
             />
             {youtubeUrl && (() => {
+              const isValid = /^https:\/\/(www\.youtube\.com\/|youtu\.be\/)/.test(youtubeUrl)
               const m = youtubeUrl.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
-              return m ? <p className="text-xs text-green-600 mt-1">✓ Valid YouTube URL (ID: {m[1]})</p>
-                       : <p className="text-xs text-amber-500 mt-1">⚠ Could not detect YouTube video ID</p>
+              if (!isValid) return <p className="text-xs text-red-500 mt-1">Please enter a valid YouTube URL</p>
+              return m ? <p className="text-xs text-green-600 mt-1">✓ Valid YouTube URL — will embed on your deal page</p>
+                       : <p className="text-xs text-amber-500 mt-1">⚠ Could not detect YouTube video ID — check the URL format</p>
             })()}
           </div>
 
@@ -840,9 +842,9 @@ function MarketplaceSettingsCard({
             <p className="text-xs text-gray-400 mt-1">{mktTags.length} tag{mktTags.length !== 1 ? 's' : ''} · 3+ unlocks 5 IP Readiness points</p>
           </div>
 
-          {/* YouTube Video URL */}
+          {/* YouTube Demo / Pitch Video */}
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Video URL</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Demo / Pitch Video <span className="font-normal text-gray-400">(optional)</span></label>
             <p className="text-xs text-gray-400 mb-1.5">Appears as the "Watch Overview" embed on the public deal page.</p>
             <input
               disabled={!canWrite}
@@ -852,10 +854,12 @@ function MarketplaceSettingsCard({
               placeholder="https://www.youtube.com/watch?v=..."
             />
             {youtubeUrl && (() => {
+              const isValid = /^https:\/\/(www\.youtube\.com\/|youtu\.be\/)/.test(youtubeUrl)
               const match = youtubeUrl.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
+              if (!isValid) return <p className="text-xs text-red-500 mt-1">Please enter a valid YouTube URL</p>
               return match
-                ? <p className="text-xs text-green-600 mt-1">✓ Valid YouTube URL — video ID: {match[1]}</p>
-                : <p className="text-xs text-amber-500 mt-1">⚠ Could not detect a YouTube video ID in this URL</p>
+                ? <p className="text-xs text-green-600 mt-1">✓ Valid YouTube URL — will embed on your deal page</p>
+                : <p className="text-xs text-amber-500 mt-1">⚠ Could not detect YouTube video ID — check the URL format</p>
             })()}
           </div>
 

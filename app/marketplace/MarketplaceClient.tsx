@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
 
 interface MarketplaceListing {
   id: string
@@ -25,25 +26,39 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
 
 const HOW_IT_WORKS = [
   {
-    num: '1',
-    title: 'Browse Listings',
-    desc: 'Explore patents available for licensing or acquisition across a range of industries and technologies.',
+    num: '①',
+    title: 'List Your IP',
+    desc: 'Patent owners submit their invention for licensing or sale — we handle the presentation.',
   },
   {
-    num: '2',
-    title: 'Submit an Inquiry',
-    desc: 'Tell us your interest. All submissions are reviewed. Your contact information stays confidential.',
+    num: '②',
+    title: 'Get Qualified Inquiries',
+    desc: 'Interested buyers submit a request explaining their interest. You approve or decline.',
   },
   {
-    num: '3',
-    title: 'Get Introduced',
-    desc: 'PatentPending connects you directly with the patent holder once your inquiry is approved.',
+    num: '③',
+    title: 'Connect and Deal',
+    desc: 'We introduce both parties by email. What happens next is between you.',
   },
 ]
 
 export default function MarketplaceClient({ listings }: { listings: MarketplaceListing[] }) {
   const [query, setQuery] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
   const listingsRef = useRef<HTMLDivElement>(null)
+
+  // Detect admin status client-side for conditional tag pill rendering
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) return
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', session.user.id)
+        .single()
+      if (profile?.is_admin) setIsAdmin(true)
+    })
+  }, [])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -114,7 +129,7 @@ export default function MarketplaceClient({ listings }: { listings: MarketplaceL
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Search patents by keyword, technology, or application…"
+              placeholder="Search patents, technologies, keywords…"
               className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
             />
             {query && (
@@ -180,6 +195,15 @@ export default function MarketplaceClient({ listings }: { listings: MarketplaceL
                   </h2>
                   {snippet && (
                     <p className="text-sm text-gray-500 leading-relaxed flex-1">{snippet}</p>
+                  )}
+                  {isAdmin && patent.marketplace_tags && patent.marketplace_tags.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {patent.marketplace_tags.map(tag => (
+                        <span key={tag} className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-xs font-medium rounded-full border border-indigo-100">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
                   )}
                   <div className="mt-4 text-sm font-semibold text-indigo-600 group-hover:text-indigo-800">
                     View Listing →
