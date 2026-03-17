@@ -8,6 +8,7 @@ import PatentPhaseWidget from "@/components/dashboard/PatentPhaseWidget"
 import ReviewQueue from "@/components/dashboard/ReviewQueue"
 import PatentIntakeCard from "@/components/dashboard/PatentIntakeCard"
 import NewPatentModal from "@/components/NewPatentModal"
+import PattieCommandBar from "@/components/dashboard/PattieCommandBar"
 
 export default function Dashboard() {
   const [patents, setPatents] = useState<Patent[]>([])
@@ -18,6 +19,9 @@ export default function Dashboard() {
   const [show2FABanner, setShow2FABanner] = useState(false)
   const [require2FA, setRequire2FA] = useState(false)
   const [onboardingShown, setOnboardingShown] = useState(true) // default true until loaded
+  const [firstName, setFirstName] = useState('there')
+  const [showFilingGate, setShowFilingGate] = useState(false)
+  const [pendingFilingHref, setPendingFilingHref] = useState('')
   const router = useRouter()
 
   useEffect(() => {
@@ -70,13 +74,20 @@ export default function Dashboard() {
       setPatents(p || [])
       setDeadlines((d as (PatentDeadline & { patents: { title: string } })[]) || [])
 
-      // Check onboarding_shown
+      // Check onboarding_shown + grab firstName
       const { data: profileData } = await supabase
         .from('patent_profiles')
-        .select('onboarding_shown')
+        .select('onboarding_shown, name_first')
         .eq('id', user.id)
         .single()
       setOnboardingShown((profileData as Record<string,unknown>)?.onboarding_shown === true)
+      const fn = (profileData as Record<string,unknown>)?.name_first as string | undefined
+      if (fn) setFirstName(fn)
+      else {
+        // Fall back to profiles.display_name first word
+        const { data: prof } = await supabase.from('profiles').select('display_name').eq('id', user.id).single()
+        if (prof?.display_name) setFirstName(prof.display_name.split(' ')[0])
+      }
 
       setLoading(false)
     }
@@ -202,10 +213,26 @@ export default function Dashboard() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Header */}
-        <div className="mb-6 sm:mb-8">
-          <h1 className="text-xl sm:text-2xl font-bold text-[#1a1f36]">Dashboard</h1>
-          <p className="text-gray-500 mt-1 text-sm">My Patent Portfolio</p>
+        <div className="mb-4 sm:mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#1a1f36]">Dashboard</h1>
+            <p className="text-gray-500 mt-1 text-sm">My Patent Portfolio</p>
+          </div>
         </div>
+
+        {/* Pattie Command Bar */}
+        <PattieCommandBar
+          authToken={authToken}
+          firstName={firstName}
+          snapshot={{
+            patentCount: patents.length,
+            urgentDeadlineCount: urgentCount,
+            listingCount: patents.filter(p => (p as Record<string,unknown>).marketplace_enabled).length,
+            recentPatentTitle: patents[0]?.title,
+            urgentPatentName: deadlines[0]?.patents?.title,
+            urgentDeadlineDays: deadlines[0] ? getDaysUntil(deadlines[0].due_date) : undefined,
+          }}
+        />
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
@@ -347,7 +374,7 @@ export default function Dashboard() {
             { href: '/dashboard/patents', icon: '📋', label: 'All Patents' },
           ].map((a) => (
             a.href === '#new-patent' ? (
-              <button key={a.label} onClick={() => setShowNewModal(true)}
+              <button key={a.label} onClick={() => { setPendingFilingHref(''); setShowFilingGate(true) }}
                 className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-xl hover:border-[#1a1f36]/30 transition-colors text-center min-h-[80px] justify-center w-full">
                 <span className="text-2xl">{a.icon}</span>
                 <span className="text-xs font-medium text-[#1a1f36]">{a.label}</span>
@@ -368,6 +395,45 @@ export default function Dashboard() {
           onClose={() => setShowNewModal(false)}
           authToken={authToken}
         />
+      )}
+
+      {/* ── 2FA Filing Gate Modal ───────────────────────────────────────── */}
+      {showFilingGate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setShowFilingGate(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="text-3xl mb-3">🔐</div>
+            <h2 className="font-bold text-gray-900 text-lg mb-1">Protect your IP before filing</h2>
+            <p className="text-sm text-gray-500 mb-5 leading-relaxed">
+              Before taking a filing action, we recommend enabling two-factor authentication to protect your patent account and IP rights.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Link
+                href="/dashboard/security/setup-2fa?next=/dashboard/patents/new"
+                className="w-full py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold text-center hover:bg-indigo-700 transition-colors"
+                onClick={() => setShowFilingGate(false)}
+              >
+                Enable 2FA →
+              </Link>
+              <button
+                onClick={async () => {
+                  setShowFilingGate(false)
+                  // Log dismiss
+                  const { data: { user } } = await supabase.auth.getUser()
+                  if (user) {
+                    await supabase.from('patent_profiles')
+                      .update({ twofa_prompt_dismissed_at: new Date().toISOString() })
+                      .eq('id', user.id)
+                  }
+                  if (pendingFilingHref) router.push(pendingFilingHref)
+                  else setShowNewModal(true)
+                }}
+                className="w-full py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                Continue without 2FA
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
