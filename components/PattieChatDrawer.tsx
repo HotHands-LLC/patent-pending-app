@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { stripSessionSummary } from '@/lib/pattie-sop'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Suggestion {
@@ -400,6 +401,18 @@ export default function PattieChatDrawer({
                 const last = copy[copy.length - 1]
                 if (last?.role === 'assistant') {
                   copy[copy.length - 1] = { ...last, content: last.content + parsed.text }
+                }
+                return copy
+              })
+            }
+
+            // Session summary saved — strip the summary block from rendered message text
+            if (parsed.type === 'session_summary_saved') {
+              setMessages(prev => {
+                const copy = [...prev]
+                const last = copy[copy.length - 1]
+                if (last?.role === 'assistant' && last.content) {
+                  copy[copy.length - 1] = { ...last, content: stripSessionSummary(last.content) }
                 }
                 return copy
               })

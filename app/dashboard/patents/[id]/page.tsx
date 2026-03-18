@@ -22,6 +22,7 @@ import { computeIpReadinessScore, getIpReadinessCriteria } from '@/lib/ip-readin
 import FilingGuide from '@/components/FilingGuide'
 import EnhancementTab from '@/components/EnhancementTab'
 import PattieChatDrawer from '@/components/PattieChatDrawer'
+import ResearchFindingsPanel from '@/components/ResearchFindingsPanel'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1995,14 +1996,8 @@ export default function PatentDetail() {
                         </button>
                       </div>
                     </div>
-                    {/* Preview of staged claims */}
-                    <details className="mt-3">
-                      <summary className="text-xs text-amber-700 cursor-pointer hover:text-amber-900 font-medium">Preview researched claims ▾</summary>
-                      <pre className="mt-2 text-xs text-gray-700 bg-white border border-amber-100 rounded-lg p-3 overflow-auto max-h-48 whitespace-pre-wrap font-mono leading-relaxed">
-                        {patent.claims_draft_research_pending?.slice(0, 2000)}
-                        {(patent.claims_draft_research_pending?.length ?? 0) > 2000 ? '…' : ''}
-                      </pre>
-                    </details>
+                    {/* Classified findings panel — replaces raw <pre> blob */}
+                    <ResearchFindingsPanel stagedContent={patent.claims_draft_research_pending ?? ''} />
                   </div>
                 )}
 

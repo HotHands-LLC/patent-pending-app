@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserTierInfo, isPro } from '@/lib/tier'
 import { isAIMLPatent, DESJARDINS_BLOCK } from '@/lib/pattie-desjardins'
-import { POLISH_SOP_BLOCK } from '@/lib/pattie-sop'
+import { POLISH_SOP_BLOCK, parseSessionSummary, stripSessionSummary } from '@/lib/pattie-sop'
 
 export const maxDuration = 60
 
@@ -523,7 +523,6 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
         }
 
         // ── Desjardins claims warning flag (Step D) ───────────────────
-        // When AI/ML patent + user message touches claims + abstract language detected → append soft warning
         const lastUserMsg = messages[messages.length - 1]?.content ?? ''
         const touchesClaims = /claim|claims|independent|dependent|method.compris|apparatus.compris/i.test(lastUserMsg)
         const hasAbstractLang = /calculates|determines|processes|applies a model|uses machine learning|applying.*neural|executing.*algorithm/i.test(lastUserMsg + ' ' + assistantTextSoFar)
@@ -531,6 +530,45 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
 
         if (isAiMl && touchesClaims && hasAbstractLang) {
           emit({ text: '\n\n---\n⚡ **Desjardins Note:** This claim language may read as abstract under §101. Consider grounding it in a specific technical improvement — e.g., add what the system achieves architecturally or performance-wise, not just what computation it performs.' })
+        }
+
+        // ── Phase 5 — Session memory: parse summary block and save to correspondence ──
+        // Pattie includes ---PATTIE-SESSION-SUMMARY--- block in substantive review/polish responses.
+        // Strip it from the stream (not user-visible), save to correspondence non-blocking.
+        const fullAssistantText = assistantTextSoFar
+        const sessionSummary = parseSessionSummary(fullAssistantText)
+        if (sessionSummary) {
+          const cleanSummaryText = [
+            `Session type: ${sessionSummary.sessionType}`,
+            `Findings: ${sessionSummary.findings}`,
+            `Applied: ${sessionSummary.applied}`,
+            `Open questions: ${sessionSummary.openQuestions}`,
+            `Next action: ${sessionSummary.nextAction}`,
+          ].join('\n')
+
+          void supabaseService.from('patent_correspondence').insert({
+            patent_id:           patentId,
+            owner_id:            patent.owner_id,
+            title:               `Pattie Polish Session — ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+            type:                'ai_session_summary',
+            content:             cleanSummaryText,
+            from_party:          'Pattie (PatentPending AI)',
+            correspondence_date: new Date().toISOString().split('T')[0],
+            tags:                ['pattie_session', 'polish', 'sop_v1'],
+            attachments: {
+              session_type:   sessionSummary.sessionType,
+              next_action:    sessionSummary.nextAction,
+              sop_version:    '1.1',
+              generated_at:   new Date().toISOString(),
+            },
+          }).then(({ error }) => {
+            if (error) console.error('[pattie/chat] session summary save failed:', error)
+            else console.log('[pattie/chat] Phase 5 session summary saved to correspondence')
+          })
+
+          // Emit a stripped version (no summary block) — already streamed, so this is a post-stream
+          // signal to client to strip the block from its local state
+          emit({ type: 'session_summary_saved', summary: sessionSummary })
         }
 
         emitDone()
