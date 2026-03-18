@@ -129,7 +129,7 @@ export async function POST(
       id, owner_id, title, spec_draft, claims_draft, abstract_draft,
       current_phase, inventors, status, filing_status, provisional_app_number,
       provisional_filed_at, nonprov_deadline_at, entity_status, uspto_customer_number,
-      tags, description
+      tags, description, figure_descriptions, figures_uploaded
     `)
     .eq('id', patentId)
     .single()
@@ -220,6 +220,20 @@ export async function POST(
     ? docItems.map(d => `• ${d.type}: ${d.name}`).join('\n')
     : 'No documents uploaded yet.'
 
+  // Figures block — inject descriptions so Pattie knows what each figure shows
+  const figureDescriptions = (patent as Record<string,unknown>).figure_descriptions as Record<string, string> | null
+  const figuresUploaded = (patent as Record<string,unknown>).figures_uploaded as boolean | null
+  const figureContextLines: string[] = []
+  if (figuresUploaded && figureDescriptions) {
+    const entries = Object.entries(figureDescriptions)
+    entries.forEach(([, desc], i) => {
+      if (desc) figureContextLines.push(`FIG. ${i + 1}: ${desc}`)
+    })
+  }
+  const figureBlock = figureContextLines.length > 0
+    ? figureContextLines.join('\n')
+    : figuresUploaded ? 'Figures uploaded — no descriptions added yet.' : 'No figures uploaded.'
+
   // Research block
   const researchBlock = researchCount && researchCount > 0
     ? `${researchCount} research run(s). Most recent: ${lastRun?.[0]?.created_at?.slice(0,10) ?? 'unknown'}`
@@ -278,6 +292,9 @@ ${correspondenceBlock}
 
 PATENT DOCUMENTS ON FILE:
 ${documentsBlock}
+
+FIGURES:
+${figureBlock}
 
 AI RESEARCH RUNS:
 ${researchBlock}

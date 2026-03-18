@@ -2,17 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserTier, isTierPro } from '@/lib/subscription'
 
-export const dynamic = 'force-dynamic'
-
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 function getUserClient(token: string) {
   return createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -100,31 +98,45 @@ export async function GET(
     return NextResponse.json({ figures: [], generated: false })
   }
 
-  // Determine how many figures exist by trying to list the folder
-  const { data: storageList } = await supabaseService.storage
-    .from('patent-uploads')
-    .list(`${patentId}/figures`, { limit: 20 })
+  // Determine how many figures exist — check both AI-generated path and user-uploaded path
+  const [{ data: aiList }, { data: userList }] = await Promise.all([
+    supabaseService.storage.from('patent-uploads').list(`${patentId}/figures`, { limit: 20 }),
+    supabaseService.storage.from('patent-uploads').list(`${user.id}/${patentId}/figures`, { limit: 20 }),
+  ])
 
-  const figFiles = (storageList ?? [])
-    .filter(f => f.name.match(/^fig\d+\.png$/))
-    .sort((a, b) => {
-      const an = parseInt(a.name.replace(/\D/g, ''))
-      const bn = parseInt(b.name.replace(/\D/g, ''))
-      return an - bn
-    })
+  // Build combined set of figure files with their full storage paths
+  type FigFile = { name: string; fullPath: string }
+  const allFigs: FigFile[] = [
+    ...(aiList ?? []).filter(f => /\.(png|jpg|jpeg|pdf)$/i.test(f.name)).map(f => ({
+      name: f.name,
+      fullPath: `${patentId}/figures/${f.name}`,
+    })),
+    ...(userList ?? []).filter(f => /\.(png|jpg|jpeg|pdf)$/i.test(f.name)).map(f => ({
+      name: f.name,
+      fullPath: `${user.id}/${patentId}/figures/${f.name}`,
+    })),
+  ]
 
-  // Generate signed URLs (1-hour expiry) — bucket is private
-  const figures = await Promise.all(figFiles.map(async (f, i) => {
-    const path = `${patentId}/figures/${f.name}`
+  // Sort: AI-generated fig1, fig2... first; then uploaded by timestamp (embedded in filename)
+  allFigs.sort((a, b) => {
+    const aIsAi = /^fig\d+\.png$/.test(a.name)
+    const bIsAi = /^fig\d+\.png$/.test(b.name)
+    if (aIsAi && !bIsAi) return -1
+    if (!aIsAi && bIsAi) return 1
+    return a.name.localeCompare(b.name)
+  })
+
+  // Generate signed URLs (1-hour expiry)
+  const figures = await Promise.all(allFigs.map(async (f, i) => {
     const { data: signed } = await supabaseService.storage
       .from('patent-uploads')
-      .createSignedUrl(path, 3600)
+      .createSignedUrl(f.fullPath, 3600)
     return {
       number: i + 1,
       label: `FIG. ${i + 1}`,
       filename: f.name,
       url: signed?.signedUrl ?? '',
-      path,
+      path: f.fullPath,
     }
   }))
 
@@ -225,8 +237,8 @@ Return ONLY valid JSON array of 6 figure objects. No preamble.`
       {
         method: 'POST',
         headers: {
-          apikey: (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key'),
-          Authorization: `Bearer ${(process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')}`,
+          apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`,
           'Content-Type': 'image/svg+xml',
           'x-upsert': 'true',
         },

@@ -642,8 +642,12 @@ export default function PatentDetail() {
   const [isPro, setIsPro] = useState(false)
   const [isAttorney, setIsAttorney] = useState(false)
   const [upgradeFeature, setUpgradeFeature] = useState<string | null>(null)
-  const [figureUrls, setFigureUrls] = useState<Array<{ number: number; label: string; filename: string; url: string }>>([])
+  const [figureUrls, setFigureUrls] = useState<Array<{ number: number; label: string; filename: string; url: string; path?: string }>>([])
   const [figuresLoaded, setFiguresLoaded] = useState(false)
+  const [figureDescriptions, setFigureDescriptions] = useState<Record<string, string>>({})
+  const [figureDescDraft, setFigureDescDraft] = useState<Record<string, string>>({})
+  const [figurePattieLoading, setFigurePattieLoading] = useState<Record<string, boolean>>({})
+  const [figurePattieResult, setFigurePattieResult] = useState<Record<string, string>>({})
   const [userEmail, setUserEmail] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollStartRef = useRef<number | null>(null)
@@ -749,6 +753,12 @@ export default function PatentDetail() {
     setDeadlines(d || [])
     setCorrespondence((c as PatentCorrespondence[]) || [])
     setAllPatents(ap || [])
+    // Load figure descriptions from patent record
+    const figDescs = (p as Record<string, unknown>).figure_descriptions as Record<string, string> | null
+    if (figDescs) {
+      setFigureDescriptions(figDescs)
+      setFigureDescDraft(figDescs)
+    }
 
     // ── BUG 1 FIX: load uploaded files from intake session ────────────────
     if (p.intake_session_id) {
@@ -2663,11 +2673,11 @@ export default function PatentDetail() {
                       </button>
                     </div>
                   )}
-                  {/* Generated figures gallery */}
+                  {/* Generated figures gallery — with description fields + Pattie analysis */}
                   {patent.figures_uploaded && figureUrls.length > 0 && (
                     <div className="mb-4">
                       <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-semibold text-[#1a1f36]">Generated Figures ({figureUrls.length})</h4>
+                        <h4 className="text-sm font-semibold text-[#1a1f36]">Figures ({figureUrls.length})</h4>
                         <a
                           href={`/api/patents/${patent.id}/figures-zip?token=${authToken}`}
                           className="text-xs text-indigo-600 hover:underline font-medium"
@@ -2676,29 +2686,141 @@ export default function PatentDetail() {
                           ⬇ Download All
                         </a>
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {figureUrls.map(fig => (
-                          <div key={fig.number} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
-                            <a href={fig.url} target="_blank" rel="noreferrer" className="block">
-                              <img
-                                src={fig.url}
-                                alt={fig.label}
-                                className="w-full h-32 object-contain bg-gray-50 hover:opacity-90 transition-opacity"
-                                loading="lazy"
-                              />
-                            </a>
-                            <div className="px-2 py-1.5 flex items-center justify-between">
-                              <span className="text-xs font-medium text-gray-700">{fig.label}</span>
-                              <a
-                                href={fig.url}
-                                download={fig.filename}
-                                className="text-xs text-indigo-600 hover:underline"
-                              >
-                                ⬇
-                              </a>
+                      <div className="space-y-4">
+                        {figureUrls.map(fig => {
+                          const desc = figureDescDraft[fig.filename] ?? figureDescriptions[fig.filename] ?? ''
+                          const pattieLoading = figurePattieLoading[fig.filename] ?? false
+                          const pattieResult = figurePattieResult[fig.filename]
+                          return (
+                            <div key={fig.number} className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                              {/* Figure image + number row */}
+                              <div className="flex gap-3 p-3">
+                                <a href={fig.url} target="_blank" rel="noreferrer" className="shrink-0">
+                                  <img
+                                    src={fig.url}
+                                    alt={fig.label}
+                                    className="w-28 h-28 sm:w-32 sm:h-32 object-contain bg-gray-50 border border-gray-100 rounded-lg hover:opacity-90 transition-opacity"
+                                    loading="lazy"
+                                  />
+                                </a>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-sm font-semibold text-[#1a1f36]">{fig.label}</span>
+                                    <a href={fig.url} download={fig.filename} className="text-xs text-indigo-600 hover:underline">⬇</a>
+                                  </div>
+                                  {/* Description textarea */}
+                                  <textarea
+                                    value={desc}
+                                    onChange={e => setFigureDescDraft(prev => ({ ...prev, [fig.filename]: e.target.value }))}
+                                    placeholder="Add a description for this figure (e.g. &quot;FIG. 1 is a perspective view showing...&quot;)"
+                                    rows={3}
+                                    className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-indigo-400 text-gray-700 placeholder-gray-300"
+                                  />
+                                  {/* Action row */}
+                                  <div className="flex items-center gap-2 mt-1.5">
+                                    <button
+                                      onClick={async () => {
+                                        const newDesc = figureDescDraft[fig.filename] ?? ''
+                                        const res = await fetch(`/api/patents/${patent.id}/figure-description`, {
+                                          method: 'PATCH',
+                                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                                          body: JSON.stringify({ filename: fig.filename, description: newDesc }),
+                                        })
+                                        if (res.ok) {
+                                          setFigureDescriptions(prev => ({ ...prev, [fig.filename]: newDesc }))
+                                          showToast(`Saved description for ${fig.label}`)
+                                        } else {
+                                          showToast('Failed to save description')
+                                        }
+                                      }}
+                                      disabled={desc === (figureDescriptions[fig.filename] ?? '')}
+                                      className="px-2.5 py-1 text-xs font-medium bg-[#1a1f36] text-white rounded-lg hover:bg-[#2d3555] disabled:opacity-40 disabled:cursor-default transition-colors"
+                                    >
+                                      Save
+                                    </button>
+                                    {/* Pattie analyze button */}
+                                    {isPro ? (
+                                      <button
+                                        onClick={async () => {
+                                          if (!fig.path) { showToast('Figure path unavailable'); return }
+                                          setFigurePattieLoading(prev => ({ ...prev, [fig.filename]: true }))
+                                          setFigurePattieResult(prev => { const n = { ...prev }; delete n[fig.filename]; return n })
+                                          try {
+                                            const res = await fetch('/api/pattie/analyze-figure', {
+                                              method: 'POST',
+                                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                                              body: JSON.stringify({
+                                                patentId: patent.id,
+                                                filename: fig.filename,
+                                                figureNumber: fig.number,
+                                                storagePath: fig.path,
+                                              }),
+                                            })
+                                            const d = await res.json()
+                                            if (res.ok && d.description) {
+                                              setFigurePattieResult(prev => ({ ...prev, [fig.filename]: d.description }))
+                                            } else {
+                                              showToast(d.error ?? 'Pattie could not analyze this figure')
+                                            }
+                                          } catch { showToast('Analysis failed') }
+                                          finally { setFigurePattieLoading(prev => ({ ...prev, [fig.filename]: false })) }
+                                        }}
+                                        disabled={pattieLoading}
+                                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+                                      >
+                                        {pattieLoading ? (
+                                          <span className="animate-pulse">✨ Analyzing…</span>
+                                        ) : (
+                                          <span>✨ Ask Pattie</span>
+                                        )}
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => { setUpgradeFeature('pattie'); }}
+                                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-gray-50 text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                                      >
+                                        ✨ Ask Pattie <span className="text-xs bg-gray-200 px-1 rounded font-bold">Pro</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Pattie suggestion block */}
+                              {pattieResult && (
+                                <div className="border-t border-indigo-100 bg-indigo-50 px-3 py-2.5">
+                                  <div className="text-xs font-medium text-indigo-700 mb-1">✨ Pattie suggests:</div>
+                                  <p className="text-xs text-indigo-900 leading-relaxed">{pattieResult}</p>
+                                  <div className="flex gap-2 mt-2">
+                                    <button
+                                      onClick={async () => {
+                                        setFigureDescDraft(prev => ({ ...prev, [fig.filename]: pattieResult }))
+                                        const res = await fetch(`/api/patents/${patent.id}/figure-description`, {
+                                          method: 'PATCH',
+                                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                                          body: JSON.stringify({ filename: fig.filename, description: pattieResult }),
+                                        })
+                                        if (res.ok) {
+                                          setFigureDescriptions(prev => ({ ...prev, [fig.filename]: pattieResult }))
+                                          setFigurePattieResult(prev => { const n = { ...prev }; delete n[fig.filename]; return n })
+                                          showToast(`✅ Pattie's description applied to ${fig.label}`)
+                                        }
+                                      }}
+                                      className="px-2.5 py-1 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                                    >
+                                      Use this
+                                    </button>
+                                    <button
+                                      onClick={() => setFigurePattieResult(prev => { const n = { ...prev }; delete n[fig.filename]; return n })}
+                                      className="px-2.5 py-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+                                    >
+                                      Dismiss
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   )}
