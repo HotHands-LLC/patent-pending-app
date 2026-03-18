@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { DEEP_RESEARCH_PROMPT_TEMPLATE } from '@/lib/pattie-sop'
 import { waitUntil } from '@vercel/functions'
 import { stripLlmAttribution, researchReportTitle } from '@/lib/ai-utils'
 import { logAiUsage } from '@/lib/ai-budget'
@@ -132,49 +133,10 @@ async function runDeepResearch(
   const totalChars = claimsInput.length + specInput.length + descInput.length
   console.log(`[deep-research] patent=${patentId} model=gemini-2.5-pro input_chars=${totalChars} (claims=${claimsInput.length} spec=${specInput.length} desc=${descInput.length})`)
 
-  // ── ADVERSARIAL ANALYSIS PROMPT ─────────────────────────────────────────────
-  // Two-phase prompt:
-  // Phase 1: Adversarial analysis — finds every weakness a competitor or examiner would exploit
-  // Phase 2: Improved claims — uses the analysis to write stronger claims
-  // Output: analysis narrative + improved claims, separated by a clear delimiter
-  const prompt = `You are a senior patent prosecution attorney conducting adversarial claim analysis. Your job is not merely to rewrite claims — it is to find every weakness a patent examiner or competitor could exploit, then produce specific stronger claims.
+  // ── DEEP RESEARCH SOP PROMPT (Pattie Research & Polish SOP v1.0) ────────────
+  // Four-phase: Intake Audit → Finding Classification → Research Output → Improved Claims
+  const prompt = DEEP_RESEARCH_PROMPT_TEMPLATE(title, specInput, descInput, claimsInput)
 
-**PHASE 1 — ADVERSARIAL ANALYSIS**
-Analyze the following patent claims against the specification provided. For each independent claim:
-
-1. **SCOPE ANALYSIS**: Does any language unnecessarily narrow the claim? Identify specific phrases that allow a competitor to design around by using a technically equivalent approach.
-
-2. **ADVERSARIAL TEST**: How would a sophisticated competitor build the same invention while avoiding each independent claim? What would they change?
-
-3. **DEPENDENCY RISK**: Does any claim depend on external IP, named third-party systems, named products, or co-pending applications? Flag any dependencies that create prosecution risk.
-
-4. **PRIOR ART PRESSURE**: What categories of prior art are most likely cited against each independent claim? Which claim language is most vulnerable to §102/§103 rejections?
-
-5. **RECOMMENDED FIXES**: For each identified weakness, provide specific alternative language that broadens protection while remaining fully supported by the specification.
-
-**PHASE 2 — IMPROVED CLAIMS**
-Using your adversarial analysis, write complete improved claims. Requirements:
-- Every independent claim must be broadened to its maximum defensible scope
-- Add dependent claims that capture specific preferred embodiments described in the spec
-- Remove any named dependencies on third-party products, brands, or co-pending applications
-- Ensure each claim is supported verbatim by language in the specification
-- Use precise USPTO-compliant language
-- Number claims sequentially
-
-**OUTPUT FORMAT**
-First output your analysis (Phase 1) as a structured summary.
-Then output a clear delimiter: ---IMPROVED CLAIMS---
-Then output the complete improved claims in standard USPTO numbered format (1., 2., 3., etc.).
-No additional text after the claims.
-
----
-Patent Title: ${title}
-
-Specification:
-${specInput || descInput || '(no specification provided)'}
-
-Current Claims:
-${claimsInput}`
 
   try {
     const res = await fetch(GEMINI_PRO, {
