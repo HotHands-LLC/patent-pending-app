@@ -23,6 +23,7 @@ import FilingGuide from '@/components/FilingGuide'
 import EnhancementTab from '@/components/EnhancementTab'
 import PattieChatDrawer from '@/components/PattieChatDrawer'
 import ResearchFindingsPanel from '@/components/ResearchFindingsPanel'
+import PattieInterviewDrawer from '@/components/patents/PattieInterviewDrawer'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -662,6 +663,7 @@ export default function PatentDetail() {
   const [showArc3Modal, setShowArc3Modal] = useState(false)
   const [showArc3Interview, setShowArc3Interview] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
+  const [showArc1Interview, setShowArc1Interview] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -1388,6 +1390,34 @@ export default function PatentDetail() {
         </div>
           ) // end visibleTabs return
         })(/* canView IIFE */)}
+
+        {/* ── ARC 1 INTERVIEW EMPTY-STATE CARD ─────────────────────────────────
+            Shown when abstract + description + claims_draft are all empty.
+            Disappears once any of the three fields has content.             */}
+        {(() => {
+          const hasAbstract     = !!(patent as Record<string,unknown>).abstract_draft
+          const hasDescription  = !!(patent as Record<string,unknown>).description
+          const hasClaims       = !!(patent as Record<string,unknown>).claims_draft
+          const isNewPatent     = !hasAbstract && !hasDescription && !hasClaims
+          const canInterview    = isPro && !isCollaborator && canWrite
+          return isNewPatent && canInterview ? (
+            <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50 p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <span className="text-2xl flex-shrink-0">✨</span>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-violet-900 text-sm">Start with a conversation</p>
+                <p className="text-violet-700 text-xs mt-0.5">
+                  Tell Pattie about your invention and she&apos;ll draft your patent fields automatically.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowArc1Interview(true)}
+                className="flex-shrink-0 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-semibold hover:bg-violet-700 transition-colors whitespace-nowrap"
+              >
+                Start Interview →
+              </button>
+            </div>
+          ) : null
+        })()}
 
         {/* ── DETAILS TAB ─────────────────────────────────────────────────────── */}
         {tab === 'details' && (
@@ -3133,24 +3163,45 @@ export default function PatentDetail() {
       {/* Toast */}
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
 
-      {/* ── ASK PATTIE floating button ───────────────────────────────────────── */}
-      {patent && authToken && !showPattie && (!isCollaborator || (collabPerms.pattie ?? false)) && (
-        <button
-          onClick={() => setShowPattie(true)}
-          className="
-            fixed bottom-6 right-6 z-40
-            flex items-center gap-2
-            bg-[#4f46e5] text-white
-            px-4 py-3 rounded-full shadow-lg
-            hover:bg-[#4338ca] active:scale-95 transition-all
-            text-sm font-semibold
-            sm:rounded-full
-          "
-          aria-label="Open Pattie chat"
-        >
-          <span className="text-base">🦞</span>
-          <span>Ask Pattie</span>
-        </button>
+      {/* ── ASK PATTIE / INTERVIEW floating buttons ──────────────────────────── */}
+      {patent && authToken && !showPattie && !showArc1Interview && (!isCollaborator || (collabPerms.pattie ?? false)) && (
+        <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
+          {/* Start Interview — only shown when patent is empty + Pro */}
+          {isPro && !isCollaborator && canWrite &&
+            !(patent as Record<string,unknown>).abstract_draft &&
+            !(patent as Record<string,unknown>).description &&
+            !(patent as Record<string,unknown>).claims_draft && (
+            <button
+              onClick={() => setShowArc1Interview(true)}
+              className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2.5 rounded-full shadow-lg hover:bg-violet-700 active:scale-95 transition-all text-sm font-semibold"
+              aria-label="Start invention interview"
+            >
+              <span className="text-base">🎤</span>
+              <span>Start Interview</span>
+            </button>
+          )}
+          <button
+            onClick={() => setShowPattie(true)}
+            className="flex items-center gap-2 bg-[#4f46e5] text-white px-4 py-3 rounded-full shadow-lg hover:bg-[#4338ca] active:scale-95 transition-all text-sm font-semibold"
+            aria-label="Open Pattie chat"
+          >
+            <span className="text-base">🦞</span>
+            <span>Ask Pattie</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── ARC 1 INTERVIEW DRAWER ───────────────────────────────────────────── */}
+      {showArc1Interview && patent && authToken && (
+        <PattieInterviewDrawer
+          patentId={patent.id}
+          patentTitle={patent.title}
+          authToken={authToken}
+          onClose={() => setShowArc1Interview(false)}
+          onDraftApplied={() => { loadAll(); setShowArc1Interview(false) }}
+          onSwitchToPolish={() => { setShowArc1Interview(false); setShowPattie(true) }}
+          onTierRequired={(feature) => { setShowArc1Interview(false); setUpgradeFeature(feature) }}
+        />
       )}
 
       {/* ── PATTIE CHAT DRAWER ───────────────────────────────────────────────── */}
