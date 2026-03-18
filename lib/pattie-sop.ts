@@ -1,6 +1,6 @@
 /**
  * pattie-sop.ts
- * Pattie Deep Research & Polish SOP — v1.0 (2026-03-18)
+ * Pattie Deep Research & Polish SOP — v1.1 (2026-03-18)
  *
  * Derived from PATTIE-RESEARCH-POLISH-SOP v1.0 authored by Claude strategic layer.
  * Injected into: /api/patents/[id]/chat (Polish) + /api/patents/[id]/deep-research (Research)
@@ -13,6 +13,28 @@
  *   Phase 5 — Session Memory (save to correspondence)
  */
 
+// ── Finding types ─────────────────────────────────────────────────────────────
+export type FindingClass = 'A' | 'B' | 'C' | 'D'
+
+export interface ParsedFinding {
+  class: FindingClass
+  label: string       // e.g. "Filing Risk"
+  emoji: string       // 🔴 🟡 🟠 💡
+  affected: string    // claim/section reference
+  description: string
+  suggestedFix?: string
+}
+
+// Sort order: A first, then B, C, D
+const CLASS_ORDER: Record<FindingClass, number> = { A: 0, B: 1, C: 2, D: 3 }
+
+export const CLASS_META: Record<FindingClass, { label: string; emoji: string; color: string; border: string; bg: string }> = {
+  A: { label: 'Filing Risk',    emoji: '🔴', color: 'text-red-800',    border: 'border-red-300',    bg: 'bg-red-50'    },
+  B: { label: 'Claim Quality',  emoji: '🟡', color: 'text-yellow-800', border: 'border-yellow-300', bg: 'bg-yellow-50' },
+  C: { label: 'Spec Gap',       emoji: '🟠', color: 'text-orange-800', border: 'border-orange-300', bg: 'bg-orange-50' },
+  D: { label: 'Opportunity',    emoji: '💡', color: 'text-blue-800',   border: 'border-blue-200',   bg: 'bg-blue-50'   },
+}
+
 // ── Phase 2 finding class definitions ─────────────────────────────────────────
 export const FINDING_CLASS_DEFS = `
 FINDING CLASSIFICATION:
@@ -23,7 +45,7 @@ FINDING CLASSIFICATION:
   Always lead with Class A findings. If none exist, state that explicitly — it is useful information.
 `
 
-// ── Phase 1B claim structure rules (shared between chat and deep-research) ────
+// ── Phase 1B claim structure rules ────────────────────────────────────────────
 export const CLAIM_STRUCTURE_RULES = `
 CLAIM STRUCTURE ANALYSIS (run on every patent with at least one claim):
 1. Identify Claim 1 — the independent anchor. Everything else depends on it.
@@ -64,10 +86,10 @@ DO NOT say:
 The line: observations are always appropriate. Outcomes and recommendations are for the attorney or inventor.
 `
 
-// ── Polish-mode rules (injected into /api/patents/[id]/chat) ─────────────────
+// ── Polish-mode SOP block (injected into /api/patents/[id]/chat) ──────────────
 export const POLISH_SOP_BLOCK = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PATTIE POLISH & REVIEW SOP — v1.0
+PATTIE POLISH & REVIEW SOP — v1.1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Before generating any output, run a silent intake audit:
@@ -101,9 +123,20 @@ PHASE 3 — POLISH OUTPUT STANDARDS:
 ${CONFIDENCE_CALIBRATION}
 
 PHASE 5 — SESSION MEMORY:
-At the end of every polish or review session, save a summary to the patent's Correspondence tab via
-suggest_field_update or by summarizing findings. Include: session type, findings by class (A/B/C/D),
-what was applied vs. flagged only, open questions requiring inventor input, next recommended action.
+When you have completed a substantive polish or review interaction (i.e., you have surfaced findings,
+drafted content, or flagged issues — not just answered a question), end your response with a
+structured session summary block in this exact format:
+
+---PATTIE-SESSION-SUMMARY---
+Session type: Polish
+Findings: [list each finding as CLASS:affected:brief description, one per line]
+Applied: [what was actually applied / drafted in this session, or "None — flags only"]
+Open questions: [anything requiring inventor or attorney input, or "None"]
+Next action: [single recommended next step]
+---END-SUMMARY---
+
+This block is parsed server-side and saved to the Correspondence tab. Do not include it in casual
+Q&A exchanges — only after substantive review/polish sessions.
 
 CALIBRATION EXAMPLES:
 • If user asks to polish the abstract but you noticed Claims 17+18 say "The system of claim 1"
@@ -115,7 +148,7 @@ CALIBRATION EXAMPLES:
   that a spec paragraph is needed — present both as a package.
 `
 
-// ── Deep Research prompt (replaces adversarial prompt in /api/patents/[id]/deep-research) ──
+// ── Deep Research prompt template ─────────────────────────────────────────────
 export const DEEP_RESEARCH_PROMPT_TEMPLATE = (
   title: string,
   specInput: string,
@@ -162,8 +195,16 @@ PHASE 3 — DEEP RESEARCH OUTPUT
 Structure your output in this exact order:
 
 **SECTION 1 — FINDINGS SUMMARY**
-List all findings by class. Lead with Class A. If no Class A findings, state: "No Class A filing risks identified."
-Format each finding as: [Class] [Claim/Section affected] — [Description] — [Suggested fix]
+IMPORTANT: Begin this section with a machine-readable findings block in this exact format (one finding per line):
+---FINDINGS---
+[CLASS_A|Claim X|description of finding|suggested fix]
+[CLASS_B|Claims section|description|suggested fix]
+[CLASS_C|Claim Y element|description|suggested fix]
+[CLASS_D|Spec section|description|suggested fix]
+---END-FINDINGS---
+If no Class A findings exist, include: [CLASS_A_NONE|—|No Class A filing risks identified|—]
+
+Then write a prose summary of the findings.
 
 **SECTION 2 — ADVERSARIAL ANALYSIS**
 For each independent claim:
@@ -179,8 +220,7 @@ For each independent claim:
 **SECTION 3 — PRIOR ART ANALYSIS**
 Based on the specification and claims:
 • Identify the technology space and likely prior art landscape.
-• Describe the closest categories of prior art that could be cited (by technology category, not just
-  patent numbers — characterize what they would cover).
+• Describe the closest categories of prior art that could be cited (by technology category — characterize what they cover).
 • For each category: what does it cover vs. what does it lack relative to these claims?
 • IDS Candidates: list technology categories or specific teachings the applicant should search before filing.
 • Differentiation: what specific claim language most clearly separates this invention from that prior art?
@@ -199,7 +239,7 @@ ${CONFIDENCE_CALIBRATION}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT FORMAT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Output Sections 1–3 as structured narrative under their headers.
+Output Sections 1–3 as structured narrative under their headers (with the machine-readable findings block at the top of Section 1).
 Then output a clear delimiter: ---IMPROVED CLAIMS---
 Then output the complete improved claims in standard USPTO numbered format.
 No additional text after the claims.
@@ -212,3 +252,79 @@ ${specInput || descInput || '(no specification provided)'}
 
 Current Claims:
 ${claimsInput}`
+
+// ── Finding parser — extracts structured findings from deep research output ───
+export function parseFindingsFromOutput(output: string): ParsedFinding[] {
+  const findings: ParsedFinding[] = []
+
+  const blockMatch = output.match(/---FINDINGS---\n([\s\S]*?)\n---END-FINDINGS---/)
+  if (!blockMatch) return findings
+
+  const lines = blockMatch[1].split('\n').filter(l => l.trim().startsWith('['))
+  for (const line of lines) {
+    const inner = line.slice(1, -1) // strip [ ]
+    const parts = inner.split('|')
+    if (parts.length < 3) continue
+
+    const classRaw = (parts[0] ?? '').trim().toUpperCase()
+    const affected = (parts[1] ?? '').trim()
+    const description = (parts[2] ?? '').trim()
+    const suggestedFix = (parts[3] ?? '').trim() || undefined
+
+    if (classRaw === 'CLASS_A_NONE') {
+      // Explicit "no class A" marker — skip as a finding card, it surfaces in prose
+      continue
+    }
+
+    const classMap: Record<string, FindingClass> = {
+      CLASS_A: 'A', CLASS_B: 'B', CLASS_C: 'C', CLASS_D: 'D',
+    }
+    const cls = classMap[classRaw]
+    if (!cls) continue
+
+    findings.push({
+      class: cls,
+      label: CLASS_META[cls].label,
+      emoji: CLASS_META[cls].emoji,
+      affected,
+      description,
+      suggestedFix,
+    })
+  }
+
+  // Sort: A first, then B, C, D
+  return findings.sort((a, b) => CLASS_ORDER[a.class] - CLASS_ORDER[b.class])
+}
+
+// ── Session summary parser — extracts Phase 5 summary from Pattie chat response ──
+export interface SessionSummary {
+  sessionType: string
+  findings: string
+  applied: string
+  openQuestions: string
+  nextAction: string
+}
+
+export function parseSessionSummary(text: string): SessionSummary | null {
+  const match = text.match(/---PATTIE-SESSION-SUMMARY---\n([\s\S]*?)\n---END-SUMMARY---/)
+  if (!match) return null
+
+  const body = match[1]
+  const get = (key: string) => {
+    const m = body.match(new RegExp(`${key}:\\s*(.+)`))
+    return m ? m[1].trim() : ''
+  }
+
+  return {
+    sessionType:   get('Session type'),
+    findings:      get('Findings'),
+    applied:       get('Applied'),
+    openQuestions: get('Open questions'),
+    nextAction:    get('Next action'),
+  }
+}
+
+// ── Strip session summary block from user-visible text ────────────────────────
+export function stripSessionSummary(text: string): string {
+  return text.replace(/\n*---PATTIE-SESSION-SUMMARY---[\s\S]*?---END-SUMMARY---\n*/g, '').trim()
+}

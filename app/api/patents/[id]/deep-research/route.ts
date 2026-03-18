@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { DEEP_RESEARCH_PROMPT_TEMPLATE } from '@/lib/pattie-sop'
+import { DEEP_RESEARCH_PROMPT_TEMPLATE, parseFindingsFromOutput } from '@/lib/pattie-sop'
 import { waitUntil } from '@vercel/functions'
 import { stripLlmAttribution, researchReportTitle } from '@/lib/ai-utils'
 import { logAiUsage } from '@/lib/ai-budget'
@@ -189,6 +189,11 @@ async function runDeepResearch(
     const cost      = (inputTok * COST_PER_M_INPUT + outputTok * COST_PER_M_OUTPUT) / 1_000_000
     console.log(`[deep-research] ✅ staged patent=${patentId} tokens=${inputTok}+${outputTok} cost=$${cost.toFixed(4)} analysis=${analysisSection.length}chars claims=${claimsSection.length}chars`)
 
+    // Parse structured findings from SOP output for correspondence metadata
+    const parsedFindings = parseFindingsFromOutput(stagedContent)
+    const findingCounts  = { A: 0, B: 0, C: 0, D: 0 }
+    for (const f of parsedFindings) findingCounts[f.class]++
+
     // Save research report to patent_correspondence — LLM attribution stripped, non-blocking
     const cleanedContent = stripLlmAttribution(stagedContent)
     void supabaseService.from('patent_correspondence').insert({
@@ -199,15 +204,23 @@ async function runDeepResearch(
       content:             cleanedContent,
       from_party:          'PatentPending AI',
       correspondence_date: new Date().toISOString().split('T')[0],
-      tags:                ['research_report', 'deep_research', 'ai_generated'],
+      tags:                ['research_report', 'deep_research', 'ai_generated', 'sop_v1'],
       attachments: {
-        query_used:    'Deep Research Pass (prior art + adversarial + claim strengthening)',
-        phases_run:    ['prior_art_sweep', 'adversarial_pass', 'claim_strengthening'],
-        generated_at:  new Date().toISOString(),
-        feature:       'deep_research',
-        tokens_input:  inputTok,
-        tokens_output: outputTok,
-        cost_usd:      cost,
+        query_used:     'Deep Research Pass — SOP v1.1 (4-phase: Intake Audit → Finding Classification → Research → Improved Claims)',
+        phases_run:     ['intake_audit_1a_1b_1c_1d', 'finding_classification_2', 'research_output_3', 'improved_claims_4'],
+        sop_version:    '1.1',
+        generated_at:   new Date().toISOString(),
+        feature:        'deep_research',
+        tokens_input:   inputTok,
+        tokens_output:  outputTok,
+        cost_usd:       cost,
+        findings_count: findingCounts,
+        findings:       parsedFindings.map(f => ({
+          class:       f.class,
+          affected:    f.affected,
+          description: f.description,
+          fix:         f.suggestedFix ?? null,
+        })),
       },
     }).then(({ error }) => { if (error) console.error('[deep-research] correspondence save failed:', error) })
 
