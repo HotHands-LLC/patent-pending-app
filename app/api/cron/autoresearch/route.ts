@@ -194,7 +194,7 @@ export async function GET(req: NextRequest) {
             onConflict: 'application_number',
             ignoreDuplicates: true,
           })
-          .select('application_number')
+          .select('id, application_number, title, inventor_names, filing_date, cpc_codes')
 
         if (upsertErr) {
           console.error(`[cron/autoresearch] Upsert error for query "${query.label}":`, upsertErr)
@@ -202,6 +202,39 @@ export async function GET(req: NextRequest) {
         } else {
           netNew = (upserted ?? []).length
           totalNewResults += netNew
+
+          // Auto-add new results as IDS candidates for the associated patent
+          if (query.patent_id && upserted && upserted.length > 0) {
+            // Fetch patent owner_id for the IDS candidate insert
+            const { data: patentRow } = await supabase
+              .from('patents')
+              .select('owner_id')
+              .eq('id', query.patent_id)
+              .single()
+
+            if (patentRow?.owner_id) {
+              const idsCandidates = upserted.map(r => ({
+                patent_id:          query.patent_id,
+                owner_id:           patentRow.owner_id,
+                research_result_id: r.id,
+                application_number: r.application_number ?? null,
+                title:              r.title ?? 'Untitled',
+                inventor_names:     r.inventor_names ?? null,
+                filing_date:        r.filing_date ?? null,
+                cpc_codes:          r.cpc_codes ?? null,
+                status:             'pending',
+                added_by:           'autoresearch',
+              }))
+
+              await supabase
+                .from('research_ids_candidates')
+                .upsert(idsCandidates, { onConflict: 'research_result_id', ignoreDuplicates: true })
+                .then(({ error: idsErr }) => {
+                  if (idsErr) console.error('[cron/autoresearch] IDS candidates insert error:', idsErr)
+                  else console.log(`[cron/autoresearch] Added ${idsCandidates.length} IDS candidates for patent ${query.patent_id}`)
+                })
+            }
+          }
         }
       }
 
