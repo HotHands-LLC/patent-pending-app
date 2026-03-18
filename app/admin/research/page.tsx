@@ -1312,8 +1312,198 @@ export default function AdminResearchPage() {
               </div>
             )}
           </div>
+
+          {/* ── Saved Queries Panel ───────────────────────────────────────── */}
+          {authToken && <SavedQueriesPanel authToken={authToken} />}
+
         </div>
       </div>
     </>
+  )
+}
+
+// ── SavedQueriesPanel ─────────────────────────────────────────────────────────
+interface SavedQuery {
+  id:                string
+  label:             string
+  cpc_codes:         string[] | null
+  keywords:          string[] | null
+  patent_id:         string | null
+  is_active:         boolean
+  last_run_at:       string | null
+  last_result_count: number
+}
+
+function SavedQueriesPanel({ authToken }: { authToken: string }) {
+  const [queries, setQueries]     = useState<SavedQuery[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [showForm, setShowForm]   = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+
+  // Form state
+  const [newLabel, setNewLabel]   = useState('')
+  const [newCpc, setNewCpc]       = useState('')   // comma-separated
+  const [newKw, setNewKw]         = useState('')    // comma-separated
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/admin/research/saved-queries', {
+        headers: { Authorization: `Bearer ${authToken}` }
+      })
+      const d = await res.json()
+      setQueries(d.queries ?? [])
+    } catch { /* non-fatal */ }
+    setLoading(false)
+  }, [authToken])
+
+  useEffect(() => { load() }, [load])
+
+  const toggleActive = async (q: SavedQuery) => {
+    await fetch(`/api/admin/research/saved-queries/${q.id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body:    JSON.stringify({ is_active: !q.is_active }),
+    })
+    load()
+  }
+
+  const deleteQuery = async (id: string) => {
+    if (!confirm('Delete this saved query?')) return
+    await fetch(`/api/admin/research/saved-queries/${id}`, {
+      method:  'DELETE',
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+    load()
+  }
+
+  const createQuery = async () => {
+    if (!newLabel.trim()) { setError('Label is required'); return }
+    setSaving(true); setError(null)
+    const res = await fetch('/api/admin/research/saved-queries', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({
+        label:     newLabel.trim(),
+        cpc_codes: newCpc.split(',').map(s => s.trim()).filter(Boolean),
+        keywords:  newKw.split(',').map(s => s.trim()).filter(Boolean),
+      }),
+    })
+    if (res.ok) {
+      setNewLabel(''); setNewCpc(''); setNewKw('')
+      setShowForm(false)
+      load()
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setError(d.error ?? 'Create failed')
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Saved Queries</h2>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Nightly autoresearch cron runs all active queries at 03:00 MDT.
+          </p>
+        </div>
+        <button
+          onClick={() => setShowForm(f => !f)}
+          className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          + New Query
+        </button>
+      </div>
+
+      {/* Create form */}
+      {showForm && (
+        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-4 space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Label *</label>
+            <input
+              value={newLabel} onChange={e => setNewLabel(e.target.value)}
+              placeholder="e.g. READI prior art sweep"
+              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">CPC Codes (comma-separated)</label>
+            <input
+              value={newCpc} onChange={e => setNewCpc(e.target.value)}
+              placeholder="e.g. G06Q, H04W"
+              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Keywords (comma-separated)</label>
+            <input
+              value={newKw} onChange={e => setNewKw(e.target.value)}
+              placeholder="e.g. emergency alert, location aware"
+              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <div className="flex gap-2">
+            <button onClick={createQuery} disabled={saving}
+              className="px-4 py-1.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors">
+              {saving ? 'Saving…' : 'Create'}
+            </button>
+            <button onClick={() => setShowForm(false)}
+              className="px-4 py-1.5 border border-gray-300 text-gray-600 text-sm rounded-lg hover:bg-gray-100 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Query list */}
+      {loading ? (
+        <p className="text-sm text-gray-400">Loading…</p>
+      ) : queries.length === 0 ? (
+        <div className="text-center py-8 text-gray-400">
+          <p className="text-3xl mb-2">🔍</p>
+          <p className="text-sm">No saved queries yet — create one to start nightly autoresearch.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {queries.map(q => (
+            <div key={q.id} className={`rounded-xl border p-4 flex items-start justify-between gap-4 ${q.is_active ? 'border-gray-200 bg-white' : 'border-gray-100 bg-gray-50 opacity-60'}`}>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-sm text-gray-900">{q.label}</span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${q.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
+                    {q.is_active ? 'Active' : 'Paused'}
+                  </span>
+                </div>
+                {q.cpc_codes && q.cpc_codes.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">CPC: {q.cpc_codes.join(', ')}</p>
+                )}
+                {q.keywords && q.keywords.length > 0 && (
+                  <p className="text-xs text-gray-500">Keywords: {q.keywords.join(', ')}</p>
+                )}
+                <p className="text-xs text-gray-400 mt-1">
+                  {q.last_run_at
+                    ? `Last run: ${new Date(q.last_run_at).toLocaleDateString()} · ${q.last_result_count} new results`
+                    : 'Never run'}
+                </p>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <button onClick={() => toggleActive(q)}
+                  className="text-xs px-2.5 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors">
+                  {q.is_active ? 'Pause' : 'Resume'}
+                </button>
+                <button onClick={() => deleteQuery(q.id)}
+                  className="text-xs px-2.5 py-1 border border-red-200 rounded-lg text-red-600 hover:bg-red-50 transition-colors">
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
