@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserTierInfo, isPro } from '@/lib/tier'
 import { isAIMLPatent, DESJARDINS_BLOCK } from '@/lib/pattie-desjardins'
+import { POLISH_SOP_BLOCK } from '@/lib/pattie-sop'
 
 export const maxDuration = 60
 
@@ -325,6 +326,7 @@ WHAT YOU NEVER DO:
 
 TONE: Friendly, knowledgeable, professional. Short by default, thorough when asked.
 ${patent.status === 'granted' ? `\nPOST-GRANT: Focus on licensing, maintenance fees, and commercialization. Do not suggest filing steps.` : ''}
+${POLISH_SOP_BLOCK}
 ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
 
   console.log('[pattie/chat] patent:', patent.title, '| entity:', entityStatus, '| phase:', currentStep)
