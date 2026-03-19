@@ -26,6 +26,7 @@ import ResearchFindingsPanel from '@/components/ResearchFindingsPanel'
 import PattieInterviewDrawer from '@/components/patents/PattieInterviewDrawer'
 import IDSCandidatesTab from '@/components/patents/IDSCandidatesTab'
 import { USPTO_FEES } from '@/lib/uspto-fees'
+import SigningRequestsPanel from '@/components/signing/SigningRequestsPanel'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -3156,6 +3157,14 @@ export default function PatentDetail() {
             authToken={authToken}
             canWrite={canWrite}
             onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
+          />
+        )}
+
+        {/* ── SIGNING REQUESTS (Overview tab, owner only) ──────────────────────── */}
+        {tab === 'details' && !isCollaborator && (
+          <SigningRequestsPanel
+            patentId={patent.id}
+            applicationNumber={patent.application_number}
           />
         )}
 
