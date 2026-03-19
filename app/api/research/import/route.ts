@@ -102,6 +102,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to create patent record' }, { status: 500 })
   }
 
+  // ── IDS candidate on source patent (if run was patent_analysis) ──────────────
+  if (run_id) {
+    const { data: run } = await supabaseService
+      .from('research_runs')
+      .select('patent_id')
+      .eq('id', run_id)
+      .maybeSingle()
+
+    if (run?.patent_id) {
+      const appNum = candidate.patent_number ?? ''
+      const { data: existing } = await supabaseService
+        .from('research_ids_candidates')
+        .select('id')
+        .eq('patent_id', run.patent_id)
+        .eq('application_number', appNum)
+        .maybeSingle()
+
+      if (!existing && appNum) {
+        await supabaseService.from('research_ids_candidates').insert({
+          patent_id:          run.patent_id,
+          research_result_id: null,
+          application_number: appNum,
+          patent_number:      appNum,
+          title:              candidate.title,
+          filing_date:        candidate.filing_date ?? null,
+          cpc_codes:          candidate.cpc_codes ?? [],
+          status:             'pending',
+          relevance_notes:    `Manually imported from research run. Rec: ${candidate.final_recommendation}.`,
+          added_by:           'manual_import',
+        })
+      }
+    }
+  }
+
   // ── Insert correspondence record ──────────────────────────────────────────────
   const corrContent = [
     `Patent Number: ${candidate.patent_number}`,
@@ -136,7 +170,7 @@ export async function POST(req: NextRequest) {
       type:                'ai_research',
       correspondence_date: new Date().toISOString().split('T')[0],
       content:             corrContent,
-      from_party:          'BoClaw Autoresearch',
+      from_party:          'PatentClaw',
       tags:                ['research-import', 'autoresearch'],
     })
 

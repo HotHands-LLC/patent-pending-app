@@ -416,6 +416,59 @@ export interface PatentAnalysisOptions {
   analysisType?: 'prior_art' | 'competitive' | 'acquisition'
 }
 
+// ── IDS candidate auto-population ────────────────────────────────────────────
+/**
+ * For each candidate with technology_relevance >= 65 (score out of 10, so >= 6.5 mapped),
+ * or acquisition_interest >= 65, check if an IDS candidate already exists and insert if not.
+ * Uses patent_id from the run (for patent_analysis runs).
+ */
+async function autoPopulateIdsCandidates(
+  runId: string,
+  patentId: string | undefined,
+  candidates: PatentCandidate[]
+): Promise<void> {
+  if (!patentId || candidates.length === 0) return
+
+  // Map 1–10 score to 0–100 for >= 65 threshold
+  const highScoreCandidates = candidates.filter(
+    c => (c.technology_relevance * 10) >= 65 || (c.acquisition_interest * 10) >= 65
+  )
+
+  if (highScoreCandidates.length === 0) return
+
+  console.log(`[research:${runId}] Auto-populating ${highScoreCandidates.length} IDS candidates for patent ${patentId}`)
+
+  for (const c of highScoreCandidates) {
+    const appNum = c.patent_number ?? ''
+    if (!appNum) continue
+
+    // Check if already exists
+    const { data: existing } = await supabaseService
+      .from('research_ids_candidates')
+      .select('id')
+      .eq('patent_id', patentId)
+      .eq('application_number', appNum)
+      .maybeSingle()
+
+    if (existing) continue
+
+    await supabaseService.from('research_ids_candidates').insert({
+      patent_id:          patentId,
+      research_result_id: null,
+      application_number: appNum,
+      patent_number:      appNum,
+      title:              c.title,
+      filing_date:        c.filing_date ?? null,
+      cpc_codes:          c.cpc_codes ?? [],
+      status:             'pending',
+      relevance_notes:    `Auto-added from research run. Rec: ${c.final_recommendation}. ${c.rationale?.slice(0, 120) ?? ''}`,
+      added_by:           'auto',
+    }).then(({ error }) => {
+      if (error) console.warn(`[research:${runId}] IDS candidate insert error for ${appNum}:`, error.message)
+    })
+  }
+}
+
 export async function runGeminiResearch(
   runId: string,
   query: string,
@@ -558,6 +611,9 @@ export async function runGeminiResearch(
             completed_at: new Date().toISOString(),
           })
 
+          // Auto-populate IDS candidates for high-score results
+          await autoPopulateIdsCandidates(runId, options?.patentId, candidates)
+
           console.log(`[research:${runId}] ✅ Patent Analysis complete — core: "${coreInvention}" | CPCs: ${extractedCpcCodes.map(c => c.cpc_code).join(', ')} | ${candidates.length} candidates`)
           return
 
@@ -681,6 +737,9 @@ export async function runGeminiResearch(
       summary,
       completed_at: new Date().toISOString(),
     })
+
+    // Auto-populate IDS candidates for patent_analysis runs
+    await autoPopulateIdsCandidates(runId, options?.patentId, candidates)
 
     console.log(`[research:${runId}] ✅ Complete — CPC: ${cpcCodes.map(c => c.cpc_code).join(', ') || 'none'} | source: ${usedOdp ? 'ODP' : 'fallback'} | candidates: ${candidates.length} | worth: ${worthCount}`)
 

@@ -139,6 +139,27 @@ export default function SigningRequestsPanel({ patentId, applicationNumber }: Pr
     }
   }
 
+  const handleDeleteTestRequest = async (requestId: string) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session) return
+
+    const res = await fetch(
+      `/api/patents/${patentId}/signing-requests/${requestId}/test-cleanup`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      }
+    )
+    if (res.ok) {
+      showToast('Deleted ✓')
+      setRequests(prev => prev.filter(r => r.id !== requestId))
+    } else {
+      showToast("Can't delete — not a test request")
+    }
+  }
+
   const handleRemind = async (requestId: string) => {
     const {
       data: { session },
@@ -288,6 +309,14 @@ export default function SigningRequestsPanel({ patentId, applicationNumber }: Pr
                     <span className="text-sm font-medium text-gray-800 truncate">{r.document_label}</span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">{r.signer_name} · {r.signer_email}</p>
+                  {r.document_label?.toLowerCase().includes('test') && (
+                    <button
+                      onClick={() => handleDeleteTestRequest(r.id)}
+                      className="text-xs text-red-500 hover:text-red-700 mt-0.5 underline"
+                    >
+                      Delete test request
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {r.status === 'signed' && r.correspondence_id && (

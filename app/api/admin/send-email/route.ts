@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   try {
     const resend = getResend()
     const result = await resend.emails.send({
-      from: 'BoClaw Mission Control <notifications@hotdeck.com>',
+      from: 'PatentClaw <notifications@hotdeck.com>',
       to: [to],
       subject,
       text: emailBody,
