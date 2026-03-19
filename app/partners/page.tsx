@@ -1,204 +1,573 @@
 'use client'
-import Link from 'next/link'
-import Navbar from '@/components/Navbar'
 
-export default function PartnersPage() {
+import { useState, useEffect, useRef, useCallback } from 'react'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+const PARTNERS_SESSION_ID_KEY = 'pattie_partners_session_id'
+
+function getPartnersSessionId(): string {
+  if (typeof window === 'undefined') return 'ssr'
+  const existing = sessionStorage.getItem(PARTNERS_SESSION_ID_KEY)
+  if (existing) return existing
+  const id = crypto.randomUUID()
+  sessionStorage.setItem(PARTNERS_SESSION_ID_KEY, id)
+  return id
+}
+
+// ── Smooth scroll helper ──────────────────────────────────────────────────────
+function scrollTo(id: string) {
+  const el = document.getElementById(id)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+// ── Chat bubble ───────────────────────────────────────────────────────────────
+function ChatBubble({ msg }: { msg: ChatMessage }) {
+  const isUser = msg.role === 'user'
   return (
-    <div className="min-h-screen bg-white">
-      <Navbar />
-
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="bg-[#1a1f36] text-white px-4 py-20 text-center">
-        <div className="max-w-3xl mx-auto">
-          <div className="inline-block px-3 py-1 bg-white/10 rounded-full text-xs font-semibold uppercase tracking-widest text-white/70 mb-6">
-            PatentPending Partner Program
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-bold leading-tight mb-5">
-            Add a patent revenue stream<br className="hidden sm:block" /> to your practice.
-          </h1>
-          <p className="text-lg text-white/70 mb-8 max-w-xl mx-auto">
-            No upfront cost. No monthly fee. Earn on every client you bring in.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link
-              href="/signup?partner=true"
-              className="px-8 py-4 bg-[#f5a623] text-[#1a1f36] rounded-xl font-bold text-base hover:bg-[#f5a623]/90 transition-colors"
-            >
-              Apply to Join →
-            </Link>
-            <Link
-              href="#how-it-works"
-              className="px-8 py-4 border border-white/30 text-white rounded-xl font-semibold text-base hover:bg-white/10 transition-colors"
-            >
-              How it works
-            </Link>
-          </div>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+      {!isUser && (
+        <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white text-sm font-bold mr-2 mt-0.5 shrink-0">
+          P
         </div>
-      </section>
-
-      {/* ── How it works ─────────────────────────────────────────────────── */}
-      <section id="how-it-works" className="py-16 px-4 bg-gray-50">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-2xl font-bold text-[#1a1f36] text-center mb-3">How it works</h2>
-          <p className="text-gray-500 text-center text-sm mb-10">Three steps, no administration overhead</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            {[
-              { step: '01', icon: '🔗', title: 'Refer', body: 'Share your unique referral link. When a prospective client visits your link and signs up, they&apos;re automatically connected to your account.' },
-              { step: '02', icon: '⚖️', title: 'They file', body: 'PatentPending guides your client through the provisional patent process — AI-drafted claims, figures, cover sheet, and USPTO filing guidance.' },
-              { step: '03', icon: '💳', title: 'You earn', body: 'When your referred client completes a paid filing, you earn 3 months of PatentPending Pro — automatically applied to your account.' },
-            ].map(({ step, icon, title, body }) => (
-              <div key={step} className="bg-white border border-gray-200 rounded-2xl p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-xs font-bold text-gray-300 tracking-widest">{step}</span>
-                  <span className="text-2xl">{icon}</span>
-                </div>
-                <h3 className="font-bold text-[#1a1f36] text-lg mb-2">{title}</h3>
-                <p className="text-gray-500 text-sm leading-relaxed">{body}</p>
-              </div>
-            ))}
-          </div>
+      )}
+      <div
+        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+          isUser
+            ? 'bg-slate-800 text-white rounded-br-sm'
+            : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm'
+        }`}
+      >
+        {msg.content}
+      </div>
+      {isUser && (
+        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 text-sm font-bold ml-2 mt-0.5 shrink-0">
+          Y
         </div>
-      </section>
+      )}
+    </div>
+  )
+}
 
-      {/* ── Who it&apos;s for ─────────────────────────────────────────────────── */}
-      <section className="py-16 px-4">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-2xl font-bold text-[#1a1f36] text-center mb-10">Who this is for</h2>
-          <div className="space-y-5">
-            {[
-              {
-                icon: '™',
-                title: 'Trademark attorneys who don&apos;t do patents',
-                body: 'You already have inventor clients asking about patents. Instead of turning them away, refer them to PatentPending and earn every time one files. Pure upside — no competition with your practice.',
-              },
-              {
-                icon: '⚖️',
-                title: 'Overloaded solo patent attorneys',
-                body: 'You can&apos;t take every client who calls. PatentPending handles the AI-assisted prep work — claim drafts, figures, cover sheets — so you can focus on the matters that demand your expertise, while your referrals still benefit.',
-              },
-              {
-                icon: '📚',
-                title: 'Non-practicing and retired practitioners',
-                body: 'Your credential still opens doors. Refer clients you&apos;re not actively representing and earn passive income without billable hour commitments.',
-              },
-            ].map(({ icon, title, body }) => (
-              <div key={title} className="flex gap-5 p-6 border border-gray-200 rounded-2xl hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors">
-                <div className="w-12 h-12 flex-shrink-0 bg-[#1a1f36] text-white rounded-xl flex items-center justify-center text-xl font-bold">
-                  {icon}
-                </div>
-                <div>
-                  <h3 className="font-bold text-[#1a1f36] mb-1">{title}</h3>
-                  <p className="text-gray-500 text-sm leading-relaxed">{body}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+function TypingIndicator() {
+  return (
+    <div className="flex justify-start mb-4">
+      <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white text-sm font-bold mr-2 mt-0.5 shrink-0">
+        P
+      </div>
+      <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
+        <div className="flex gap-1.5 items-center h-4">
+          {[0, 1, 2].map(i => (
+            <div
+              key={i}
+              className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
+              style={{ animationDelay: `${i * 0.15}s` }}
+            />
+          ))}
         </div>
-      </section>
+      </div>
+    </div>
+  )
+}
 
-      {/* ── Earnings example ─────────────────────────────────────────────── */}
-      <section className="py-16 px-4 bg-gray-50">
-        <div className="max-w-2xl mx-auto text-center">
-          <h2 className="text-2xl font-bold text-[#1a1f36] mb-3">Real earnings, real math</h2>
-          <p className="text-gray-500 text-sm mb-8">No hidden minimums. No monthly fee to earn.</p>
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 mb-4 text-left">
-            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Example scenario</div>
-            <div className="space-y-3">
-              {[
-                ['1 referred client files', '3 months Pro ($447 value)', 'bg-indigo-100 text-indigo-700'],
-                ['2 clients file', '6 months Pro ($894 value)', 'bg-blue-100 text-blue-700'],
-                ['4 clients file', '12 months Pro — full year free', 'bg-green-100 text-green-700'],
-                ['8 clients file', '24 months Pro — 2 years free', 'bg-amber-100 text-amber-700'],
-              ].map(([desc, reward, cls]) => (
-                <div key={desc} className="flex items-center justify-between gap-4">
-                  <span className="text-sm text-gray-700">{desc}</span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${cls}`}>{reward}</span>
-                </div>
+// ── Pattie chat widget (attorney mode) ───────────────────────────────────────
+function PartnersChatWidget() {
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [input, setInput] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const [streamingText, setStreamingText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [rateLimited, setRateLimited] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, streamingText])
+
+  const SUGGESTIONS = [
+    'Will this replace me as an attorney?',
+    'What does the referral program look like?',
+    'How do I handle malpractice concerns?',
+    'What quality should I expect from the drafts?',
+    'How does my client intake process change?',
+  ]
+
+  const sendMessage = useCallback(async (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed || streaming) return
+
+    setInput('')
+    setError(null)
+    setStreamingText('')
+
+    const userMsg: ChatMessage = { role: 'user', content: trimmed }
+    const nextMessages = [...messages, userMsg]
+    setMessages(nextMessages)
+    setStreaming(true)
+
+    const apiMessages = nextMessages.slice(-20).map(m => ({
+      role: m.role,
+      content: m.content,
+    }))
+
+    try {
+      const res = await fetch('/api/pattie/partners', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: apiMessages, session_id: getPartnersSessionId() }),
+      })
+
+      if (res.status === 429) {
+        setRateLimited(true)
+        setStreaming(false)
+        return
+      }
+
+      if (!res.ok || !res.body) {
+        setError('Pattie is unavailable right now. Please try again shortly.')
+        setStreaming(false)
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let accumulated = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const raw = line.slice(6).trim()
+          if (raw === '[DONE]') continue
+
+          try {
+            const evt = JSON.parse(raw)
+            if (evt.type === 'text') {
+              accumulated += evt.text
+              setStreamingText(accumulated)
+            }
+          } catch { /* skip */ }
+        }
+      }
+
+      setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
+      setStreamingText('')
+    } catch {
+      setError('Connection error — please try again.')
+    } finally {
+      setStreaming(false)
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
+  }, [messages, streaming])
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage(input)
+    }
+  }
+
+  const isEmpty = messages.length === 0 && !streaming
+
+  return (
+    <div className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden flex flex-col" style={{ height: '520px' }}>
+      {/* Chat header */}
+      <div className="bg-white border-b border-slate-100 px-5 py-3 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white text-sm font-bold">
+          P
+        </div>
+        <div>
+          <div className="text-sm font-semibold text-slate-900">Pattie</div>
+          <div className="text-xs text-slate-400">patentpending.app</div>
+        </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-green-400" />
+          <span className="text-xs text-slate-400">Online</span>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        {isEmpty && (
+          <div className="mb-6">
+            <div className="text-sm text-slate-500 mb-4 text-center">
+              Ask Pattie about the platform, the partner program, or anything you&apos;d want to know before referring clients.
+            </div>
+            <div className="flex flex-col gap-2">
+              {SUGGESTIONS.map(s => (
+                <button
+                  key={s}
+                  onClick={() => sendMessage(s)}
+                  className="text-left px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 hover:border-slate-400 hover:text-slate-800 transition-all"
+                >
+                  {s}
+                </button>
               ))}
             </div>
           </div>
-          <p className="text-xs text-gray-400">Rewards accrue per completed paid filing. Pro valued at $149/mo.</p>
-        </div>
-      </section>
+        )}
 
-      {/* ── Arc 3 teaser ─────────────────────────────────────────────────── */}
-      <section className="py-14 px-4 bg-[#1a1f36] text-white">
-        <div className="max-w-3xl mx-auto text-center">
-          <div className="inline-block px-3 py-1 bg-white/10 rounded-full text-xs font-semibold uppercase tracking-widest text-white/60 mb-4">
-            Arc 3 — Coming Soon
+        {messages.map((msg, i) => (
+          <ChatBubble key={i} msg={msg} />
+        ))}
+
+        {streaming && !streamingText && <TypingIndicator />}
+        {streaming && streamingText && (
+          <ChatBubble msg={{ role: 'assistant', content: streamingText }} />
+        )}
+
+        {rateLimited && (
+          <div className="mb-4 text-center">
+            <div className="inline-block bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
+              Rate limit reached (20 messages/hour). Please check back later or use the waitlist form below.
+            </div>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-bold mb-3">You&apos;re in early on something bigger</h2>
-          <p className="text-white/70 text-base max-w-xl mx-auto">
-            Every patent filed through your referral link participates in the PatentPending licensing marketplace. Revenue share for partners on licensing deals is on the way. Partners who join now are grandfathered into the Arc 3 program at the founding rate.
-          </p>
-        </div>
-      </section>
+        )}
 
-      {/* ── CTA ──────────────────────────────────────────────────────────── */}
-      <section className="py-16 px-4 text-center">
-        <div className="max-w-lg mx-auto">
-          <h2 className="text-2xl font-bold text-[#1a1f36] mb-3">Ready to get started?</h2>
-          <p className="text-gray-500 text-sm mb-6">Applications take 2 minutes. We review within 1–2 business days.</p>
-          <Link
-            href="/signup?partner=true"
-            className="inline-block px-8 py-4 bg-[#1a1f36] text-white rounded-xl font-bold text-base hover:bg-[#2d3561] transition-colors"
+        {error && (
+          <div className="mb-4 text-center">
+            <div className="inline-block bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600">
+              {error}
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      {!rateLimited && (
+        <div className="border-t border-slate-100 bg-white px-4 py-3">
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask Pattie a question…"
+              rows={1}
+              disabled={streaming}
+              className="flex-1 resize-none px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-slate-50 disabled:opacity-50 max-h-28 leading-relaxed"
+              style={{ overflowY: input.split('\n').length > 3 ? 'auto' : 'hidden' }}
+            />
+            <button
+              onClick={() => sendMessage(input)}
+              disabled={streaming || !input.trim()}
+              className="px-4 py-2.5 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
+              aria-label="Send"
+            >
+              {streaming ? (
+                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                '↑'
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Waitlist form ─────────────────────────────────────────────────────────────
+type FormState = 'idle' | 'submitting' | 'success' | 'error'
+
+function WaitlistForm() {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [firm, setFirm] = useState('')
+  const [focusArea, setFocusArea] = useState('')
+  const [state, setState] = useState<FormState>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim() || !email.trim()) return
+
+    setState('submitting')
+    setErrorMsg('')
+
+    try {
+      const res = await fetch('/api/partners/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          firm: firm.trim() || undefined,
+          focus_area: focusArea || undefined,
+        }),
+      })
+
+      const data = await res.json().catch(() => ({})) as { success?: boolean; error?: string }
+
+      if (res.ok && data.success) {
+        setState('success')
+      } else {
+        setErrorMsg(data.error ?? 'Something went wrong. Please try again.')
+        setState('error')
+      }
+    } catch {
+      setErrorMsg('Connection error — please try again.')
+      setState('error')
+    }
+  }
+
+  if (state === 'success') {
+    return (
+      <div className="text-center py-12">
+        <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+          <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h3 className="text-xl font-semibold text-slate-900 mb-2">You&apos;re on the list.</h3>
+        <p className="text-slate-500">We&apos;ll be in touch within 48 hours.</p>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5 max-w-md mx-auto">
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1.5">Name</label>
+        <input
+          type="text"
+          required
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Your name"
+          className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+        <input
+          type="email"
+          required
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="you@yourfirm.com"
+          className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1.5">Firm / practice</label>
+        <input
+          type="text"
+          value={firm}
+          onChange={e => setFirm(e.target.value)}
+          placeholder="Smith & Associates"
+          className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1.5">Focus area</label>
+        <select
+          value={focusArea}
+          onChange={e => setFocusArea(e.target.value)}
+          className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white text-slate-700 appearance-none"
+        >
+          <option value="">Patent</option>
+          <option value="patent">Patent</option>
+          <option value="trademark">Trademark</option>
+          <option value="ip_litigation">IP Litigation</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+      {state === 'error' && (
+        <p className="text-sm text-red-600">{errorMsg}</p>
+      )}
+
+      <button
+        type="submit"
+        disabled={state === 'submitting' || !name.trim() || !email.trim()}
+        className="w-full py-3 bg-slate-900 text-white rounded-xl font-semibold text-sm hover:bg-slate-700 disabled:opacity-40 transition-colors"
+      >
+        {state === 'submitting' ? (
+          <span className="flex items-center justify-center gap-2">
+            <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            Submitting…
+          </span>
+        ) : (
+          'Request access →'
+        )}
+      </button>
+
+      <p className="text-center text-xs text-slate-400">We&apos;ll reach out within 48 hours.</p>
+    </form>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+export default function PartnersPage() {
+  return (
+    <div className="min-h-screen bg-white text-slate-900 font-sans">
+
+      {/* ── Minimal top nav ────────────────────────────────────────────────── */}
+      <header className="border-b border-slate-100 px-6 py-4">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-900 tracking-tight">
+            patentpending.app <span className="text-slate-400 font-normal">/ for attorneys</span>
+          </span>
+          <button
+            onClick={() => scrollTo('waitlist')}
+            className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
           >
-            Apply to Join →
-          </Link>
-          <p className="text-xs text-gray-400 mt-4">
-            Already a partner?{' '}
-            <Link href="/dashboard/partners" className="text-indigo-500 hover:underline">Go to your dashboard →</Link>
+            Request access →
+          </button>
+        </div>
+      </header>
+
+      {/* ── Hero ──────────────────────────────────────────────────────────── */}
+      <section className="px-6 pt-20 pb-16 text-center">
+        <div className="max-w-3xl mx-auto">
+          <p className="text-xs font-semibold tracking-widest text-slate-400 uppercase mb-5">
+            For patent &amp; IP attorneys
           </p>
+          <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 leading-tight tracking-tight mb-5">
+            Your clients arrive unprepared.<br />
+            <span className="text-slate-500">We fix that before they reach you.</span>
+          </h1>
+          <p className="text-lg text-slate-500 max-w-xl mx-auto leading-relaxed mb-10">
+            patentpending.app prepares inventors for patent prosecution —
+            so your billable hours go toward strategy, not extraction.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              onClick={() => scrollTo('how-it-works')}
+              className="px-6 py-3 bg-white border border-slate-300 text-slate-800 rounded-xl font-semibold text-sm hover:border-slate-500 hover:shadow-sm transition-all"
+            >
+              See how it works →
+            </button>
+            <button
+              onClick={() => scrollTo('waitlist')}
+              className="px-6 py-3 bg-slate-900 text-white rounded-xl font-semibold text-sm hover:bg-slate-700 transition-colors"
+            >
+              Request partner access →
+            </button>
+          </div>
         </div>
       </section>
 
-      {/* ── FAQ ──────────────────────────────────────────────────────────── */}
-      <section className="py-16 px-4 bg-gray-50">
-        <div className="max-w-2xl mx-auto">
-          <h2 className="text-2xl font-bold text-[#1a1f36] text-center mb-10">Questions we hear often</h2>
-          <div className="space-y-5">
+      {/* ── Value prop cards ───────────────────────────────────────────────── */}
+      <section className="px-6 py-16 bg-slate-50">
+        <div className="max-w-5xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-6">
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-7">
+            <div className="text-2xl mb-4">📋</div>
+            <h3 className="text-base font-semibold text-slate-900 mb-2">Better-prepared clients</h3>
+            <p className="text-sm text-slate-500 leading-relaxed">
+              Inventors arrive with drafted specs, mapped claims, and prior art research already done.
+            </p>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-7">
+            <div className="text-2xl mb-4">💼</div>
+            <div className="flex items-center gap-2 mb-2">
+              <h3 className="text-base font-semibold text-slate-900">Referral revenue</h3>
+              <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">launching soon</span>
+            </div>
+            <p className="text-sm text-slate-500 leading-relaxed">
+              20% of first-year subscription for every client you refer who upgrades to Pro.
+            </p>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-7">
+            <div className="text-2xl mb-4">🔗</div>
+            <h3 className="text-base font-semibold text-slate-900 mb-2">Clients you couldn&apos;t serve before</h3>
+            <p className="text-sm text-slate-500 leading-relaxed">
+              Inventors who can&apos;t afford full-service get prepared here first — then come to you ready to file.
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ── How it works ──────────────────────────────────────────────────── */}
+      <section className="px-6 py-16">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-2xl font-bold text-slate-900 text-center mb-12">How it works</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 relative">
+
+            {/* connector line — desktop only */}
+            <div className="hidden sm:block absolute top-6 left-1/6 right-1/6 h-px bg-slate-200" style={{ left: '16.66%', right: '16.66%' }} />
+
             {[
               {
-                q: 'Is there a fee to join?',
-                a: 'No. There is no cost to apply, no monthly fee, and no minimum referral requirement. You earn by referring — nothing else is required of you.',
+                num: '1',
+                title: 'You refer clients',
+                body: 'Share your partner link with inventors who aren\'t ready for full-service yet.',
               },
               {
-                q: 'Do I retain ownership of my client relationships?',
-                a: 'Completely. PatentPending does not contact your referred clients with competing legal services. You referred them; they remain your clients. We&apos;re a filing tool, not a law firm.',
+                num: '2',
+                title: 'Pattie prepares them',
+                body: 'Arc 1 interview, drafted spec, claims, prior art research — all done.',
               },
               {
-                q: 'What happens if a client cancels or gets a refund?',
-                a: 'Referral rewards are earned on completed paid filings — after the standard 48-hour refund window. If a filing is refunded, no reward is granted for that referral. Already-granted rewards are not clawed back.',
+                num: '3',
+                title: 'They come back to you',
+                body: 'Ready to file the non-provisional. Your time spent on value.',
               },
-              {
-                q: 'Is this compliant with bar rules on attorney referrals?',
-                a: 'We do not pay cash referral fees. Rewards are Pro subscription credits — software access, not money. That said, we encourage you to review your state&apos;s specific rules (Model Rule 7.2 or equivalent) before participating. When in doubt, consult your state bar.',
-              },
-              {
-                q: 'Can I refer clients I&apos;m already representing?',
-                a: 'Yes, with appropriate disclosure. If you&apos;re representing an inventor on other IP matters and they need patent filing, you can refer them to PatentPending for provisional preparation while continuing your own representation. The platforms don&apos;t conflict — PatentPending is a document preparation tool, not a legal services provider.',
-              },
-            ].map(({ q, a }) => (
-              <details key={q} className="bg-white border border-gray-200 rounded-xl overflow-hidden group">
-                <summary className="flex items-center justify-between px-5 py-4 cursor-pointer font-semibold text-[#1a1f36] text-sm list-none">
-                  {q}
-                  <span className="text-gray-400 text-lg leading-none group-open:rotate-45 transition-transform">+</span>
-                </summary>
-                <div className="px-5 pb-5 text-sm text-gray-600 leading-relaxed border-t border-gray-100 pt-3">{a}</div>
-              </details>
+            ].map(step => (
+              <div key={step.num} className="text-center">
+                <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center text-lg font-bold mx-auto mb-4 relative z-10">
+                  {step.num}
+                </div>
+                <h3 className="text-base font-semibold text-slate-900 mb-2">{step.title}</h3>
+                <p className="text-sm text-slate-500 leading-relaxed">{step.body}</p>
+              </div>
             ))}
+
           </div>
-          <p className="text-xs text-gray-400 text-center mt-8">
-            More questions? Email <a href="mailto:support@hotdeck.com" className="text-indigo-500 hover:underline">support@hotdeck.com</a>
-          </p>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-6 px-4 text-center text-xs text-gray-400 border-t border-gray-100">
-        <p>PatentPending.app</p>
-        <p className="mt-1">PatentPending.app is not a law firm. The Partner Program does not create attorney-client relationships between partners and PatentPending or its users.</p>
+      {/* ── Pattie attorney chat ───────────────────────────────────────────── */}
+      <section id="how-it-works" className="px-6 py-16 bg-slate-50 scroll-mt-8">
+        <div className="max-w-2xl mx-auto">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">Ask Pattie anything about the platform</h2>
+            <p className="text-slate-500 text-sm">She&apos;s built for inventors — but she knows how to talk to attorneys.</p>
+          </div>
+          <PartnersChatWidget />
+        </div>
+      </section>
+
+      {/* ── Waitlist form ──────────────────────────────────────────────────── */}
+      <section id="waitlist" className="px-6 py-16 scroll-mt-8">
+        <div className="max-w-md mx-auto">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">Request early partner access</h2>
+            <p className="text-sm text-slate-500">Be among the first attorneys in the program when it launches.</p>
+          </div>
+          <WaitlistForm />
+        </div>
+      </section>
+
+      {/* ── Footer ────────────────────────────────────────────────────────── */}
+      <footer className="border-t border-slate-100 px-6 py-6 text-center">
+        <p className="text-xs text-slate-400">
+          patentpending.app &nbsp;·&nbsp; © 2026 Hot Hands LLC
+        </p>
       </footer>
+
     </div>
   )
 }
