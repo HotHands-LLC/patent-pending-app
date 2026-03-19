@@ -228,7 +228,7 @@ export default function DealPageClient({ patent, topClaims }: Props) {
                     </button>
 
                     <p className="text-xs text-gray-400 text-center">
-                      Represented by PatentPending Agency · 20% commission on deals originated here
+                      Represented by PatentPending Agency · 10% commission on deals originated here
                     </p>
                   </form>
                 </>

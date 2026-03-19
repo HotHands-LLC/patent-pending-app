@@ -37,7 +37,7 @@ Patent Owner(s) retain all rights, title, and interest in the patent. Nothing in
 
 ### 3. Commission
 
-HHLLC earns a commission of **20% of the gross licensing fee** on any deal **closed through the PatentPending platform**. "Closed through the platform" means a deal initiated by an introduction or inquiry that originated through patentpending.app's Deal Page feature.
+HHLLC earns a commission of **10% of the gross licensing fee** on any deal **closed through the PatentPending platform**. "Closed through the platform" means a deal initiated by an introduction or inquiry that originated through patentpending.app's Deal Page feature.
 
 - No commission is owed on deals Patent Owner(s) close independently, through prior contacts, or through other channels.
 - No upfront fees, listing fees, or retainer fees are charged.

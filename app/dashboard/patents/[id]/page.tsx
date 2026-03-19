@@ -1706,7 +1706,7 @@ export default function PatentDetail() {
                   ) : (
                     <>
                       <p className="text-xs text-indigo-700 mb-3">
-                        List this patent for licensing. HHLLC represents you for 20% commission. No upfront cost.
+                        List this patent for licensing. HHLLC represents you for 10% commission. No upfront cost.
                       </p>
                       <button
                         onClick={() => setShowArc3Modal(true)}

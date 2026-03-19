@@ -390,6 +390,12 @@ export default function AdminPage() {
           {/* External page links */}
           <div className="mt-3 pt-3 border-t border-gray-100">
             <Link
+              href="/admin/blog"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50"
+            >
+              <span className="mr-2">📝</span>Blog
+            </Link>
+            <Link
               href="/admin/marketplace"
               className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50"
             >
