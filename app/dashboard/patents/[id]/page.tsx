@@ -1402,7 +1402,7 @@ export default function PatentDetail() {
           const hasDescription  = !!(patent as Record<string,unknown>).description
           const hasClaims       = !!(patent as Record<string,unknown>).claims_draft
           const isNewPatent     = !hasAbstract && !hasDescription && !hasClaims
-          const canInterview    = isPro && !isCollaborator && canWrite
+          const canInterview    = !isCollaborator && canWrite  // free for all — gate is at export
           return isNewPatent && canInterview ? (
             <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50 p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
               <span className="text-2xl flex-shrink-0">✨</span>
@@ -2980,6 +2980,7 @@ export default function PatentDetail() {
             patentId={patent.id}
             authToken={authToken}
             onToast={showToast}
+            onTierRequired={(feature) => setUpgradeFeature(feature)}
           />
         )}
 
@@ -3178,8 +3179,8 @@ export default function PatentDetail() {
       {/* ── ASK PATTIE / INTERVIEW floating buttons ──────────────────────────── */}
       {patent && authToken && !showPattie && !showArc1Interview && (!isCollaborator || (collabPerms.pattie ?? false)) && (
         <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
-          {/* Start Interview — only shown when patent is empty + Pro */}
-          {isPro && !isCollaborator && canWrite &&
+          {/* Start Interview — shown when patent is empty (free for all, gate is at export) */}
+          {!isCollaborator && canWrite &&
             !(patent as Record<string,unknown>).abstract_draft &&
             !(patent as Record<string,unknown>).description &&
             !(patent as Record<string,unknown>).claims_draft && (

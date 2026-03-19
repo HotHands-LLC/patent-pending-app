@@ -64,6 +64,8 @@ export type TierFeature =
   | 'zip_download'
   | 'correspondence_write'
   | 'marketplace_list'
+  | 'cover_sheet_export'
+  | 'ids_draft_export'
 
 /**
  * Patent count limits per tier.

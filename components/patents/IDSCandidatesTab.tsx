@@ -23,9 +23,10 @@ interface IDSCandidate {
 }
 
 interface IDSCandidatesTabProps {
-  patentId:  string
-  authToken: string
-  onToast:   (msg: string) => void
+  patentId:        string
+  authToken:       string
+  onToast:         (msg: string) => void
+  onTierRequired?: (feature: string) => void
 }
 
 const STATUS_STYLES = {
@@ -190,7 +191,7 @@ function CandidateCard({
   )
 }
 
-export default function IDSCandidatesTab({ patentId, authToken, onToast }: IDSCandidatesTabProps) {
+export default function IDSCandidatesTab({ patentId, authToken, onToast, onTierRequired }: IDSCandidatesTabProps) {
   const [candidates, setCandidates] = useState<IDSCandidate[]>([])
   const [loading, setLoading]       = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -219,6 +220,8 @@ export default function IDSCandidatesTab({ patentId, authToken, onToast }: IDSCa
       const d = await res.json()
       if (res.ok) {
         onToast(`✅ IDS draft saved to Correspondence (${d.candidate_count} references)`)
+      } else if (res.status === 403 && d.code === 'TIER_REQUIRED') {
+        onTierRequired?.(d.feature ?? 'ids_draft_export')
       } else {
         onToast(`⚠️ ${d.error ?? 'Generate failed'}`)
       }

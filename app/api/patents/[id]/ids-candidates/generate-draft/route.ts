@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getUserTierInfo, isPro } from '@/lib/tier'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,6 +59,17 @@ export async function POST(
     .single()
   if (!patent || patent.owner_id !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // ── Tier gate — IDS draft export requires Pro ──────────────────────────────
+  const tierInfo = await getUserTierInfo(user.id)
+  if (!isPro(tierInfo, { isOwner: true, feature: 'ids_draft_export' })) {
+    return NextResponse.json({
+      error: 'Export requires Pattie Pro.',
+      code: 'TIER_REQUIRED',
+      requiredTier: 'pro',
+      feature: 'ids_draft_export',
+    }, { status: 403 })
   }
 
   // Fetch assignee from patent_profiles

@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getUserTierInfo, isPro } from '@/lib/tier'
 import { isAIMLPatent, DESJARDINS_BLOCK } from '@/lib/pattie-desjardins'
 import { POLISH_SOP_BLOCK, parseSessionSummary, stripSessionSummary } from '@/lib/pattie-sop'
 
@@ -140,17 +139,6 @@ export async function POST(
   }
   if (patent.owner_id !== user.id) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 })
-  }
-
-  // ── Tier gate ─────────────────────────────────────────────────────────────
-  const tierInfo = await getUserTierInfo(user.id)
-  if (!isPro(tierInfo, { isOwner: true, feature: 'pattie' })) {
-    return new Response(JSON.stringify({
-      error: 'This feature requires PatentPending Pro.',
-      code: 'TIER_REQUIRED',
-      requiredTier: 'pro',
-      feature: 'pattie',
-    }), { status: 403 })
   }
 
   // ── Fetch owner profile ───────────────────────────────────────────────────

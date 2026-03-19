@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { buildCoverSheetPdf } from '@/lib/cover-sheet-pdf'
+import { getUserTierInfo, isPro } from '@/lib/tier'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,6 +43,17 @@ export async function GET(
 
   if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
   if (patent.owner_id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // ── Tier gate — export requires Pro ───────────────────────────────────────
+  const tierInfo = await getUserTierInfo(user.id)
+  if (!isPro(tierInfo, { isOwner: true, feature: 'cover_sheet_export' })) {
+    return NextResponse.json({
+      error: 'Export requires Pattie Pro.',
+      code: 'TIER_REQUIRED',
+      requiredTier: 'pro',
+      feature: 'cover_sheet_export',
+    }, { status: 403 })
+  }
 
   // ── Fetch user profile ─────────────────────────────────────────────────────
   const { data: profile } = await serviceClient
