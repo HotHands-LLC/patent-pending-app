@@ -19,19 +19,34 @@ export async function GET(
   const { requestId } = await params
   const supabase = getServiceClient()
 
+  // Note: requested_by FK points to auth.users, not patent_profiles — join separately
   const { data: sigReq, error } = await supabase
     .from('patent_signing_requests')
     .select(
       `id, patent_id, signer_name, signer_email, document_type, document_label,
-       prefill_data, status, signed_at, signed_date, created_at,
-       patents ( id, title, application_number, owner_id ),
-       requested_by_profile:patent_profiles!patent_signing_requests_requested_by_fkey ( name_first, name_last, email )`
+       prefill_data, status, signed_at, signed_date, created_at, requested_by,
+       patents ( id, title, application_number, owner_id )`
     )
     .eq('id', requestId)
     .single()
 
   if (error || !sigReq) {
+    console.error('[signing/GET] error:', error?.message, '| requestId:', requestId)
     return NextResponse.json({ error: 'Signing request not found' }, { status: 404 })
+  }
+
+  // Look up requester name from patent_profiles using requested_by as user_id
+  let requestedByName = 'Patent Owner'
+  if (sigReq.requested_by) {
+    const { data: profile } = await supabase
+      .from('patent_profiles')
+      .select('name_first, name_last')
+      .eq('user_id', sigReq.requested_by)
+      .single()
+    if (profile) {
+      const name = [profile.name_first, profile.name_last].filter(Boolean).join(' ')
+      if (name) requestedByName = name
+    }
   }
 
   // Update status to 'viewed' if still 'pending'
@@ -56,10 +71,6 @@ export async function GET(
     signed_at: sigReq.signed_at,
     signed_date: sigReq.signed_date,
     created_at: sigReq.created_at,
-    requested_by_name: (() => {
-      const p = sigReq.requested_by_profile as { name_first?: string; name_last?: string } | null
-      if (!p) return 'Patent Owner'
-      return [p.name_first, p.name_last].filter(Boolean).join(' ') || 'Patent Owner'
-    })(),
+    requested_by_name: requestedByName,
   })
 }
