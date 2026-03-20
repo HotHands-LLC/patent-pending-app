@@ -853,6 +853,18 @@ export default function PatentDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, authToken, patent?.id])
 
+  // Auto-open Pattie when ?pattie= param is present (from new patent creation flow)
+  useEffect(() => {
+    const pattieAutoPrompt = searchParams.get('pattie')
+    if (pattieAutoPrompt && patent) {
+      setPattieInitialPrompt(decodeURIComponent(pattieAutoPrompt))
+      setShowPattie(true)
+      // Clean URL to avoid re-triggering on refresh
+      router.replace(`/dashboard/patents/${patent.id}`, { scroll: false })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, patent?.id])
+
   // Handle post-upgrade return from Stripe — show toast + refresh Pro state
   useEffect(() => {
     if (searchParams.get('upgrade') === 'success') {
