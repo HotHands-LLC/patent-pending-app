@@ -1645,7 +1645,7 @@ Then tell the inventor: "Your founder story is saved in your Correspondence tab.
               )}
 
               {/* ── 54A: Founder Story Nudge ──────────────────────────────────────── */}
-              {patent.lifecycle_state === 'PROVISIONAL_ACTIVE' && !hasFounderStory && !founderStoryDismissed && (
+              {patent && patent.lifecycle_state === 'PROVISIONAL_ACTIVE' && !hasFounderStory && !founderStoryDismissed && (
                 <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 flex gap-3 items-start">
                   <span className="text-2xl flex-shrink-0">🎉</span>
                   <div className="flex-1">
