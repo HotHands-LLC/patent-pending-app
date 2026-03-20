@@ -3362,19 +3362,53 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                         )}
                         {/* Attachments */}
                         {Array.isArray(item.attachments) && item.attachments.length > 0 && (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {(item.attachments as { name: string; size?: number; storage_path: string }[]).map((att, ai) => (
-                              <a
-                                key={ai}
-                                href={`/api/correspondence/download?path=${encodeURIComponent(att.storage_path)}&token=${authToken}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
-                              >
-                                📎 {att.name}
-                                {att.size && <span className="text-blue-400">({(att.size / 1024).toFixed(0)}KB)</span>}
-                              </a>
-                            ))}
+                          <div className="mt-3 flex flex-col gap-1.5">
+                            {(item.attachments as { name: string; size?: number; storage_path: string }[]).map((att, ai) => {
+                              const downloadHref = `/api/correspondence/download?path=${encodeURIComponent(att.storage_path)}&token=${authToken}`
+                              const isViewable = /\.(pdf|png|jpg|jpeg|heic|heif|webp)$/i.test(att.name)
+                              return (
+                                <div key={ai} className="inline-flex items-center gap-2 flex-wrap">
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-medium text-blue-700">
+                                    📎 {att.name}
+                                    {att.size && <span className="text-blue-400">({(att.size / 1024).toFixed(0)}KB)</span>}
+                                  </span>
+                                  {/* View button — PDF and images only */}
+                                  {isViewable && (
+                                    <a
+                                      href={downloadHref}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-xs text-indigo-600 hover:underline"
+                                    >
+                                      View
+                                    </a>
+                                  )}
+                                  {/* Download button — all types */}
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        const res = await fetch(downloadHref)
+                                        const blob = await res.blob()
+                                        const url = URL.createObjectURL(blob)
+                                        const a = document.createElement('a')
+                                        a.href = url
+                                        a.download = att.name
+                                        document.body.appendChild(a)
+                                        a.click()
+                                        document.body.removeChild(a)
+                                        URL.revokeObjectURL(url)
+                                      } catch {
+                                        // Fallback: open in new tab
+                                        window.open(downloadHref, '_blank')
+                                      }
+                                    }}
+                                    className="text-xs text-gray-500 hover:text-gray-700 hover:underline"
+                                  >
+                                    Download
+                                  </button>
+                                </div>
+                              )
+                            })}
                           </div>
                         )}
                         {item.tags && item.tags.length > 0 && (
