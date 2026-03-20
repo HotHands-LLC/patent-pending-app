@@ -671,6 +671,9 @@ export default function PatentDetail() {
   const [showPattie, setShowPattie] = useState(false)
   const [pattieInitialPrompt, setPattieInitialPrompt] = useState<string | undefined>(undefined)
   const [showArc1Interview, setShowArc1Interview] = useState(false)
+  // 54A: Founder story state
+  const [hasFounderStory, setHasFounderStory] = useState(false)
+  const [founderStoryDismissed, setFounderStoryDismissed] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -864,6 +867,29 @@ export default function PatentDetail() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, patent?.id])
+
+  // 54A: Load founder story dismissal from localStorage
+  useEffect(() => {
+    if (!patent?.id) return
+    setFounderStoryDismissed(localStorage.getItem(`founder_story_dismissed_${patent.id}`) === 'true')
+  }, [patent?.id])
+
+  // 54A: Check if founder story correspondence exists
+  useEffect(() => {
+    if (!patent?.id) return
+    const check = async () => {
+      try {
+        const { data } = await supabase
+          .from('patent_correspondence')
+          .select('id')
+          .eq('patent_id', patent.id)
+          .contains('tags', ['founder_story'])
+          .limit(1)
+        setHasFounderStory((data?.length ?? 0) > 0)
+      } catch { setHasFounderStory(false) }
+    }
+    check()
+  }, [patent?.id])
 
   // Handle post-upgrade return from Stripe — show toast + refresh Pro state
   useEffect(() => {
@@ -1166,6 +1192,23 @@ export default function PatentDetail() {
   function openPattieWith(prompt: string) {
     setPattieInitialPrompt(prompt)
     setShowPattie(true)
+  }
+
+  // 54A: Open Pattie with the founder interview prompt
+  function openFounderInterview() {
+    const title = patent?.title ?? 'your invention'
+    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    openPattieWith(`You are Pattie, the patent AI for PatentPending. You are conducting a short founder interview for "${title}".
+
+Your goal: capture the inventor's authentic story. Ask ONE question at a time. Listen, follow up naturally, then move on. Do NOT list all questions upfront.
+
+Start by congratulating them: "Congratulations on filing ${title}! Before we dive in — can you tell me what this invention actually does? Explain it like you're telling a friend."
+
+Cover these in natural order: (1) What it does, (2) The origin spark, (3) The problem it solves, (4) The hardest part of the journey, (5) Any surprises, (6) The 5-year vision, (7) Message to other inventors, (8) Where they spend time online.
+
+After 6-10 exchanges, say you have what you need and ask if they want to add anything. Then use the create_correspondence tool to save a structured founder story document with sections: The Invention, The Origin, The Problem It Solves, The Journey, The Vision, In Their Own Words, Their Platforms, Pattie's Notes. Title it "Founder Story — ${title}". Type: "other".
+
+Then confirm: "Your founder story is saved in your Correspondence tab. When you're ready to turn it into social posts, just ask."`)
   }
 
   // 52E: localStorage dismiss helpers for Pattie entry cards
@@ -1537,6 +1580,21 @@ export default function PatentDetail() {
                 </div>
               )}
 
+              {/* 54A: Founder Story Nudge — shows when PROVISIONAL_ACTIVE + no founder story + not dismissed */}
+              {patent && patent.lifecycle_state === 'PROVISIONAL_ACTIVE' && !hasFounderStory && !founderStoryDismissed && !isCollaborator && (
+                <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 flex gap-3 items-start">
+                  <span className="text-2xl flex-shrink-0">🎉</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-green-900">You filed! Tell your invention&apos;s story.</p>
+                    <p className="text-xs text-green-700 mt-0.5 mb-3">Pattie will ask you a few questions — takes about 5 minutes. Saved to Correspondence for marketing and context.</p>
+                    <div className="flex gap-2">
+                      <button onClick={openFounderInterview} className="px-3 py-1.5 bg-green-700 text-white text-xs font-semibold rounded-lg hover:bg-green-800 transition-colors">Tell My Story</button>
+                      <button onClick={() => { localStorage.setItem(`founder_story_dismissed_${patent.id}`, 'true'); setFounderStoryDismissed(true) }} className="px-3 py-1.5 border border-green-300 text-green-700 text-xs font-semibold rounded-lg hover:bg-green-100 transition-colors">Not now</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
                 <h2 className="font-semibold text-[#1a1f36] mb-4">Patent Details</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1750,6 +1808,17 @@ export default function PatentDetail() {
                   ) : (
                     <p className="text-xs text-gray-400">Figures uploaded — click "View all" to access</p>
                   )}
+                </div>
+              )}
+
+              {/* 54A: Founder Story permanent link — always visible to owner */}
+              {!isCollaborator && (
+                <div className="rounded-xl border border-gray-200 bg-white p-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700">Inventor Story</p>
+                    <p className="text-xs text-gray-400">Capture your journey for marketing &amp; reference.</p>
+                  </div>
+                  <button onClick={openFounderInterview} className="text-xs text-indigo-600 hover:underline flex-shrink-0 ml-3">✨ Founder Story</button>
                 </div>
               )}
 
