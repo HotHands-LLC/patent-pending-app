@@ -38,6 +38,25 @@ function useIsAdmin(): boolean {
   return isAdmin
 }
 
+function useIsPartner(): boolean {
+  const [isPartner, setIsPartner] = useState(false)
+  useEffect(() => {
+    async function check() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      try {
+        const res = await fetch('/api/dashboard/partner/status', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        const d = await res.json() as { is_partner?: boolean }
+        setIsPartner(!!d.is_partner)
+      } catch { /* non-fatal */ }
+    }
+    check()
+  }, [])
+  return isPartner
+}
+
 type Tier = 'free' | 'pro' | 'complimentary' | null
 
 function useSubscriptionTier(): Tier {
@@ -76,6 +95,7 @@ export default function Navbar() {
   const pendingCount = usePendingReviewCount()
   const tier = useSubscriptionTier()
   const isAdmin = useIsAdmin()
+  const isPartner = useIsPartner()
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => setIsLoggedIn(!!user))
@@ -131,6 +151,20 @@ export default function Navbar() {
                   )}
                 </Link>
               ))}
+
+              {/* Partner Dashboard — only for attorney partners */}
+              {isLoggedIn && isPartner && (
+                <Link
+                  href="/dashboard/partner"
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    pathname === '/dashboard/partner'
+                      ? 'bg-white/10 text-white'
+                      : 'text-white/60 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  Partner
+                </Link>
+              )}
 
               {/* Account tab — only for logged-in users */}
               {isLoggedIn && (
@@ -224,6 +258,21 @@ export default function Navbar() {
                 )}
               </Link>
             ))}
+
+            {/* Mobile Partner Dashboard */}
+            {isLoggedIn && isPartner && (
+              <Link
+                href="/dashboard/partner"
+                onClick={() => setMobileOpen(false)}
+                className={`flex items-center px-3 py-3 rounded-lg text-sm font-medium transition-colors min-h-[44px] ${
+                  pathname === '/dashboard/partner'
+                    ? 'bg-white/10 text-white'
+                    : 'text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                Partner
+              </Link>
+            )}
 
             {/* Mobile Account tab */}
             {isLoggedIn && (

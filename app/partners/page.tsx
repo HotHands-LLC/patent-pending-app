@@ -561,6 +561,20 @@ export default function PartnersPage() {
         </div>
       </section>
 
+      {/* ── Ready to get started ──────────────────────────────────────────── */}
+      <section className="py-16 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Ready to get started?</h2>
+        <p className="text-gray-600 mb-8 max-w-md mx-auto">
+          Attorney partnerships are currently by invitation. Send us a note and we&apos;ll set up your referral link within 24 hours.
+        </p>
+        <a
+          href="mailto:partners@patentpending.app?subject=Partner Program Inquiry"
+          className="inline-flex items-center gap-2 bg-[#1a1f36] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#2d3561] transition-colors"
+        >
+          Contact us to get started →
+        </a>
+      </section>
+
       {/* ── Footer ────────────────────────────────────────────────────────── */}
       <footer className="border-t border-slate-100 px-6 py-6 text-center">
         <p className="text-xs text-slate-400">

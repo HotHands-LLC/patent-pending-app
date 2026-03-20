@@ -10,20 +10,25 @@ function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-02-24.acacia' })
 }
 
-const supabase = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
-)
+function getSupabase() {
+  return createClient(
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  )
+}
+
+type SupabaseClient = ReturnType<typeof getSupabase>
 
 /**
  * Update patent_profiles subscription fields for a user.
  */
 async function updateSubscription(
+  sb: SupabaseClient,
   userId: string,
   status: 'free' | 'pro' | 'cancelled',
   periodEnd: Date | null
 ) {
-  const { error } = await supabase
+  const { error } = await sb
     .from('patent_profiles')
     .update({
       subscription_status: status,
@@ -35,8 +40,8 @@ async function updateSubscription(
 }
 
 /** Fire welcome email once on first Pro upgrade */
-async function maybeSendWelcomeEmail(userId: string) {
-  const { data: profile } = await supabase
+async function maybeSendWelcomeEmail(sb: SupabaseClient, userId: string) {
+  const { data: profile } = await sb
     .from('patent_profiles')
     .select('email, full_name, pro_welcome_sent')
     .eq('id', userId)
@@ -64,7 +69,7 @@ async function maybeSendWelcomeEmail(userId: string) {
 </div>`,
     }))
     // Mark as sent
-    await supabase
+    await sb
       .from('patent_profiles')
       .update({ pro_welcome_sent: true, updated_at: new Date().toISOString() })
       .eq('id', userId)
@@ -98,6 +103,9 @@ export async function POST(req: NextRequest) {
 
   console.log('[stripe-billing webhook] event:', event.type)
 
+  // Create Supabase client inside the handler (no module-level client)
+  const supabase = getSupabase()
+
   try {
     switch (event.type) {
       /**
@@ -115,10 +123,10 @@ export async function POST(req: NextRequest) {
         const sub = await stripe.subscriptions.retrieve(session.subscription as string)
         const periodEnd = new Date(sub.current_period_end * 1000)
 
-        await updateSubscription(userId, 'pro', periodEnd)
+        await updateSubscription(supabase, userId, 'pro', periodEnd)
         console.log('[stripe-billing] upgraded user to pro:', userId, 'until', periodEnd.toISOString())
         // Fire welcome email (once per user, non-blocking)
-        maybeSendWelcomeEmail(userId).catch(console.error)
+        maybeSendWelcomeEmail(supabase, userId).catch(console.error)
         break
       }
 
@@ -140,14 +148,14 @@ export async function POST(req: NextRequest) {
 
           const periodEnd = new Date(sub.current_period_end * 1000)
           const status = sub.status === 'active' || sub.status === 'trialing' ? 'pro' : 'free'
-          await updateSubscription(profile.id, status, periodEnd)
+          await updateSubscription(supabase, profile.id, status, periodEnd)
           console.log('[stripe-billing] subscription updated for profile:', profile.id, status)
           break
         }
 
         const periodEnd = new Date(sub.current_period_end * 1000)
         const status = sub.status === 'active' || sub.status === 'trialing' ? 'pro' : 'free'
-        await updateSubscription(userId, status, periodEnd)
+        await updateSubscription(supabase, userId, status, periodEnd)
         console.log('[stripe-billing] subscription updated:', userId, status)
         break
       }
@@ -165,41 +173,83 @@ export async function POST(req: NextRequest) {
             .select('id')
             .eq('stripe_customer_id', sub.customer as string)
             .single()
-          if (profile?.id) await updateSubscription(profile.id, 'cancelled', null)
+          if (profile?.id) await updateSubscription(supabase, profile.id, 'cancelled', null)
           break
         }
 
-        await updateSubscription(userId, 'cancelled', null)
+        await updateSubscription(supabase, userId, 'cancelled', null)
         console.log('[stripe-billing] subscription cancelled for user:', userId)
         break
       }
 
       /**
        * Invoice payment succeeded — renew period_end on each billing cycle
+       * Also creates partner revenue events for referred users.
        */
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object as Stripe.Invoice
         if (!invoice.subscription) break
 
         const sub = await stripe.subscriptions.retrieve(invoice.subscription as string)
-        const userId = sub.metadata?.user_id
+        let resolvedUserId: string | null = sub.metadata?.user_id ?? null
 
-        if (!userId) {
+        if (!resolvedUserId) {
           const { data: profile } = await supabase
             .from('patent_profiles')
             .select('id')
             .eq('stripe_customer_id', invoice.customer as string)
             .single()
           if (profile?.id) {
+            resolvedUserId = profile.id
             const periodEnd = new Date(sub.current_period_end * 1000)
-            await updateSubscription(profile.id, 'pro', periodEnd)
+            await updateSubscription(supabase, profile.id, 'pro', periodEnd)
           }
-          break
+        } else {
+          const periodEnd = new Date(sub.current_period_end * 1000)
+          await updateSubscription(supabase, resolvedUserId, 'pro', periodEnd)
+          console.log('[stripe-billing] invoice paid, renewed period for:', resolvedUserId)
         }
 
-        const periodEnd = new Date(sub.current_period_end * 1000)
-        await updateSubscription(userId, 'pro', periodEnd)
-        console.log('[stripe-billing] invoice paid, renewed period for:', userId)
+        // ── Attorney partner revenue event ──────────────────────────────────
+        if (resolvedUserId) {
+          try {
+            const { data: attribution } = await supabase
+              .from('referral_attributions')
+              .select('id, partner_id, attorney_partners(revenue_share_pct)')
+              .eq('referred_user_id', resolvedUserId)
+              .single()
+
+            if (attribution) {
+              const partnerData = attribution.attorney_partners as unknown as { revenue_share_pct: number } | null
+              const revenueSharePct = partnerData?.revenue_share_pct ?? 20
+              const grossCents = (invoice.amount_paid ?? invoice.amount_due ?? 0)
+              const commissionCents = Math.round(grossCents * revenueSharePct / 100)
+
+              await supabase.from('partner_revenue_events').insert({
+                partner_id: attribution.partner_id,
+                referred_user_id: resolvedUserId,
+                event_type: 'pro_subscription',
+                gross_amount_cents: grossCents,
+                commission_pct: revenueSharePct,
+                commission_cents: commissionCents,
+                stripe_payment_intent_id: invoice.payment_intent as string | null,
+              })
+
+              // Update first_paid_at if not set yet
+              await supabase
+                .from('referral_attributions')
+                .update({ first_paid_at: new Date().toISOString() })
+                .eq('id', attribution.id)
+                .is('first_paid_at', null)
+
+              console.log(`[stripe-billing] partner revenue event created: partner=${attribution.partner_id} user=${resolvedUserId} commission=${commissionCents}`)
+            }
+          } catch (partnerErr) {
+            // Non-fatal — never block billing webhook
+            console.error('[stripe-billing] partner revenue event error (non-fatal):', partnerErr)
+          }
+        }
+
         break
       }
 

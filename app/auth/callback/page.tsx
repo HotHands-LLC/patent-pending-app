@@ -78,6 +78,14 @@ function CallbackHandler() {
       } catch { /* non-fatal */ }
     }
 
+    // ── Attorney partner attribution (reads httpOnly ppa_ref cookie) ─────────
+    try {
+      await fetch('/api/partner/record-attorney-referral', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+    } catch { /* non-fatal */ }
+
     // ── Handle pending invite ────────────────────────────────────────────────
     const pendingToken = invite || localStorage.getItem(PENDING_INVITE_KEY)
     if (pendingToken) {
