@@ -42,19 +42,20 @@ export async function POST(
     return NextResponse.json({ error: 'signed_date required' }, { status: 400 })
   }
 
-  // Fetch signing request
+  // Fetch signing request — note: requested_by FK points to auth.users, NOT patent_profiles
+  // Do NOT join patent_profiles via the FK — look up separately by user id if needed
   const { data: sigReq, error: fetchErr } = await supabase
     .from('patent_signing_requests')
     .select(
       `id, patent_id, signer_name, signer_email, document_type, document_label,
        prefill_data, status, requested_by,
-       patents ( id, title, application_number, owner_id ),
-       requested_by_profile:patent_profiles!patent_signing_requests_requested_by_fkey ( name_first, name_last, email )`
+       patents ( id, title, application_number, owner_id )`
     )
     .eq('id', requestId)
     .single()
 
   if (fetchErr || !sigReq) {
+    console.error('[signing/sign POST] fetch error:', fetchErr?.message, '| requestId:', requestId)
     return NextResponse.json({ error: 'Signing request not found' }, { status: 404 })
   }
 
