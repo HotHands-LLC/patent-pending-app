@@ -28,6 +28,7 @@ import IDSCandidatesTab from '@/components/patents/IDSCandidatesTab'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 import SigningRequestsPanel from '@/components/signing/SigningRequestsPanel'
 import { usePatentLifecycle } from '@/hooks/usePatentLifecycle'
+import PattieEntryCard from '@/components/patents/PattieEntryCard'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -668,6 +669,7 @@ export default function PatentDetail() {
   const [showArc3Modal, setShowArc3Modal] = useState(false)
   const [showArc3Interview, setShowArc3Interview] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
+  const [pattieInitialPrompt, setPattieInitialPrompt] = useState<string | undefined>(undefined)
   const [showArc1Interview, setShowArc1Interview] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
@@ -1143,11 +1145,35 @@ export default function PatentDetail() {
   const isLocked = patent.is_locked ?? false
   const isGranted = patent.status === 'granted'
   const canWrite = !isLocked && (!isCollaborator || collabCanEdit)
-  // 52A: Patent lifecycle state machine — available for use in 52B
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // 52A: Patent lifecycle state machine — used in 52E for lifecycle badge
   const lifecycle = usePatentLifecycle(patent)
   // Claims are always read-only for granted patents (issued — nothing to edit)
   const claimsReadOnly = isGranted || !canWrite
+
+  // 52E: openPattieWith helper — sets a preloaded prompt and opens the Pattie drawer
+  function openPattieWith(prompt: string) {
+    setPattieInitialPrompt(prompt)
+    setShowPattie(true)
+  }
+
+  // 52E: localStorage dismiss helpers for Pattie entry cards
+  function isPattieEntryDismissed(patentId: string, tabName: string): boolean {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem(`pattie_entry_dismissed_${patentId}_${tabName}`) === 'true'
+  }
+  function dismissPattieEntry(patentId: string, tabName: string): void {
+    if (typeof window === 'undefined') return
+    localStorage.setItem(`pattie_entry_dismissed_${patentId}_${tabName}`, 'true')
+  }
+
+  // 52E: urgency color map for lifecycle badge
+  const URGENCY_COLORS = {
+    none:     { badge: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' },
+    low:      { badge: 'bg-blue-50 text-blue-700', dot: 'bg-blue-400' },
+    medium:   { badge: 'bg-yellow-50 text-yellow-700', dot: 'bg-yellow-400' },
+    high:     { badge: 'bg-orange-50 text-orange-700', dot: 'bg-orange-500' },
+    critical: { badge: 'bg-red-50 text-red-700', dot: 'bg-red-500' },
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1455,6 +1481,50 @@ export default function PatentDetail() {
         {tab === 'details' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+
+              {/* 52E: Lifecycle State Badge */}
+              {lifecycle && (
+                <div className="mb-2">
+                  {/* State badge */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${URGENCY_COLORS[lifecycle.urgency].badge}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${URGENCY_COLORS[lifecycle.urgency].dot}`} />
+                      {lifecycle.label}
+                    </span>
+                    <span className="text-xs text-gray-400">{lifecycle.definition?.description}</span>
+                  </div>
+
+                  {/* Blocking conditions warning */}
+                  {lifecycle.isBlocked && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-2">
+                      <p className="text-xs font-semibold text-amber-800 mb-1">⚠️ {lifecycle.blocking.length} condition{lifecycle.blocking.length !== 1 ? 's' : ''} blocking next step</p>
+                      <ul className="space-y-1">
+                        {lifecycle.blocking.map(b => (
+                          <li key={b.id} className="text-xs text-amber-700">
+                            <span className="font-medium">{b.label}:</span> {b.resolution}
+                            {b.pattie_can_act && (
+                              <button
+                                onClick={() => openPattieWith(`I need help with: ${b.label}. ${b.resolution}`)}
+                                className="ml-2 text-indigo-600 hover:underline"
+                              >Pattie can help →</button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Next nodes preview */}
+                  {lifecycle.nextNodes.length > 0 && (
+                    <p className="text-xs text-gray-400">
+                      Next: {lifecycle.nextNodes.slice(0, 2).map(s =>
+                        s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+                      ).join(' → ')}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
                 <h2 className="font-semibold text-[#1a1f36] mb-4">Patent Details</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2002,13 +2072,33 @@ export default function PatentDetail() {
                 </button>
               </div>
             ) : !patent.claims_draft ? (
-              <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-                <div className="text-3xl mb-3">⏳</div>
-                <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
-                <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
+              <div>
+                {/* 52E: Pattie-first entry card for empty claims */}
+                {!isPattieEntryDismissed(patent.id, 'claims') ? (
+                  <PattieEntryCard
+                    prompt="Pattie can draft your claims starting from independent Claim 1. Ready?"
+                    primaryLabel="Draft with Pattie"
+                    onPrimary={() => openPattieWith('Please draft patent claims for this invention. Start with a broad independent Claim 1, then add 3-4 dependent claims narrowing on specific features.')}
+                    secondaryLabel="Write manually"
+                    onSecondary={() => { dismissPattieEntry(patent.id, 'claims'); setPatent(prev => prev ? { ...prev, claims_draft: ' ' } : null) }}
+                  />
+                ) : null}
+                <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+                  <div className="text-3xl mb-3">⏳</div>
+                  <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
+                  <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
+                </div>
               </div>
             ) : (
               <div className="space-y-5">
+                {/* 52E: Refine with Pattie nudge — shown when claims draft exists */}
+                {!claimsReadOnly && (
+                  <button
+                    onClick={() => openPattieWith('Please review and help improve these patent claims. Identify any issues with scope, dependency structure, or potential §101 concerns.')}
+                    className="text-xs text-indigo-600 hover:underline mb-2"
+                  >✨ Refine with Pattie →</button>
+                )}
+
                 {/* Filing Readiness Score card — FEATURE 1B */}
                 {claimsScore && <ScoreCard score={claimsScore} />}
 
@@ -2584,6 +2674,16 @@ export default function PatentDetail() {
                   <div className="p-5">
                     {!patent.spec_draft ? (
                       <>
+                        {/* 52E: Pattie-first entry card for empty spec */}
+                        {!isPattieEntryDismissed(patent.id, 'description') && (
+                          <PattieEntryCard
+                            prompt="Pattie can draft your specification based on your invention details. Want to start there?"
+                            primaryLabel="Start with Pattie"
+                            onPrimary={() => openPattieWith('Please draft a detailed specification for this patent. Start with the technical field, background, summary of the invention, and detailed description.')}
+                            secondaryLabel="Write manually"
+                            onSecondary={() => dismissPattieEntry(patent.id, 'description')}
+                          />
+                        )}
                         <p className="text-sm text-gray-600 mb-4">
                           Don&apos;t have a specification yet? Let AI draft one from your claims. It&apos;ll generate Background, Summary, and Detailed Description sections — you review and refine.
                         </p>
@@ -2686,12 +2786,23 @@ export default function PatentDetail() {
 
             {/* Abstract field — optional for provisional, required for non-provisional */}
             {computeStepStatus(patent)[3] && (
-              <AbstractField
-                patent={patent}
-                authToken={authToken}
-                canWrite={canWrite}
-                onUpdate={(val) => setPatent(prev => prev ? { ...prev, abstract_draft: val } : null)}
-              />
+              <div>
+                {/* 52E: Ask Pattie pill for abstract */}
+                {canWrite && (
+                  <button
+                    onClick={() => openPattieWith('Please draft a USPTO-compliant abstract for this patent (150 words max). The abstract should summarize the invention\'s technical field, problem solved, and key solution.')}
+                    className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full hover:bg-indigo-100 mb-2 inline-flex items-center gap-1"
+                  >
+                    ✨ Ask Pattie
+                  </button>
+                )}
+                <AbstractField
+                  patent={patent}
+                  authToken={authToken}
+                  canWrite={canWrite}
+                  onUpdate={(val) => setPatent(prev => prev ? { ...prev, abstract_draft: val } : null)}
+                />
+              </div>
             )}
 
             {/* Step 6: Figures upload + AI Generate */}
@@ -2730,6 +2841,9 @@ export default function PatentDetail() {
                       </button>
                     </div>
                   )}
+                  {/* 52E: Static Pattie note for figures tab */}
+                  <p className="text-xs text-gray-400 mt-3">Need help with figure descriptions? Ask Pattie in the chat.</p>
+
                   {/* Generated figures gallery — with description fields + Pattie analysis */}
                   {patent.figures_uploaded && figureUrls.length > 0 && (
                     <div className="mb-4">
@@ -3222,10 +3336,24 @@ export default function PatentDetail() {
 
         {/* ── SIGNING REQUESTS (visible to all patent owners and collaborators) ── */}
         {tab === 'details' && (
-          <SigningRequestsPanel
-            patentId={patent.id}
-            applicationNumber={patent.application_number}
-          />
+          <>
+            {/* 52E: Inventors nudge — shown when READY_TO_FILE and signing is relevant */}
+            {(patent as Record<string, unknown>).lifecycle_state === 'READY_TO_FILE' && (
+              <div className="mb-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between gap-3">
+                <p className="text-xs text-blue-800 font-medium">Signatures are pending. Ask Pattie to send a reminder.</p>
+                <button
+                  onClick={() => openPattieWith('Please help me send a signing reminder to the inventors with pending signatures.')}
+                  className="flex-shrink-0 text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                >
+                  Ask Pattie
+                </button>
+              </div>
+            )}
+            <SigningRequestsPanel
+              patentId={patent.id}
+              applicationNumber={patent.application_number}
+            />
+          </>
         )}
 
         {tab === 'details' && editing && (
@@ -3292,10 +3420,11 @@ export default function PatentDetail() {
           patentId={patent.id}
           patentTitle={patent.title}
           authToken={authToken}
-          onClose={() => setShowPattie(false)}
+          onClose={() => { setShowPattie(false); setPattieInitialPrompt(undefined) }}
           canEdit={canWrite}
           patentStatus={patent.filing_status ?? patent.status}
-          onTierRequired={(feature) => { setShowPattie(false); setUpgradeFeature(feature) }}
+          onTierRequired={(feature) => { setShowPattie(false); setPattieInitialPrompt(undefined); setUpgradeFeature(feature) }}
+          initialPrompt={pattieInitialPrompt}
         />
       )}
     </div>
