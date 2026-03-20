@@ -15,6 +15,11 @@ import {
   executePattieTools,
   type PattieToolName,
 } from '@/lib/pattie-tools'
+import {
+  retrieveRelevantChunks,
+  type RetrievalContext,
+  BLOCKING_TO_TOPIC as _BLOCKING_TO_TOPIC,
+} from '@/lib/pattie-knowledge-retrieval'
 
 export const maxDuration = 60
 
@@ -211,6 +216,22 @@ export async function POST(
     ? nextStates.map(s => PATENT_LIFECYCLE[s]?.label ?? s).join(', ')
     : 'Terminal state'
 
+  // ── Build Pattie knowledge block (52C) ───────────────────────────────────
+  const recentMessages = messages.slice(-3).map((m: { content: string }) => m.content).join(' ')
+  const activeBlockingIds = blockingConditions.map(b => b.id)
+
+  const retrievalCtx: RetrievalContext = {
+    lifecycleState: (patent.lifecycle_state ?? 'DRAFT') as PatentLifecycleState,
+    conversationText: recentMessages,
+    activeBlockingIds,
+  }
+
+  const relevantChunks = retrieveRelevantChunks(retrievalCtx, 5)
+
+  const knowledgeBlock = relevantChunks.length > 0
+    ? `\nRELEVANT USPTO KNOWLEDGE:\n${relevantChunks.map(c => `### ${c.title}\n${c.content}`).join('\n\n')}`
+    : ''
+
   // ── Build context strings (with sanitization) ─────────────────────────────
   const specText     = sanitizeContent(patent.spec_draft ?? 'No specification written yet.', 'spec_draft')
   const claimsText   = sanitizeContent(patent.claims_draft ?? 'No claims written yet.', 'claims_draft')
@@ -370,7 +391,14 @@ PATENT STATE:
 Lifecycle state: ${lifecycleState} (${lifecycleDef?.label ?? lifecycleState})
 Phase: ${lifecycleDef?.phase ?? 'unknown'}
 Blocking conditions: ${blockingSummary}
-Next states: ${nextStatesSummary}`
+Next states: ${nextStatesSummary}
+${knowledgeBlock}
+
+KNOWLEDGE ACCURACY:
+- The USPTO knowledge above is accurate as of your training. For time-sensitive figures (current fee amounts, specific deadlines), always direct the user to USPTO.gov to verify — fees change annually.
+- Never invent a statute number, fee amount, or rule that is not in the provided knowledge. If you do not know, say so and direct to USPTO.gov or a registered patent attorney.
+- Never give legal advice. You are a knowledgeable guide, not a licensed practitioner. Always recommend consulting a registered patent attorney for decisions with legal consequences.
+- Never say "Claude", "Anthropic", or any AI model name. You are Pattie.`
 
   console.log('[pattie/chat] patent:', patent.title, '| entity:', entityStatus, '| phase:', currentStep, '| lifecycle:', lifecycleState)
 
