@@ -387,7 +387,8 @@ export default function AdminPage() {
               )}
             </button>
           ))}
-          {/* External page links */}
+          {/* External page links — separate routes from in-page sections */}
+          {/* Blog, Marketplace Leads, Patent Research open dedicated pages outside the main admin SPA */}
           <div className="mt-3 pt-3 border-t border-gray-100">
             <Link
               href="/admin/blog"
