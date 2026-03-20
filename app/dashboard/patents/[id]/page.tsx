@@ -1141,6 +1141,10 @@ function PatentDetailInner() {
     setSaving(false)
   }
 
+  // 52A: Patent lifecycle hook — MUST be called before any early returns (Rules of Hooks)
+  // Pass null-safe patent object; hook handles null internally via lifecycle_state ?? 'DRAFT'
+  const lifecycle = usePatentLifecycle((patent ?? { lifecycle_state: null }) as Parameters<typeof usePatentLifecycle>[0])
+
   if (loading) return <div className="min-h-screen bg-gray-50"><Navbar /><div className="flex items-center justify-center h-64 text-gray-400">Loading...</div></div>
   if (!patent) return null
 
@@ -1160,8 +1164,7 @@ function PatentDetailInner() {
   const isLocked = patent.is_locked ?? false
   const isGranted = patent.status === 'granted'
   const canWrite = !isLocked && (!isCollaborator || collabCanEdit)
-  // 52A: Patent lifecycle state machine — used in 52E for lifecycle badge
-  const lifecycle = usePatentLifecycle(patent)
+  // lifecycle is computed before the patent null guard — already called above
   // Claims are always read-only for granted patents (issued — nothing to edit)
   const claimsReadOnly = isGranted || !canWrite
 
