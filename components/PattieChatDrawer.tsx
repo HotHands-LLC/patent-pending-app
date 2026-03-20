@@ -251,7 +251,7 @@ export default function PattieChatDrawer({
   // Session ID: stable per drawer open
   const sessionId = useMemo(() => crypto.randomUUID(), [])
 
-  const isFirstMessage = messages.length === 0
+  const isFirstMessage = messages.filter(m => !m.hidden).length === 0
 
   // ── Auto-save a single message (fire-and-forget) ──────────────────────────
   const saveMessage = useCallback((role: 'user' | 'assistant', content: string) => {
@@ -339,7 +339,7 @@ export default function PattieChatDrawer({
 
     setInput('')
     setError('')
-    const userMsg: Message = { role: 'user', content: text, ...(hidden ? { hidden: true } : {}) }
+    const userMsg: Message = { role: 'user', content: text, hidden: hidden === true }
     // Auto-save user message (don't save hidden/system messages to session history)
     if (!hidden) saveMessage('user', text)
     // Strip suggestion/state from messages when building API payload (include hidden for context)
@@ -551,12 +551,14 @@ export default function PattieChatDrawer({
             </div>
           )}
 
-          {messages.filter(m => !m.hidden).map((msg, idx) => (
+          {(() => {
+            const visibleMessages = messages.filter(m => !m.hidden)
+            return visibleMessages.map((msg, idx) => (
             <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
               {msg.role === 'assistant' && <PattieAvatar size={26} />}
               <div className={`max-w-[85%] space-y-2 ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col`}>
                 {/* Text bubble */}
-                {(msg.content || (msg.role === 'assistant' && streaming && idx === messages.length - 1)) && (
+                {(msg.content || (msg.role === 'assistant' && streaming && idx === visibleMessages.length - 1)) && (
                   <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed
                     ${msg.role === 'user' ? 'bg-[#4f46e5] text-white rounded-br-sm' : 'bg-gray-100 text-[#1a1f36] rounded-bl-sm'}`}>
                     {msg.role === 'assistant' && msg.content === '' && streaming ? (
@@ -590,9 +592,10 @@ export default function PattieChatDrawer({
                 )}
               </div>
             </div>
-          ))}
+          ))
+          })()} {/* end visibleMessages IIFE */}
 
-          {streaming && messages[messages.length - 1]?.role !== 'assistant' && (
+          {streaming && messages.filter(m => !m.hidden).at(-1)?.role !== 'assistant' && (
             <div className="flex justify-start items-end gap-2">
               <PattieAvatar size={26} />
               <div className="bg-gray-100 text-[#1a1f36] px-3 py-2 rounded-2xl rounded-bl-sm">
