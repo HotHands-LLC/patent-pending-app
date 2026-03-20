@@ -1277,6 +1277,10 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
       if (!res.ok) {
         if (data.error === 'no_founder_story') {
           setContentBlastError('Complete the Founder Interview first to unlock Content Blast.')
+        } else if (res.status === 402 || data.error === 'payment_required') {
+          // Not purchased — silently re-fetch patent so card flips to "Unlock" state
+          await loadAll()
+          return
         } else {
           setContentBlastError(data.message ?? 'Generation failed.')
         }
