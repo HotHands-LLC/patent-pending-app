@@ -19,12 +19,28 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { PatentLifecycleState } from '@/lib/patent-lifecycle'
 
-// Admin check — must match the ADMIN_SECRET env var
-function isAuthorized(req: NextRequest): boolean {
+// Admin check — matches the pattern used by other admin endpoints
+async function isAuthorized(req: NextRequest): Promise<boolean> {
   const auth = req.headers.get('authorization') ?? ''
-  const secret = process.env.ADMIN_SECRET
-  if (!secret) return false
-  return auth === `Bearer ${secret}`
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null
+  if (!token) return false
+
+  // Also accept CRON_SECRET for programmatic access
+  if (process.env.CRON_SECRET && token === process.env.CRON_SECRET) return true
+
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co',
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key',
+    { global: { headers: { Authorization: `Bearer ${token}` } } }
+  )
+  const svc = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co',
+    process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key'
+  )
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
+  const { data: profile } = await svc.from('profiles').select('is_admin').eq('id', user.id).single()
+  return profile?.is_admin === true
 }
 
 type PatentRow = {
@@ -65,7 +81,7 @@ function inferLifecycleState(p: PatentRow): PatentLifecycleState {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorized(req)) {
+  if (!await isAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
