@@ -18,8 +18,10 @@ export function usePatentLifecycle(patentOrContext: Patent & { lifecycle_state?:
     ? patentOrContext as PatentContext
     : { patent: patentOrContext as Patent & { lifecycle_state?: string | null } }
 
-  const state = (context.patent.lifecycle_state ?? 'DRAFT') as PatentLifecycleState
-  const definition = PATENT_LIFECYCLE[state]
+  // Validate state — fall back to DRAFT if value is not in the enum (prevents crash on unexpected DB values)
+  const rawState = context.patent.lifecycle_state ?? 'DRAFT'
+  const state = (rawState in PATENT_LIFECYCLE ? rawState : 'DRAFT') as PatentLifecycleState
+  const definition = PATENT_LIFECYCLE[state]  // always defined now
   const blocking = getBlockingConditions(context)
   const nextNodes = getNextNodes(state)
 

@@ -1606,8 +1606,8 @@ Then tell the inventor: "Your founder story is saved in your Correspondence tab.
                 <div className="mb-2">
                   {/* State badge */}
                   <div className="flex items-center gap-2 mb-2">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${URGENCY_COLORS[lifecycle.urgency].badge}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${URGENCY_COLORS[lifecycle.urgency].dot}`} />
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${(URGENCY_COLORS[lifecycle.urgency] ?? URGENCY_COLORS.none).badge}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${(URGENCY_COLORS[lifecycle.urgency] ?? URGENCY_COLORS.none).dot}`} />
                       {lifecycle.label}
                     </span>
                     <span className="text-xs text-gray-400">{lifecycle.definition?.description}</span>
