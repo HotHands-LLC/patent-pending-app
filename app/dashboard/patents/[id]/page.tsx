@@ -27,6 +27,7 @@ import PattieInterviewDrawer from '@/components/patents/PattieInterviewDrawer'
 import IDSCandidatesTab from '@/components/patents/IDSCandidatesTab'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 import SigningRequestsPanel from '@/components/signing/SigningRequestsPanel'
+import { usePatentLifecycle } from '@/hooks/usePatentLifecycle'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -1142,6 +1143,9 @@ export default function PatentDetail() {
   const isLocked = patent.is_locked ?? false
   const isGranted = patent.status === 'granted'
   const canWrite = !isLocked && (!isCollaborator || collabCanEdit)
+  // 52A: Patent lifecycle state machine — available for use in 52B
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const lifecycle = usePatentLifecycle(patent)
   // Claims are always read-only for granted patents (issued — nothing to edit)
   const claimsReadOnly = isGranted || !canWrite
 
