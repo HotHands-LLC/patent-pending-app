@@ -177,6 +177,16 @@ export async function POST(
     .order('created_at', { ascending: false })
     .limit(3)
 
+  // ── 54A: Check for founder story (priority context injection) ────────────
+  const { data: founderStory } = await supabaseService
+    .from('patent_correspondence')
+    .select('content, correspondence_date')
+    .eq('patent_id', patentId)
+    .contains('tags', ['founder_story'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
   // ── Fetch patent_documents list ───────────────────────────────────────────
   const { data: docItems } = await supabaseService
     .from('patent_documents')
@@ -295,6 +305,19 @@ export async function POST(
   const ownerAddress = [profile?.address_line_1, profile?.city, profile?.state, profile?.zip].filter(Boolean).join(', ') || 'Not set'
   const assigneeName = profile?.default_assignee_name ?? 'Not set'
 
+  // ── 54A: Build founder story context block ───────────────────────────────
+  let founderStoryBlock = ''
+  if (founderStory?.content) {
+    const content = founderStory.content
+    const originMatch = content.match(/## The Origin\s*\n+([\s\S]*?)(?=\n## |\n---)/i)
+    const originText = originMatch ? originMatch[1].trim().split(/\. /).slice(0, 2).join('. ') + '.' : ''
+    const visionMatch = content.match(/## The Vision\s*\n+([\s\S]*?)(?=\n## |\n---)/i)
+    const visionText = visionMatch ? visionMatch[1].trim().split(/\. /)[0] + '.' : ''
+    const platformsMatch = content.match(/## Their Platforms\s*\n+([\s\S]*?)(?=\n## |\n---)/i)
+    const platformsText = platformsMatch ? platformsMatch[1].trim() : 'Not specified'
+    founderStoryBlock = `\n[FOUNDER STORY ON FILE]\nThis inventor has completed a founder interview. Key context:\n- Origin: ${originText}\n- Vision: ${visionText}\n- Their platforms: ${platformsText}\nUse this to inform any marketing or content requests.\n`
+  }
+
   const filedContext = isProvisionalFiled && provAppNumber && provFiledAt ? `
 FILING STATUS: PATENT PENDING ™
 ---
@@ -306,7 +329,7 @@ ${nonprovDeadline ? `Non-provisional deadline: ${new Date(nonprovDeadline).toLoc
   const systemPrompt = `You are Pattie, the helpful assistant built into PatentPending — an app that helps inventors file and manage their own patents.
 
 You are currently helping with the patent: "${patent.title}"
-
+${founderStoryBlock}
 OWNER PROFILE:
 ---
 Name: ${ownerName}
