@@ -641,6 +641,8 @@ export default function PatentDetail() {
   const [claimsMsg, setClaimsMsg] = useState('')
   const [showCorrespondenceForm, setShowCorrespondenceForm] = useState(false)
   const [expandedCorr, setExpandedCorr] = useState<string | null>(null)
+  const [deletingCorrId, setDeletingCorrId] = useState<string | null>(null)
+  const [corrDeleteConfirm, setCorrDeleteConfirm] = useState<string | null>(null)
   const [ownerId, setOwnerId] = useState('')
   const [authToken, setAuthToken] = useState('')
   const [isPro, setIsPro] = useState(false)
@@ -682,6 +684,28 @@ export default function PatentDetail() {
   const id = params.id as string
 
   const showToast = useCallback((msg: string) => { setToast(msg) }, [])
+
+  async function handleDeleteCorrespondence(corrId: string) {
+    setDeletingCorrId(corrId)
+    try {
+      const res = await fetch(`/api/patents/${id}/correspondence/${corrId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      if (res.ok) {
+        setCorrespondence(prev => prev.filter(c => c.id !== corrId))
+        showToast('🗑️ Correspondence record deleted.')
+      } else {
+        const d = await res.json().catch(() => ({}))
+        showToast(d.error ?? 'Delete failed')
+      }
+    } catch {
+      showToast('Delete failed — network error')
+    } finally {
+      setDeletingCorrId(null)
+      setCorrDeleteConfirm(null)
+    }
+  }
 
   async function loadAll() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -3070,30 +3094,62 @@ export default function PatentDetail() {
               <div className="space-y-2">
                 {correspondence.map(item => (
                   <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <button onClick={() => setExpandedCorr(expandedCorr === item.id ? null : item.id)}
-                      className="w-full text-left p-4 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-start gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2 mb-1">
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${CORRESPONDENCE_TYPE_COLORS[item.type] || 'bg-gray-100 text-gray-600'}`}>
-                              {CORRESPONDENCE_TYPE_LABELS[item.type] || item.type}
-                            </span>
+                    <div className="flex items-stretch">
+                      <button onClick={() => setExpandedCorr(expandedCorr === item.id ? null : item.id)}
+                        className="flex-1 text-left p-4 hover:bg-gray-50 transition-colors min-w-0">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${CORRESPONDENCE_TYPE_COLORS[item.type] || 'bg-gray-100 text-gray-600'}`}>
+                                {CORRESPONDENCE_TYPE_LABELS[item.type] || item.type}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-[#1a1f36] text-sm">{item.title}</span>
+                              {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                                <span className="text-xs text-blue-500" title={`${item.attachments.length} attachment`}>📎</span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-400">
+                              <span>{new Date(item.correspondence_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                              {item.from_party && <span>From: {item.from_party}</span>}
+                              {item.to_party && <span>To: {item.to_party}</span>}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-[#1a1f36] text-sm">{item.title}</span>
-                            {Array.isArray(item.attachments) && item.attachments.length > 0 && (
-                              <span className="text-xs text-blue-500" title={`${item.attachments.length} attachment`}>📎</span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-400">
-                            <span>{new Date(item.correspondence_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                            {item.from_party && <span>From: {item.from_party}</span>}
-                            {item.to_party && <span>To: {item.to_party}</span>}
-                          </div>
+                          <span className="text-gray-300 flex-shrink-0 text-lg">{expandedCorr === item.id ? '▲' : '▼'}</span>
                         </div>
-                        <span className="text-gray-300 flex-shrink-0 text-lg">{expandedCorr === item.id ? '▲' : '▼'}</span>
-                      </div>
-                    </button>
+                      </button>
+                      {!isCollaborator && (
+                        <div className="flex items-center pr-3 pl-1 border-l border-gray-100">
+                          {corrDeleteConfirm === item.id ? (
+                            <div className="flex items-center gap-1 text-xs">
+                              <span className="text-gray-500 whitespace-nowrap">Delete?</span>
+                              <button
+                                onClick={() => handleDeleteCorrespondence(item.id)}
+                                disabled={deletingCorrId === item.id}
+                                className="px-2 py-1 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 disabled:opacity-50"
+                              >
+                                {deletingCorrId === item.id ? '…' : 'Yes'}
+                              </button>
+                              <button
+                                onClick={() => setCorrDeleteConfirm(null)}
+                                className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200"
+                              >
+                                No
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setCorrDeleteConfirm(item.id)}
+                              title="Delete this record"
+                              className="text-gray-300 hover:text-red-500 transition-colors text-base p-1"
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     {expandedCorr === item.id && (
                       <div className="px-4 pb-4 border-t border-gray-50">
                         {item.content && (
