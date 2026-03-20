@@ -622,7 +622,7 @@ function MarketplaceSettingsCard({
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function PatentDetail() {
+function PatentDetailInner() {
   const [patent, setPatent] = useState<Patent | null>(null)
   const [deadlines, setDeadlines] = useState<PatentDeadline[]>([])
   const [correspondence, setCorrespondence] = useState<PatentCorrespondence[]>([])
@@ -3591,6 +3591,15 @@ Then tell the inventor: "Your founder story is saved in your Correspondence tab.
         />
       )}
     </div>
+  )
+}
+
+// ── Page export: wrap in Suspense for useSearchParams compatibility ──────────
+export default function PatentDetail() {
+  return (
+    <React.Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">Loading...</div>}>
+      <PatentDetailInner />
+    </React.Suspense>
   )
 }
 
