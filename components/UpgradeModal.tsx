@@ -58,7 +58,7 @@ export default function UpgradeModal({ feature, onClose }: Props) {
             href="/pricing"
             className="block w-full py-2.5 bg-[#1a1f36] text-white rounded-lg text-sm font-bold text-center hover:bg-[#2d3561] transition-colors"
           >
-            Upgrade to Pro · $149/mo →
+            Upgrade to Pro · from $39/mo →
           </a>
           <button
             onClick={onClose}

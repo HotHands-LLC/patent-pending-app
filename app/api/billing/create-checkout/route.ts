@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
+import { STRIPE_PRICE_IDS } from '@/lib/pricing-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,28 +10,24 @@ function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-02-24.acacia' })
 }
 
-const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
-)
+function getSupabaseService() {
+  return createClient(
+    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  )
+}
 
-// Stripe Price IDs — set in Vercel env vars
-// STRIPE_PRO_MONTHLY_PRICE_ID  → $149/mo
-// STRIPE_PRO_ANNUAL_PRICE_ID   → $1,290/yr
+// Stripe Price IDs — sourced from pricing-config.ts (env-var-based with fallbacks)
+// STRIPE_PRO_MONTHLY_PRICE_ID  → $39/mo (price_1T8IP4EtYVLjzMmuiA0sU5j3 fallback)
+// STRIPE_PRO_ANNUAL_PRICE_ID   → $390/yr (price_1TCx36EtYVLjzMmu1YSqUWk0 fallback)
 function getPriceId(interval: 'monthly' | 'annual'): string {
-  if (interval === 'annual') {
-    const id = process.env.STRIPE_PRO_ANNUAL_PRICE_ID
-    if (!id) throw new Error('STRIPE_PRO_ANNUAL_PRICE_ID not configured')
-    return id
-  }
-  const id = process.env.STRIPE_PRO_MONTHLY_PRICE_ID
-  if (!id) throw new Error('STRIPE_PRO_MONTHLY_PRICE_ID not configured')
-  return id
+  return STRIPE_PRICE_IDS[interval]
 }
 
 export async function POST(req: NextRequest) {
   try {
     const stripe = getStripe()
+    const supabaseService = getSupabaseService()
 
     // Auth
     const authHeader = req.headers.get('authorization')

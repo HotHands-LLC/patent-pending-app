@@ -158,6 +158,66 @@ export default function AdminPage() {
     load()
   }, [router])
 
+  // ── Maintenance state ─────────────────────────────────────────────────────
+  const [backfillLoading, setBackfillLoading] = useState(false)
+  const [backfillDone, setBackfillDone] = useState(false)
+  const [backfillResult, setBackfillResult] = useState<{ updated: number } | null>(null)
+  const [backfillError, setBackfillError] = useState<string | null>(null)
+
+  async function handleBackfill() {
+    setBackfillLoading(true)
+    setBackfillError(null)
+    try {
+      const res = await fetch('/api/admin/backfill-lifecycle-states', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setBackfillResult(data)
+        setBackfillDone(true)
+      } else {
+        setBackfillError(data.error ?? 'Backfill failed')
+      }
+    } catch {
+      setBackfillError('Network error')
+    } finally {
+      setBackfillLoading(false)
+    }
+  }
+
+  const [partnerEmail, setPartnerEmail] = useState('')
+  const [partnerFirm, setPartnerFirm] = useState('')
+  const [partnerCode, setPartnerCode] = useState('')
+  const [partnerPayoutEmail, setPartnerPayoutEmail] = useState('')
+  const [partnerLoading, setPartnerLoading] = useState(false)
+  const [partnerResult, setPartnerResult] = useState<string | null>(null)
+  const [partnerError, setPartnerError] = useState<string | null>(null)
+
+  async function handleCreatePartner() {
+    setPartnerLoading(true)
+    setPartnerResult(null)
+    setPartnerError(null)
+    try {
+      const res = await fetch('/api/admin/partners/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ email: partnerEmail, firm_name: partnerFirm, referral_code: partnerCode, payout_email: partnerPayoutEmail || undefined }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setPartnerResult(`✅ Partner created. Welcome email sent to ${partnerEmail}.`)
+        setPartnerEmail(''); setPartnerFirm(''); setPartnerCode(''); setPartnerPayoutEmail('')
+      } else {
+        setPartnerError(data.error ?? 'Failed to create partner')
+      }
+    } catch {
+      setPartnerError('Network error')
+    } finally {
+      setPartnerLoading(false)
+    }
+  }
+
   // ── Agency state ──────────────────────────────────────────────────────────
   const [agencyAgreements, setAgencyAgreements] = useState<AgencyAgreement[]>([])
   const [agencyLeads, setAgencyLeads] = useState<AgencyLead[]>([])
@@ -504,6 +564,49 @@ export default function AdminPage() {
                   </div>
                 </div>
               )}
+
+              {/* ── Platform Maintenance ──────────────────────────────── */}
+              <div className="mt-8">
+                <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Platform Maintenance</h2>
+
+                {/* Lifecycle State Backfill */}
+                <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
+                  <h3 className="text-base font-semibold text-gray-900 mb-1">Backfill Lifecycle States</h3>
+                  <p className="text-sm text-gray-500 mb-4">Sets initial lifecycle states on all patents based on existing data. Safe to run once.</p>
+                  <button
+                    onClick={handleBackfill}
+                    disabled={backfillLoading || backfillDone}
+                    className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium hover:bg-[#2d3561] disabled:opacity-50"
+                  >
+                    {backfillLoading ? 'Running...' : backfillDone ? `✅ Updated ${backfillResult?.updated ?? 0} patents` : 'Run Backfill'}
+                  </button>
+                  {backfillError && <p className="text-sm text-red-600 mt-2">{backfillError}</p>}
+                  {backfillDone && <p className="text-xs text-gray-400 mt-1">Last run: {new Date().toLocaleString()}</p>}
+                </div>
+
+                {/* Create Attorney Partner */}
+                <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
+                  <h3 className="text-base font-semibold text-gray-900 mb-1">Create Attorney Partner</h3>
+                  <p className="text-sm text-gray-500 mb-4">Manually onboard a new attorney partner. They must already have an account.</p>
+                  <div className="space-y-3">
+                    <input type="email" placeholder="Email" value={partnerEmail} onChange={e => setPartnerEmail(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                    <input type="text" placeholder="Firm name" value={partnerFirm} onChange={e => setPartnerFirm(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                    <input type="text" placeholder="Referral code (e.g. SIMPSON-IP — uppercase only)" value={partnerCode}
+                      onChange={e => setPartnerCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''))}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />
+                    <input type="email" placeholder="Payout email (optional)" value={partnerPayoutEmail} onChange={e => setPartnerPayoutEmail(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                    <button onClick={handleCreatePartner} disabled={partnerLoading || !partnerEmail || !partnerFirm || !partnerCode}
+                      className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium hover:bg-[#2d3561] disabled:opacity-50">
+                      {partnerLoading ? 'Creating...' : 'Create Partner'}
+                    </button>
+                    {partnerResult && <p className="text-sm text-green-600">{partnerResult}</p>}
+                    {partnerError && <p className="text-sm text-red-600">{partnerError}</p>}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

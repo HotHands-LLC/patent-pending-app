@@ -7,6 +7,7 @@ export const PRICING = {
     monthly: 39,
     annual: 390,
     annualMonthlyEquiv: 32.50,
+    annualSavingsPct: 17, // "save 17%"
   },
   marketplace: {
     successFeePercent: 10,
@@ -23,6 +24,11 @@ export const PRICING = {
     attorneyHourlyMin: 200,
     attorneyHourlyMax: 500,
   },
+} as const
+
+export const STRIPE_PRICE_IDS = {
+  monthly: process.env.STRIPE_PRO_MONTHLY_PRICE_ID ?? 'price_1T8IP4EtYVLjzMmuiA0sU5j3',
+  annual: process.env.STRIPE_PRO_ANNUAL_PRICE_ID ?? 'price_1TCx36EtYVLjzMmu1YSqUWk0',
 } as const
 
 export const PRICING_COPY = {

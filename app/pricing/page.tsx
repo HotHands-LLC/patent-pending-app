@@ -4,9 +4,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { trackEvent } from '@/components/GoogleAnalytics'
+import { PRICING } from '@/lib/pricing-config'
 
 export default function PricingPage() {
-  const [interval, setInterval] = useState<'monthly' | 'annual'>('monthly')
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
@@ -27,14 +28,14 @@ export default function PricingPage() {
         : null
       if (returnPatentId) localStorage.removeItem('pp_upgrade_return_patent')
 
-      trackEvent('checkout_initiated', { plan, interval })
+      trackEvent('checkout_initiated', { plan, interval: billingPeriod })
       const res = await fetch('/api/billing/create-checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ plan, interval, return_patent_id: returnPatentId ?? undefined }),
+        body: JSON.stringify({ plan, interval: billingPeriod, return_patent_id: returnPatentId ?? undefined }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -49,10 +50,10 @@ export default function PricingPage() {
     }
   }
 
-  const monthlyPrice = 149
-  const annualPrice = 1290
-  const annualMonthly = Math.round(annualPrice / 12)
-  const annualSavings = Math.round(monthlyPrice * 12 - annualPrice)
+  const monthlyPrice = PRICING.pro.monthly
+  const annualPrice = PRICING.pro.annual
+  const annualMonthlyEquiv = PRICING.pro.annualMonthlyEquiv
+  const savingsPct = PRICING.pro.annualSavingsPct
 
   return (
     <div style={{ minHeight: '100vh', background: '#09090b', color: '#f4f4f5', fontFamily: 'inherit' }}>
@@ -73,28 +74,60 @@ export default function PricingPage() {
           </p>
         </div>
 
-        {/* Interval toggle */}
+        {/* Billing period toggle */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 32 }}>
-          <div style={{ display: 'inline-flex', background: '#18181b', border: '1px solid #27272a', borderRadius: 12, padding: 4 }}>
-            {(['monthly', 'annual'] as const).map(i => (
-              <button
-                key={i}
-                onClick={() => setInterval(i)}
-                style={{
-                  padding: '8px 20px',
-                  borderRadius: 8,
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: interval === i ? '#f4f4f5' : 'transparent',
-                  color: interval === i ? '#09090b' : '#71717a',
-                  transition: 'all 0.15s',
-                }}
-              >
-                {i === 'annual' ? `Annual (save $${annualSavings})` : 'Monthly'}
-              </button>
-            ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              onClick={() => setBillingPeriod('monthly')}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 14,
+                fontWeight: billingPeriod === 'monthly' ? 700 : 400,
+                color: billingPeriod === 'monthly' ? '#f4f4f5' : '#71717a',
+                padding: '4px 0',
+              }}
+            >
+              Monthly
+            </button>
+            {/* Toggle pill */}
+            <div
+              style={{ position: 'relative', width: 48, height: 24, background: '#27272a', borderRadius: 12, cursor: 'pointer', flexShrink: 0 }}
+              onClick={() => setBillingPeriod(p => p === 'monthly' ? 'annual' : 'monthly')}
+            >
+              <div style={{
+                position: 'absolute',
+                top: 4,
+                width: 16,
+                height: 16,
+                background: '#f4f4f5',
+                borderRadius: '50%',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                transition: 'left 0.15s',
+                left: billingPeriod === 'annual' ? 28 : 4,
+              }} />
+            </div>
+            <button
+              onClick={() => setBillingPeriod('annual')}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 14,
+                fontWeight: billingPeriod === 'annual' ? 700 : 400,
+                color: billingPeriod === 'annual' ? '#f4f4f5' : '#71717a',
+                padding: '4px 0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              Annual{' '}
+              <span style={{ color: '#059669', fontSize: 11, fontWeight: 700, background: 'rgba(5,150,105,0.15)', padding: '2px 6px', borderRadius: 4 }}>
+                save {savingsPct}%
+              </span>
+            </button>
           </div>
         </div>
 
@@ -135,8 +168,8 @@ export default function PricingPage() {
             </div>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#f59e0b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>⚡ Pro</div>
             <div style={{ fontSize: 28, fontWeight: 800, color: '#f4f4f5', marginBottom: 4 }}>
-              {interval === 'annual'
-                ? <>${annualMonthly} <span style={{ fontSize: 14, fontWeight: 400, color: '#71717a' }}>/mo · billed annually (${annualPrice}/yr)</span></>
+              {billingPeriod === 'annual'
+                ? <>${annualPrice} <span style={{ fontSize: 14, fontWeight: 400, color: '#71717a' }}>/year <span style={{ fontSize: 12, color: '#52525b' }}>(${annualMonthlyEquiv}/mo)</span></span></>
                 : <>${monthlyPrice} <span style={{ fontSize: 14, fontWeight: 400, color: '#71717a' }}>/month</span></>
               }
             </div>
@@ -177,7 +210,7 @@ export default function PricingPage() {
                 transition: 'background 0.15s',
               }}
             >
-              {loading ? 'Redirecting...' : `Get Pro — ${interval === 'annual' ? `$${annualPrice}/yr` : `$${monthlyPrice}/mo`} →`}
+              {loading ? 'Redirecting...' : billingPeriod === 'annual' ? `Get Pro — $${annualPrice}/yr →` : `Get Pro — $${monthlyPrice}/mo →`}
             </button>
           </div>
         </div>
