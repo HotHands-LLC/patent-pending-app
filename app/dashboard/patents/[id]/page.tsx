@@ -700,6 +700,8 @@ export default function PatentDetail() {
   const [contentBlastData, setContentBlastData] = useState<ContentBlast | null>(null)
   const [showContentBlastModal, setShowContentBlastModal] = useState(false)
   const [contentBlastTab, setContentBlastTab] = useState(0)
+  // 54C: Checkout state
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -940,6 +942,19 @@ export default function PatentDetail() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
+
+  // Handle ?blast=paid return from Stripe Checkout — show toast, clean URL, re-fetch patent
+  useEffect(() => {
+    if (searchParams.get('blast') === 'paid' && patent) {
+      // Clean URL first
+      router.replace(`/dashboard/patents/${patent.id}`, { scroll: false })
+      // Show confirmation toast
+      showToast('💳 Payment confirmed — ready to generate your content blast.')
+      // Re-fetch patent so content_blast_purchased_at is populated and card re-renders
+      loadAll()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, patent?.id])
 
   // Auto-poll claims_status while generating/refining — clears when done or timed out
   useEffect(() => {
@@ -1275,6 +1290,44 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
       setContentBlastError('Network error. Please try again.')
     } finally {
       setContentBlastLoading(false)
+    }
+  }
+
+  // 54C: Content Blast purchase handler
+  async function handleContentBlastPurchase() {
+    // Optimistic check — if already purchased locally, skip checkout and generate directly
+    const blastPurchasedLocal = !!(patent as Patent & { content_blast_purchased_at?: string | null }).content_blast_purchased_at
+    if (blastPurchasedLocal) {
+      handleContentBlast()
+      return
+    }
+
+    setCheckoutLoading(true)
+    setContentBlastError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const res = await fetch(`/api/patents/${patent!.id}/content-blast/checkout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setContentBlastError(data.message ?? 'Could not start checkout.')
+        return
+      }
+      if (data.alreadyPurchased) {
+        // Race condition: already purchased — reload and go straight to generation
+        window.location.reload()
+        return
+      }
+      if (data.url) {
+        window.location.href = data.url // redirect to Stripe Checkout
+      }
+    } catch {
+      setContentBlastError('Network error. Please try again.')
+    } finally {
+      setCheckoutLoading(false)
     }
   }
 
@@ -1889,7 +1942,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                 </div>
               )}
 
-              {/* 54B: Content Blast card */}
+              {/* 54B/54C: Content Blast card — 4 states */}
               {!isCollaborator && (
                 <div className="rounded-xl border border-purple-100 bg-purple-50 p-4">
                   <div className="flex items-center gap-2 mb-1">
@@ -1897,21 +1950,47 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                     <p className="text-xs font-semibold text-purple-900">Content Blast</p>
                   </div>
                   <p className="text-xs text-purple-700 mb-3">Turn your founder story into 7 days of content — ready to copy and post.</p>
-                  {hasContentBlast ? (
-                    <button onClick={() => { setShowContentBlastModal(true) }} className="text-xs text-purple-700 hover:underline">View Content →</button>
-                  ) : isPro ? (
-                    <button
-                      onClick={handleContentBlast}
-                      disabled={contentBlastLoading}
-                      className="px-3 py-1.5 bg-purple-700 text-white text-xs font-semibold rounded-lg hover:bg-purple-800 disabled:opacity-50 transition-colors"
-                    >
-                      {contentBlastLoading ? 'Generating…' : 'Generate Content'}
-                    </button>
-                  ) : (
-                    <button onClick={() => setUpgradeFeature('content_blast')} className="px-3 py-1.5 border border-purple-300 text-purple-700 text-xs font-semibold rounded-lg hover:bg-purple-100 transition-colors">
-                      Upgrade to Pro
-                    </button>
-                  )}
+                  {(() => {
+                    const blastPurchased = !!(patent as Patent & { content_blast_purchased_at?: string | null }).content_blast_purchased_at
+                    if (hasContentBlast) {
+                      // State 1: content already generated — view it
+                      return (
+                        <button onClick={() => setShowContentBlastModal(true)} className="text-xs text-purple-700 hover:underline">
+                          View Content →
+                        </button>
+                      )
+                    }
+                    if (!isPro) {
+                      // State 2: free user — upsell to Pro
+                      return (
+                        <button onClick={() => setUpgradeFeature?.('content_blast')} className="px-3 py-1.5 border border-purple-300 text-purple-700 text-xs font-semibold rounded-lg hover:bg-purple-100 transition-colors">
+                          Upgrade to Pro
+                        </button>
+                      )
+                    }
+                    if (!blastPurchased) {
+                      // State 3: Pro + not purchased — show $12 purchase button
+                      return (
+                        <button
+                          onClick={handleContentBlastPurchase}
+                          disabled={checkoutLoading}
+                          className="px-3 py-1.5 bg-purple-700 text-white text-xs font-semibold rounded-lg hover:bg-purple-800 disabled:opacity-50 transition-colors"
+                        >
+                          {checkoutLoading ? 'Loading…' : 'Unlock Content Blast — $12'}
+                        </button>
+                      )
+                    }
+                    // State 4: Pro + purchased — generate
+                    return (
+                      <button
+                        onClick={handleContentBlast}
+                        disabled={contentBlastLoading}
+                        className="px-3 py-1.5 bg-purple-700 text-white text-xs font-semibold rounded-lg hover:bg-purple-800 disabled:opacity-50 transition-colors"
+                      >
+                        {contentBlastLoading ? 'Generating…' : 'Generate Content'}
+                      </button>
+                    )
+                  })()}
                   {contentBlastError && <p className="text-xs text-red-600 mt-2">{contentBlastError}</p>}
                 </div>
               )}

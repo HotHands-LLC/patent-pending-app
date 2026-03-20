@@ -214,6 +214,20 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // ── Payment check — content_blast_purchased_at must be set ───────────────
+  const { data: patentForCheck } = await supabase
+    .from('patents')
+    .select('content_blast_purchased_at')
+    .eq('id', patentId)
+    .single()
+
+  if (!patentForCheck?.content_blast_purchased_at) {
+    return NextResponse.json(
+      { error: 'payment_required', message: 'Purchase Content Blast ($12) to generate content for this patent.' },
+      { status: 402 }
+    )
+  }
+
   // ── Fetch founder story ───────────────────────────────────────────────────
   const { data: founderStoryRows } = await supabase
     .from('patent_correspondence')

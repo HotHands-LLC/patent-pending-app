@@ -114,6 +114,21 @@ export async function POST(req: NextRequest) {
        */
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
+
+        // Content Blast one-time purchase
+        if (session.metadata?.type === 'content_blast') {
+          const { patent_id, user_id } = session.metadata
+          if (patent_id && user_id) {
+            await supabase
+              .from('patents')
+              .update({ content_blast_purchased_at: new Date().toISOString() })
+              .eq('id', patent_id)
+              .eq('owner_id', user_id)
+            console.log('[stripe-billing] content_blast purchased:', patent_id)
+          }
+          break
+        }
+
         if (session.mode !== 'subscription') break
 
         const userId = session.metadata?.user_id
