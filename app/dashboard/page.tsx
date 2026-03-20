@@ -33,11 +33,12 @@ export default function Dashboard() {
 
       // ── 2FA tier checks ───────────────────────────────────────────────────
       try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('require_2fa, two_fa_prompt_dismissed, subscription_status')
-          .eq('id', user.id)
-          .single()
+        // profiles table: has require_2fa, two_fa_prompt_dismissed (NOT subscription_status)
+        // subscription_status lives on patent_profiles
+        const [{ data: profile }, { data: patentProfile }] = await Promise.all([
+          supabase.from('profiles').select('require_2fa, two_fa_prompt_dismissed').eq('id', user.id).single(),
+          supabase.from('patent_profiles').select('subscription_status').eq('id', user.id).single(),
+        ])
 
         if (profile) {
           const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
@@ -50,10 +51,11 @@ export default function Dashboard() {
           }
 
           // Pro prompt: show dismissible banner on first Pro login
+          const subStatus = patentProfile?.subscription_status ?? 'free'
           if (
             !isaal2 &&
             !profile.two_fa_prompt_dismissed &&
-            (profile.subscription_status === 'pro' || profile.subscription_status === 'complimentary')
+            (subStatus === 'pro' || subStatus === 'complimentary')
           ) {
             setShow2FABanner(true)
           }
