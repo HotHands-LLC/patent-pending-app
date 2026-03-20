@@ -1178,18 +1178,20 @@ export default function PatentDetail() {
     }
   }, [patent?.id])
 
-  // 54A: Check for existing founder_story correspondence
+  // 54A: Check for existing founder_story correspondence (direct Supabase query — no API route needed)
   useEffect(() => {
     if (!patent?.id) return
     const checkFounderStory = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      const res = await fetch(`/api/patents/${patent.id}/correspondence?tag=founder_story`, {
-        headers: { Authorization: `Bearer ${session.access_token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setHasFounderStory((data.items ?? []).length > 0)
+      try {
+        const { data } = await supabase
+          .from('patent_correspondence')
+          .select('id')
+          .eq('patent_id', patent.id)
+          .contains('tags', ['founder_story'])
+          .limit(1)
+        setHasFounderStory((data ?? []).length > 0)
+      } catch {
+        // Non-fatal — if check fails, nudge stays hidden (safe default)
       }
     }
     checkFounderStory()
