@@ -1141,9 +1141,10 @@ function PatentDetailInner() {
     setSaving(false)
   }
 
-  // 52A: Patent lifecycle hook — MUST be called before any early returns (Rules of Hooks)
-  // Pass null-safe patent object; hook handles null internally via lifecycle_state ?? 'DRAFT'
-  const lifecycle = usePatentLifecycle((patent ?? { lifecycle_state: null }) as Parameters<typeof usePatentLifecycle>[0])
+  // 52A: Patent lifecycle hook — called before early returns (Rules of Hooks)
+  // Safe null coalesce: when patent is null, defaults to DRAFT state with no blocking conditions
+  const _patentForLifecycle = patent ?? ({ lifecycle_state: 'DRAFT' } as Patent & { lifecycle_state?: string | null })
+  const lifecycle = usePatentLifecycle(_patentForLifecycle)
 
   if (loading) return <div className="min-h-screen bg-gray-50"><Navbar /><div className="flex items-center justify-center h-64 text-gray-400">Loading...</div></div>
   if (!patent) return null
