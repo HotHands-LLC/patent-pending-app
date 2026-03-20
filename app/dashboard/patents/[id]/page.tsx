@@ -622,7 +622,7 @@ function MarketplaceSettingsCard({
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-function PatentDetailInner() {
+export default function PatentDetail() {
   const [patent, setPatent] = useState<Patent | null>(null)
   const [deadlines, setDeadlines] = useState<PatentDeadline[]>([])
   const [correspondence, setCorrespondence] = useState<PatentCorrespondence[]>([])
@@ -671,9 +671,6 @@ function PatentDetailInner() {
   const [showPattie, setShowPattie] = useState(false)
   const [pattieInitialPrompt, setPattieInitialPrompt] = useState<string | undefined>(undefined)
   const [showArc1Interview, setShowArc1Interview] = useState(false)
-  // 54A: Founder story state
-  const [hasFounderStory, setHasFounderStory] = useState(false)
-  const [founderStoryDismissed, setFounderStoryDismissed] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -1141,11 +1138,6 @@ function PatentDetailInner() {
     setSaving(false)
   }
 
-  // 52A: Patent lifecycle hook — called before early returns (Rules of Hooks)
-  // Safe null coalesce: when patent is null, defaults to DRAFT state with no blocking conditions
-  const _patentForLifecycle = patent ?? ({ lifecycle_state: 'DRAFT' } as Patent & { lifecycle_state?: string | null })
-  const lifecycle = usePatentLifecycle(_patentForLifecycle)
-
   if (loading) return <div className="min-h-screen bg-gray-50"><Navbar /><div className="flex items-center justify-center h-64 text-gray-400">Loading...</div></div>
   if (!patent) return null
 
@@ -1165,116 +1157,13 @@ function PatentDetailInner() {
   const isLocked = patent.is_locked ?? false
   const isGranted = patent.status === 'granted'
   const canWrite = !isLocked && (!isCollaborator || collabCanEdit)
-  // lifecycle is computed before the patent null guard — already called above
+  // 52A: Patent lifecycle state machine — used in 52E for lifecycle badge
+  const lifecycle = usePatentLifecycle(patent)
   // Claims are always read-only for granted patents (issued — nothing to edit)
   const claimsReadOnly = isGranted || !canWrite
 
   // 52E: openPattieWith helper — sets a preloaded prompt and opens the Pattie drawer
   function openPattieWith(prompt: string) {
-    setPattieInitialPrompt(prompt)
-    setShowPattie(true)
-  }
-
-  // 54A: Check localStorage for dismissed state when patent loads
-  useEffect(() => {
-    if (patent?.id) {
-      setFounderStoryDismissed(!!localStorage.getItem(`founder_story_dismissed_${patent.id}`))
-    }
-  }, [patent?.id])
-
-  // 54A: Check for existing founder_story correspondence (direct Supabase query — no API route needed)
-  useEffect(() => {
-    if (!patent?.id) return
-    const checkFounderStory = async () => {
-      try {
-        const { data } = await supabase
-          .from('patent_correspondence')
-          .select('id')
-          .eq('patent_id', patent.id)
-          .contains('tags', ['founder_story'])
-          .limit(1)
-        setHasFounderStory((data ?? []).length > 0)
-      } catch {
-        // Non-fatal — if check fails, nudge stays hidden (safe default)
-      }
-    }
-    checkFounderStory()
-  }, [patent?.id])
-
-  // 54A: Open Pattie with the founder interview prompt
-  function openFounderInterview() {
-    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    const title = patent?.title ?? 'this invention'
-    const prompt = `You are Pattie, the patent AI for PatentPending. You are about to conduct a short founder interview with the inventor of "${title}".
-
-Your goal is to capture their authentic story: why they built this, what problem it solves, what the filing journey was like, and what they want the world to know about their invention.
-
-This is a warm, conversational interview — not a form. Ask one question at a time. Listen to each answer and ask a natural follow-up if something interesting surfaces before moving to the next question. Do not present a numbered list of questions upfront.
-
-When you have enough material (typically after 6–10 exchanges), tell the inventor you have what you need and ask if there's anything else they want to add. Then generate the founder story document and save it to correspondence using the create_correspondence tool.
-
----
-
-Interview questions to cover (in natural conversational order — adapt as the conversation flows):
-
-1. Start warm: "Congratulations on filing ${title}! Before we dive into the details — can you tell me what this invention actually does? Explain it like you're telling a friend."
-
-2. Origin: "What made you want to build this? Was there a specific moment or frustration that sparked the idea?"
-
-3. The problem: "Who has this problem today, and how do they deal with it without your invention?"
-
-4. The journey: "What was the hardest part of getting to this filing? Was it the invention itself, the patent process, or something else?"
-
-5. The surprise: "Was there anything about the process — or the invention — that surprised you?"
-
-6. The vision: "If this patent becomes what you hope it becomes, what does that look like in 5 years?"
-
-7. The message: "If you could say one thing to another inventor who's sitting on an idea and hasn't started yet — what would you tell them?"
-
-8. Platform reach (ask naturally near the end): "Where do you spend time online — LinkedIn, Reddit, TikTok, other places? I ask because I can help you share this story in the right format for each platform later."
-
----
-
-After the inventor says they're done or you have covered the key questions, generate the founder story document using this exact format:
-
-# Founder Story — ${title}
-*Interviewed by Pattie on ${today}*
-
-## The Invention
-{2–3 paragraph description of what the invention does, in the inventor's own words and voice, based on their answers}
-
-## The Origin
-{The spark moment or frustration that led to the idea}
-
-## The Problem It Solves
-{Who has this problem and how they currently deal with it}
-
-## The Journey
-{What it took to get to filing — the hard parts, the surprises}
-
-## The Vision
-{Where the inventor hopes this goes}
-
-## In Their Own Words
-{1–3 direct quotes from the inventor that are especially vivid or authentic — pull the best lines from the conversation}
-
-## Their Platforms
-{List the platforms the inventor mentioned — this will be used for content generation later}
-
-## Pattie's Notes
-{Any additional context, interesting angles, or marketing observations that would help generate content later}
-
----
-*This document was generated by Pattie from a founder interview. It is saved here for reference and as source material for future content generation.*
-
----
-
-IMPORTANT: After generating the document, use the create_correspondence tool to save it:
-- title: "Founder Story — ${title}"
-- content: [the full generated markdown document above]
-- type: "other"
-
-Then tell the inventor: "Your founder story is saved in your Correspondence tab. Whenever you're ready to turn it into social posts, just ask me — I can write for LinkedIn, Reddit, TikTok, email, or wherever you spend time."`
     setPattieInitialPrompt(prompt)
     setShowPattie(true)
   }
@@ -1610,8 +1499,8 @@ Then tell the inventor: "Your founder story is saved in your Correspondence tab.
                 <div className="mb-2">
                   {/* State badge */}
                   <div className="flex items-center gap-2 mb-2">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${(URGENCY_COLORS[lifecycle.urgency] ?? URGENCY_COLORS.none).badge}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${(URGENCY_COLORS[lifecycle.urgency] ?? URGENCY_COLORS.none).dot}`} />
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${URGENCY_COLORS[lifecycle.urgency].badge}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${URGENCY_COLORS[lifecycle.urgency].dot}`} />
                       {lifecycle.label}
                     </span>
                     <span className="text-xs text-gray-400">{lifecycle.definition?.description}</span>
@@ -1645,34 +1534,6 @@ Then tell the inventor: "Your founder story is saved in your Correspondence tab.
                       ).join(' → ')}
                     </p>
                   )}
-                </div>
-              )}
-
-              {/* ── 54A: Founder Story Nudge ──────────────────────────────────────── */}
-              {patent && patent.lifecycle_state === 'PROVISIONAL_ACTIVE' && !hasFounderStory && !founderStoryDismissed && (
-                <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 flex gap-3 items-start">
-                  <span className="text-2xl flex-shrink-0">🎉</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-green-900">You filed! Tell your invention&apos;s story.</p>
-                    <p className="text-xs text-green-700 mt-0.5 mb-3">Pattie will ask you a few questions about your journey — takes about 5 minutes. The story gets saved here for reference and future marketing.</p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={openFounderInterview}
-                        className="px-3 py-1.5 bg-green-700 text-white text-xs font-semibold rounded-lg hover:bg-green-800 transition-colors"
-                      >
-                        Tell My Story
-                      </button>
-                      <button
-                        onClick={() => {
-                          localStorage.setItem(`founder_story_dismissed_${patent.id}`, 'true')
-                          setFounderStoryDismissed(true)
-                        }}
-                        className="px-3 py-1.5 border border-green-300 text-green-700 text-xs font-semibold rounded-lg hover:bg-green-100 transition-colors"
-                      >
-                        Not now
-                      </button>
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -1889,22 +1750,6 @@ Then tell the inventor: "Your founder story is saved in your Correspondence tab.
                   ) : (
                     <p className="text-xs text-gray-400">Figures uploaded — click "View all" to access</p>
                   )}
-                </div>
-              )}
-
-              {/* ── 54A: Founder Story permanent link ────────────────────────────── */}
-              {!isCollaborator && (
-                <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-700">Inventor Story</p>
-                    <p className="text-xs text-gray-400">Capture your journey for marketing & reference.</p>
-                  </div>
-                  <button
-                    onClick={openFounderInterview}
-                    className="text-xs text-indigo-600 hover:underline flex-shrink-0 ml-3"
-                  >
-                    ✨ Founder Story
-                  </button>
                 </div>
               )}
 
@@ -3595,15 +3440,6 @@ Then tell the inventor: "Your founder story is saved in your Correspondence tab.
         />
       )}
     </div>
-  )
-}
-
-// ── Page export: wrap in Suspense for useSearchParams compatibility ──────────
-export default function PatentDetail() {
-  return (
-    <React.Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">Loading...</div>}>
-      <PatentDetailInner />
-    </React.Suspense>
   )
 }
 
