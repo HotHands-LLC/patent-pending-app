@@ -956,6 +956,13 @@ export default function PatentDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, patent?.id])
 
+  // 54C: Clear stale content blast error when patent has no purchase (page reload / navigation)
+  useEffect(() => {
+    if (patent && !(patent as Patent & { content_blast_purchased_at?: string | null }).content_blast_purchased_at) {
+      setContentBlastError(null)
+    }
+  }, [patent?.id])
+
   // Auto-poll claims_status while generating/refining — clears when done or timed out
   useEffect(() => {
     const POLL_STATUSES = ['pending', 'generating', 'refining']
