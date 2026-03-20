@@ -3160,8 +3160,8 @@ export default function PatentDetail() {
           />
         )}
 
-        {/* ── SIGNING REQUESTS (Overview tab, owner only) ──────────────────────── */}
-        {tab === 'details' && !isCollaborator && (
+        {/* ── SIGNING REQUESTS (visible to all patent owners and collaborators) ── */}
+        {tab === 'details' && (
           <SigningRequestsPanel
             patentId={patent.id}
             applicationNumber={patent.application_number}

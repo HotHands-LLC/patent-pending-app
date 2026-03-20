@@ -440,7 +440,7 @@ export default function AdminPage() {
               {(() => {
                 const urgent = stats.patent_table.filter(p => {
                   const d = daysUntil(p.provisional_deadline)
-                  return d !== null && d <= 30
+                  return d !== null && d <= 30 && p.status !== 'granted'
                 })
                 if (!urgent.length) return null
                 return (
