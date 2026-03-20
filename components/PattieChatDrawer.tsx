@@ -14,6 +14,7 @@ interface Suggestion {
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  hidden?: boolean           // if true: included in API history but never rendered (used for initialPrompt)
   suggestion?: Suggestion   // optional inline suggestion card
   suggestionState?: 'pending' | 'applied' | 'rejected' | 'editing'
   editedValue?: string       // if user edits before applying
@@ -332,16 +333,16 @@ export default function PattieChatDrawer({
   }, [messages, patentId, authToken, onFieldApplied])
 
   // ── Send message ──────────────────────────────────────────────────────────
-  const sendMessage = useCallback(async (overrideText?: string) => {
+  const sendMessage = useCallback(async (overrideText?: string, hidden?: boolean) => {
     const text = (overrideText ?? input).trim()
     if (!text || streaming) return
 
     setInput('')
     setError('')
-    const userMsg: Message = { role: 'user', content: text }
-    // Auto-save user message
-    saveMessage('user', text)
-    // Strip suggestion/state from messages when building API payload
+    const userMsg: Message = { role: 'user', content: text, ...(hidden ? { hidden: true } : {}) }
+    // Auto-save user message (don't save hidden/system messages to session history)
+    if (!hidden) saveMessage('user', text)
+    // Strip suggestion/state from messages when building API payload (include hidden for context)
     const apiMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
     setMessages(prev => [...prev, userMsg])
     setStreaming(true)
@@ -474,7 +475,7 @@ export default function PattieChatDrawer({
     if (initialPrompt && !initialPromptFiredRef.current && !streaming) {
       initialPromptFiredRef.current = true
       // Small delay so the drawer renders first
-      setTimeout(() => sendMessage(initialPrompt), 300)
+      setTimeout(() => sendMessage(initialPrompt, true), 300)  // hidden=true: never renders in UI
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPrompt])
@@ -550,7 +551,7 @@ export default function PattieChatDrawer({
             </div>
           )}
 
-          {messages.map((msg, idx) => (
+          {messages.filter(m => !m.hidden).map((msg, idx) => (
             <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
               {msg.role === 'assistant' && <PattieAvatar size={26} />}
               <div className={`max-w-[85%] space-y-2 ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col`}>
