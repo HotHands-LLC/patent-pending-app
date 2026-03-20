@@ -8,12 +8,14 @@ export const maxDuration = 30
 const ACCEPTED_MIME = new Set([
   'application/pdf',
   'text/plain',
+  'text/markdown',         // .md standard MIME
+  'text/x-markdown',      // .md alternate MIME (some OS/browsers)
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/msword',
   'image/png',
   'image/jpeg',
 ])
-const ACCEPTED_EXT = ['.pdf', '.txt', '.docx', '.doc', '.png', '.jpg', '.jpeg']
+const ACCEPTED_EXT = ['.pdf', '.txt', '.md', '.docx', '.doc', '.png', '.jpg', '.jpeg']
 const MAX_BYTES = 10 * 1024 * 1024  // 10MB
 
 // POST /api/correspondence/upload

@@ -12,7 +12,7 @@ interface Props {
   onTierRequired?: () => void
 }
 
-const ATTACHMENT_ACCEPT = '.pdf,.txt,.docx,.doc,.png,.jpg,.jpeg'
+const ATTACHMENT_ACCEPT = '.pdf,.txt,.md,.docx,.doc,.png,.jpg,.jpeg'
 const MAX_ATTACH_BYTES = 10 * 1024 * 1024
 
 function formatBytes(b: number) {
@@ -240,7 +240,7 @@ export default function CorrespondenceForm({ patents, preselectedPatentId, owner
             onClick={() => fileRef.current?.click()}
             className="w-full px-4 py-2.5 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-gray-400 hover:bg-gray-50 transition-colors text-left"
           >
-            📎 Attach a file — PDF, TXT, DOCX, PNG, JPG (max 10MB)
+            📎 Attach a file — PDF, TXT, MD, DOCX, PNG, JPG (max 10MB)
           </button>
         )}
         <input

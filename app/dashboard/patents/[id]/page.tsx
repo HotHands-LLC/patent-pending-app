@@ -213,7 +213,7 @@ function fileIcon(type: string): string {
   if (type.includes('word') || type.includes('doc')) return '📝'
   if (type.startsWith('image/')) return '🖼️'
   if (type === 'text/plain') return '📃'
-  if (type === 'text/markdown') return '🗒️'
+  if (type === 'text/markdown' || type === 'text/x-markdown') return '🗒️'
   return '📁'
 }
 
