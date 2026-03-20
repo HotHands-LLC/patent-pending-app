@@ -63,6 +63,18 @@ export type Patent = {
   patent_number?: string | null
   ownership_verified?: boolean
   entity_status?: 'micro' | 'small' | 'large' | null  // cont.30 10C
+  // Prompt 52B — Pattie tool layer
+  office_action_deadline?: string | null  // DATE — office action response deadline
+  maintenance_next_at?: string | null     // DATE — next maintenance fee due date
+  flagged_for_review?: boolean | null     // boolean — flagged for urgent owner review
+  // Additional fields used by Pattie
+  background?: string | null
+  summary_of_invention?: string | null
+  detailed_description?: string | null
+  brief_description_of_drawings?: string | null
+  inventor_name?: string | null
+  uspto_customer_number?: string | null
+  lifecycle_state?: string | null
 }
 
 export type PatentDeadline = {

@@ -23,12 +23,17 @@ export type PatentLifecycleState =
   | 'EXPIRED'
   | 'ABANDONED'
 
+export interface PatentContext {
+  patent: Patent & { lifecycle_state?: string | null }
+  pendingSigningRequests?: number  // count of open signing requests for this patent
+}
+
 export interface BlockingCondition {
   id: string
   label: string
   description: string
   blocking_state: PatentLifecycleState
-  check: (patent: Patent) => boolean // returns true if condition IS blocking (problem exists)
+  check: (context: PatentContext) => boolean // returns true if condition IS blocking (problem exists)
   resolution: string
   pattie_can_act: boolean
   pattie_action?: string
@@ -64,7 +69,7 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'Missing title',
     description: 'Patent must have a title before it can be filed.',
     blocking_state: 'DRAFT',
-    check: (p) => !p.title || p.title.trim() === '',
+    check: (context) => !context.patent.title || context.patent.title.trim() === '',
     resolution: 'Add a title to the patent.',
     pattie_can_act: false,
   },
@@ -73,7 +78,7 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'Missing abstract',
     description: 'Patent must have an abstract draft before it can be filed.',
     blocking_state: 'DRAFT',
-    check: (p) => !p.abstract_draft || p.abstract_draft.trim() === '',
+    check: (context) => !context.patent.abstract_draft || context.patent.abstract_draft.trim() === '',
     resolution: 'Draft the abstract for this patent.',
     pattie_can_act: false,
   },
@@ -82,7 +87,7 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'Missing claims draft',
     description: 'Patent must have at least a draft of the claims before filing.',
     blocking_state: 'DRAFT',
-    check: (p) => !p.claims_draft || p.claims_draft.trim() === '',
+    check: (context) => !context.patent.claims_draft || context.patent.claims_draft.trim() === '',
     resolution: 'Generate or draft the patent claims.',
     pattie_can_act: false,
   },
@@ -92,7 +97,7 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'No figures attached',
     description: 'Patent applications typically require at least one figure to illustrate the invention.',
     blocking_state: 'DRAFT',
-    check: (p) => !p.figures_uploaded,
+    check: (context) => !context.patent.figures_uploaded,
     resolution: 'Upload at least one figure or drawing for this patent.',
     pattie_can_act: false,
   },
@@ -103,10 +108,7 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'Pending inventor signatures',
     description: 'All inventors must sign the declaration before filing.',
     blocking_state: 'READY_TO_FILE',
-    // Signing state is tracked via the patent_signing_requests table (relational).
-    // At this data layer we can't join — assume not blocking unless a flag exists.
-    // The UI/hook layer can override via the signing requests panel.
-    check: (_p) => false,
+    check: (context) => (context.pendingSigningRequests ?? 0) > 0,
     resolution: 'Send signing requests to all inventors and wait for completion.',
     pattie_can_act: true,
     pattie_action: 'create_signing_request',
@@ -118,7 +120,7 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'Missing filing confirmation',
     description: 'Filing date must be confirmed at the USPTO before this application is active.',
     blocking_state: 'FILED_PROVISIONAL',
-    check: (p) => !p.filing_date,
+    check: (context) => !context.patent.filing_date,
     resolution: 'Chad must confirm the USPTO filing date manually.',
     pattie_can_act: false,
   },
@@ -129,8 +131,8 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'Conversion deadline approaching',
     description: 'Non-provisional conversion deadline is within 60 days.',
     blocking_state: 'PROVISIONAL_ACTIVE',
-    check: (p) => {
-      const days = daysUntil(p.nonprov_deadline_at)
+    check: (context) => {
+      const days = daysUntil(context.patent.nonprov_deadline_at)
       return days !== null && days >= 0 && days <= 60
     },
     resolution: 'Begin the non-provisional conversion process immediately.',
@@ -142,8 +144,8 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'Conversion deadline PASSED',
     description: 'The 12-month window to convert from provisional to non-provisional has expired.',
     blocking_state: 'PROVISIONAL_ACTIVE',
-    check: (p) => {
-      const days = daysUntil(p.nonprov_deadline_at)
+    check: (context) => {
+      const days = daysUntil(context.patent.nonprov_deadline_at)
       return days !== null && days < 0
     },
     resolution: 'Consult a patent attorney immediately — priority date may be lost.',
@@ -157,10 +159,9 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'Office action response deadline ≤ 30 days',
     description: 'USPTO office action response is due within 30 days.',
     blocking_state: 'OFFICE_ACTION',
-    // No dedicated office_action_deadline_at column in current schema.
-    // This condition is surfaced when the patent enters OFFICE_ACTION state;
-    // the check always returns true so Pattie flags it for attorney review.
-    check: (_p) => true,
+    check: (context) =>
+      context.patent.office_action_deadline != null &&
+      (daysUntil(context.patent.office_action_deadline?.toString()) ?? 999) <= 30,
     resolution: 'Assign to patent attorney for office action response immediately.',
     pattie_can_act: true,
     pattie_action: 'flag_for_review',
@@ -172,8 +173,9 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     label: 'Maintenance fee due soon',
     description: 'Next patent maintenance fee is due within 90 days.',
     blocking_state: 'GRANTED',
-    // No maintenance_next_at column in current schema; check is latent (always false until column added).
-    check: (_p) => false,
+    check: (context) =>
+      context.patent.maintenance_next_at != null &&
+      (daysUntil(context.patent.maintenance_next_at?.toString()) ?? 999) <= 90,
     resolution: 'Pay the maintenance fee to keep the patent in force.',
     pattie_can_act: true,
     pattie_action: 'send_reminder',
@@ -341,11 +343,11 @@ export const PATENT_LIFECYCLE: Record<PatentLifecycleState, LifecycleStateDefini
  * Returns all currently-active blocking conditions for a patent.
  * Only conditions matching the patent's current lifecycle_state are evaluated.
  */
-export function getBlockingConditions(patent: Patent & { lifecycle_state?: string | null }): BlockingCondition[] {
-  const state = (patent.lifecycle_state ?? 'DRAFT') as PatentLifecycleState
+export function getBlockingConditions(context: PatentContext): BlockingCondition[] {
+  const state = (context.patent.lifecycle_state ?? 'DRAFT') as PatentLifecycleState
   const stateDef = PATENT_LIFECYCLE[state]
   if (!stateDef) return []
-  return stateDef.blocking_conditions.filter(c => c.check(patent))
+  return stateDef.blocking_conditions.filter(c => c.check(context))
 }
 
 /**

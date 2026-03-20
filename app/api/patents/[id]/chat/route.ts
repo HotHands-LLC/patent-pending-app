@@ -1,7 +1,20 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { isAIMLPatent, DESJARDINS_BLOCK } from '@/lib/pattie-desjardins'
-import { POLISH_SOP_BLOCK, parseSessionSummary, stripSessionSummary } from '@/lib/pattie-sop'
+import { POLISH_SOP_BLOCK, parseSessionSummary } from '@/lib/pattie-sop'
+import {
+  getBlockingConditions,
+  getNextNodes,
+  PATENT_LIFECYCLE,
+  type PatentContext,
+  type PatentLifecycleState,
+} from '@/lib/patent-lifecycle'
+import {
+  PATTIE_TOOLS,
+  toAnthropicTools,
+  executePattieTools,
+  type PattieToolName,
+} from '@/lib/pattie-tools'
 
 export const maxDuration = 60
 
@@ -87,8 +100,9 @@ const SUGGEST_TOOL = {
 
 /**
  * POST /api/patents/[id]/chat
- * Streams a Pattie response using Anthropic claude-sonnet-4-6.
+ * Streams a Pattie response using the configured AI model.
  * Supports suggest_field_update tool use — user must confirm before any write.
+ * Supports Pattie action tools (6 tools) — executed server-side, results streamed.
  * System prompt is server-side only — never exposed to client.
  */
 export async function POST(
@@ -129,7 +143,9 @@ export async function POST(
       id, owner_id, title, spec_draft, claims_draft, abstract_draft,
       current_phase, inventors, status, filing_status, provisional_app_number,
       provisional_filed_at, nonprov_deadline_at, entity_status, uspto_customer_number,
-      tags, description, figure_descriptions, figures_uploaded
+      tags, description, figure_descriptions, figures_uploaded,
+      lifecycle_state, office_action_deadline, maintenance_next_at, flagged_for_review,
+      filing_date
     `)
     .eq('id', patentId)
     .single()
@@ -169,6 +185,31 @@ export async function POST(
     .eq('patent_id', patentId)
     .order('created_at', { ascending: false })
     .limit(1)
+
+  // ── Fetch pending signing requests count ──────────────────────────────────
+  const { count: pendingSigningCount } = await supabaseService
+    .from('patent_signing_requests')
+    .select('id', { count: 'exact', head: true })
+    .eq('patent_id', patentId)
+    .in('status', ['pending', 'viewed'])
+
+  // ── Build PatentContext for lifecycle ─────────────────────────────────────
+  const patentContext: PatentContext = {
+    patent: patent as Parameters<typeof getBlockingConditions>[0]['patent'],
+    pendingSigningRequests: pendingSigningCount ?? 0,
+  }
+
+  const lifecycleState = (patent.lifecycle_state ?? 'DRAFT') as PatentLifecycleState
+  const lifecycleDef = PATENT_LIFECYCLE[lifecycleState]
+  const blockingConditions = getBlockingConditions(patentContext)
+  const nextStates = getNextNodes(lifecycleState)
+
+  const blockingSummary = blockingConditions.length > 0
+    ? blockingConditions.map(c => `• ${c.label}: ${c.resolution}`).join('\n')
+    : 'None'
+  const nextStatesSummary = nextStates.length > 0
+    ? nextStates.map(s => PATENT_LIFECYCLE[s]?.label ?? s).join(', ')
+    : 'Terminal state'
 
   // ── Build context strings (with sanitization) ─────────────────────────────
   const specText     = sanitizeContent(patent.spec_draft ?? 'No specification written yet.', 'spec_draft')
@@ -315,12 +356,32 @@ WHAT YOU NEVER DO:
 TONE: Friendly, knowledgeable, professional. Short by default, thorough when asked.
 ${patent.status === 'granted' ? `\nPOST-GRANT: Focus on licensing, maintenance fees, and commercialization. Do not suggest filing steps.` : ''}
 ${POLISH_SOP_BLOCK}
-${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
+${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}
 
-  console.log('[pattie/chat] patent:', patent.title, '| entity:', entityStatus, '| phase:', currentStep)
+TOOL USE RULES:
+- You have access to 6 action tools: create_signing_request, send_reminder, create_correspondence, flag_for_review, notify_owner, generate_ids_draft.
+- Only invoke a tool when the user has explicitly asked you to take action, or when you have identified a blocking condition and received explicit user confirmation.
+- Always tell the user what you are about to do before invoking a tool. Never invoke silently.
+- After a tool completes, narrate what happened in plain English.
+- If a tool fails, explain the error clearly and suggest what the user can do manually.
+- Never say any AI model name. You are Pattie.
+
+PATENT STATE:
+Lifecycle state: ${lifecycleState} (${lifecycleDef?.label ?? lifecycleState})
+Phase: ${lifecycleDef?.phase ?? 'unknown'}
+Blocking conditions: ${blockingSummary}
+Next states: ${nextStatesSummary}`
+
+  console.log('[pattie/chat] patent:', patent.title, '| entity:', entityStatus, '| phase:', currentStep, '| lifecycle:', lifecycleState)
+
+  // ── All tools: suggest_field_update + 6 Pattie action tools ──────────────
+  const allTools = [SUGGEST_TOOL, ...toAnthropicTools(PATTIE_TOOLS)]
 
   // ── Helper: call Anthropic with streaming ─────────────────────────────────
-  async function callAnthropic(msgs: { role: 'user' | 'assistant'; content: string }[]) {
+  async function callAnthropic(
+    msgs: Array<{ role: 'user' | 'assistant'; content: string | unknown[] }>,
+    includeTools = true
+  ) {
     return fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -333,8 +394,7 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
         max_tokens: 4096,
         stream: true,
         system: systemPrompt,
-        tools: [SUGGEST_TOOL],
-        tool_choice: { type: 'auto' },
+        ...(includeTools ? { tools: allTools, tool_choice: { type: 'auto' } } : {}),
         messages: msgs,
       }),
     })
@@ -362,11 +422,14 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
         const reader1 = res1.body.getReader()
         let buffer = ''
 
-        // Collect tool use state
-        let toolUseActive = false
-        let toolInputJson = ''
-        let toolUseId     = ''
-        let toolName      = ''
+        // Collect tool use state — supports multiple tools in one turn
+        interface ToolUseBlock {
+          id: string
+          name: string
+          inputJson: string
+        }
+        const toolUseBlocks: ToolUseBlock[] = []
+        let activeToolIndex = -1
         let assistantTextSoFar = ''
         let stopReason    = ''
 
@@ -393,15 +456,24 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
 
               // Tool use block start
               if (parsed.type === 'content_block_start' && parsed.content_block?.type === 'tool_use') {
-                toolUseActive = true
-                toolInputJson = ''
-                toolUseId     = parsed.content_block.id ?? ''
-                toolName      = parsed.content_block.name ?? ''
+                activeToolIndex = toolUseBlocks.length
+                toolUseBlocks.push({
+                  id: parsed.content_block.id ?? '',
+                  name: parsed.content_block.name ?? '',
+                  inputJson: '',
+                })
               }
 
               // Tool input delta (streamed JSON)
               if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'input_json_delta') {
-                toolInputJson += parsed.delta.partial_json ?? ''
+                if (activeToolIndex >= 0 && toolUseBlocks[activeToolIndex]) {
+                  toolUseBlocks[activeToolIndex].inputJson += parsed.delta.partial_json ?? ''
+                }
+              }
+
+              // Block stop — reset active index
+              if (parsed.type === 'content_block_stop') {
+                activeToolIndex = -1
               }
 
               // Message stop reason
@@ -414,76 +486,85 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
         reader1.releaseLock()
 
         // ── Handle tool use ───────────────────────────────────────────────
-        if (toolUseActive && stopReason === 'tool_use' && toolName === 'suggest_field_update') {
-          let toolInput: Record<string, string> = {}
-          try { toolInput = JSON.parse(toolInputJson) } catch {
-            console.warn('[pattie/chat] Could not parse tool input JSON:', toolInputJson)
+        if (toolUseBlocks.length > 0 && stopReason === 'tool_use') {
+          // Build assistant turn content
+          const assistantContent: unknown[] = []
+          if (assistantTextSoFar) {
+            assistantContent.push({ type: 'text', text: assistantTextSoFar })
           }
 
-          const fieldName = toolInput.field_name ?? ''
-          const isAllowed = PATTIE_WRITABLE_FIELDS.has(fieldName)
+          const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string }> = []
 
-          if (isAllowed) {
-            // Emit suggestion to client
-            emit({
-              suggestion: {
-                tool_use_id:    toolUseId,
-                field_name:     fieldName,
-                proposed_value: toolInput.proposed_value ?? '',
-                reasoning:      toolInput.reasoning ?? '',
-                confidence:     toolInput.confidence ?? 'medium',
-              }
+          for (const block of toolUseBlocks) {
+            let toolInput: Record<string, unknown> = {}
+            try { toolInput = JSON.parse(block.inputJson) } catch {
+              console.warn('[pattie/chat] Could not parse tool input JSON:', block.inputJson)
+            }
+
+            assistantContent.push({
+              type: 'tool_use',
+              id: block.id,
+              name: block.name,
+              input: toolInput,
             })
-          } else {
-            console.warn(`[pattie/chat] Tool call targeting non-whitelisted field: "${fieldName}" — silently rejected`)
+
+            // ── suggest_field_update: existing UI suggestion flow ─────────
+            if (block.name === 'suggest_field_update') {
+              const fieldName = (toolInput.field_name as string) ?? ''
+              const isAllowed = PATTIE_WRITABLE_FIELDS.has(fieldName)
+
+              if (isAllowed) {
+                emit({
+                  suggestion: {
+                    tool_use_id:    block.id,
+                    field_name:     fieldName,
+                    proposed_value: toolInput.proposed_value ?? '',
+                    reasoning:      toolInput.reasoning ?? '',
+                    confidence:     toolInput.confidence ?? 'medium',
+                  }
+                })
+              } else {
+                console.warn(`[pattie/chat] Tool call targeting non-whitelisted field: "${fieldName}" — silently rejected`)
+              }
+
+              const toolResultContent = isAllowed
+                ? 'Suggestion presented to user. They will review and confirm or reject.'
+                : 'Field not available for update at this time.'
+
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: toolResultContent,
+              })
+
+            } else {
+              // ── Pattie action tools ───────────────────────────────────
+              const toolName = block.name as PattieToolName
+              const actionContext = {
+                patentId,
+                userId: user.id,
+                supabase: supabaseService,
+              }
+
+              const toolResult = await executePattieTools(toolName, toolInput, actionContext)
+              emit({ type: 'tool_invoked', tool: toolName, result: toolResult })
+
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: JSON.stringify(toolResult),
+              })
+            }
           }
 
-          // ── Second API call: send tool result, get follow-up text ────────
-          const toolResultContent = isAllowed
-            ? 'Suggestion presented to user. They will review and confirm or reject.'
-            : 'Field not available for update at this time.'
-
-          const followUpMessages = [
+          // ── Follow-up API call: send tool results, get final text ─────
+          const followUpMessages: Array<{ role: 'user' | 'assistant'; content: string | unknown[] }> = [
             ...messages,
-            {
-              role: 'assistant' as const,
-              content: [
-                ...(assistantTextSoFar ? [{ type: 'text', text: assistantTextSoFar }] : []),
-                {
-                  type: 'tool_use',
-                  id: toolUseId,
-                  name: toolName,
-                  input: toolInput,
-                },
-              ],
-            },
-            {
-              role: 'user' as const,
-              content: [
-                {
-                  type: 'tool_result',
-                  tool_use_id: toolUseId,
-                  content: toolResultContent,
-                },
-              ],
-            },
+            { role: 'assistant' as const, content: assistantContent },
+            { role: 'user' as const, content: toolResults },
           ]
 
-          const res2 = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': process.env.ANTHROPIC_API_KEY!,
-              'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-              model: 'claude-sonnet-4-6',
-              max_tokens: 1024,
-              stream: true,
-              system: systemPrompt,
-              messages: followUpMessages,
-            }),
-          })
+          const res2 = await callAnthropic(followUpMessages, false)
 
           if (res2.ok && res2.body) {
             const reader2 = res2.body.getReader()
@@ -501,7 +582,9 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
                 try {
                   const p2 = JSON.parse(data2)
                   if (p2.type === 'content_block_delta' && p2.delta?.type === 'text_delta') {
-                    emit({ text: p2.delta.text })
+                    const t2 = p2.delta.text
+                    assistantTextSoFar += t2
+                    emit({ text: t2 })
                   }
                 } catch { /* skip */ }
               }
@@ -512,8 +595,8 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
 
         // ── Desjardins claims warning flag (Step D) ───────────────────
         const lastUserMsg = messages[messages.length - 1]?.content ?? ''
-        const touchesClaims = /claim|claims|independent|dependent|method.compris|apparatus.compris/i.test(lastUserMsg)
-        const hasAbstractLang = /calculates|determines|processes|applies a model|uses machine learning|applying.*neural|executing.*algorithm/i.test(lastUserMsg + ' ' + assistantTextSoFar)
+        const touchesClaims = /claim|claims|independent|dependent|method.compris|apparatus.compris/i.test(lastUserMsg as string)
+        const hasAbstractLang = /calculates|determines|processes|applies a model|uses machine learning|applying.*neural|executing.*algorithm/i.test((lastUserMsg as string) + ' ' + assistantTextSoFar)
         const isAiMl = isAIMLPatent(patent as { tags?: string[] | null; title?: string | null; abstract_draft?: string | null; description?: string | null })
 
         if (isAiMl && touchesClaims && hasAbstractLang) {
@@ -521,8 +604,6 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
         }
 
         // ── Phase 5 — Session memory: parse summary block and save to correspondence ──
-        // Pattie includes ---PATTIE-SESSION-SUMMARY--- block in substantive review/polish responses.
-        // Strip it from the stream (not user-visible), save to correspondence non-blocking.
         const fullAssistantText = assistantTextSoFar
         const sessionSummary = parseSessionSummary(fullAssistantText)
         if (sessionSummary) {
@@ -554,8 +635,6 @@ ${isAIMLPatent(patent) ? DESJARDINS_BLOCK : ''}`
             else console.log('[pattie/chat] Phase 5 session summary saved to correspondence')
           })
 
-          // Emit a stripped version (no summary block) — already streamed, so this is a post-stream
-          // signal to client to strip the block from its local state
           emit({ type: 'session_summary_saved', summary: sessionSummary })
         }
 
