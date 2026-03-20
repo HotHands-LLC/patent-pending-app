@@ -28,6 +28,25 @@ import IDSCandidatesTab from '@/components/patents/IDSCandidatesTab'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 import SigningRequestsPanel from '@/components/signing/SigningRequestsPanel'
 import { usePatentLifecycle } from '@/hooks/usePatentLifecycle'
+
+// ── 54B: Content Blast types ──────────────────────────────────────────────────
+interface ContentPiece {
+  day: number
+  type: string
+  title: string
+  purpose: string
+  platforms: Record<string, string>
+  suggested_visual?: string
+}
+
+interface ContentBlast {
+  pieces: ContentPiece[]
+  marketplace_description: string
+  tagline: string
+  correspondence_id?: string
+  marketplace_corr_id?: string
+  success?: boolean
+}
 import PattieEntryCard from '@/components/patents/PattieEntryCard'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -674,6 +693,13 @@ export default function PatentDetail() {
   // 54A: Founder story state
   const [hasFounderStory, setHasFounderStory] = useState(false)
   const [founderStoryDismissed, setFounderStoryDismissed] = useState(false)
+  // 54B: Content Blast state
+  const [hasContentBlast, setHasContentBlast] = useState(false)
+  const [contentBlastLoading, setContentBlastLoading] = useState(false)
+  const [contentBlastError, setContentBlastError] = useState<string | null>(null)
+  const [contentBlastData, setContentBlastData] = useState<ContentBlast | null>(null)
+  const [showContentBlastModal, setShowContentBlastModal] = useState(false)
+  const [contentBlastTab, setContentBlastTab] = useState(0)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -874,7 +900,7 @@ export default function PatentDetail() {
     setFounderStoryDismissed(localStorage.getItem(`founder_story_dismissed_${patent.id}`) === 'true')
   }, [patent?.id])
 
-  // 54A: Check if founder story correspondence exists
+  // 54A + 54B: Check if founder story and content blast correspondence exist
   useEffect(() => {
     if (!patent?.id) return
     const check = async () => {
@@ -887,6 +913,15 @@ export default function PatentDetail() {
           .limit(1)
         setHasFounderStory((data?.length ?? 0) > 0)
       } catch { setHasFounderStory(false) }
+      try {
+        const blastRows = await supabase
+          .from('patent_correspondence')
+          .select('id')
+          .eq('patent_id', patent.id)
+          .contains('tags', ['content_blast'])
+          .limit(1)
+        setHasContentBlast((blastRows.data?.length ?? 0) > 0)
+      } catch { setHasContentBlast(false) }
     }
     check()
   }, [patent?.id])
@@ -1209,6 +1244,38 @@ Cover these in natural order: (1) What it does, (2) The origin spark, (3) The pr
 After 6-10 exchanges, say you have what you need and ask if they want to add anything. Then use the create_correspondence tool to save a structured founder story document with sections: The Invention, The Origin, The Problem It Solves, The Journey, The Vision, In Their Own Words, Their Platforms, Pattie's Notes. Title it "Founder Story — ${title}". Type: "other".
 
 Then confirm: "Your founder story is saved in your Correspondence tab. When you're ready to turn it into social posts, just ask."`)
+  }
+
+  // 54B: Content Blast handler
+  async function handleContentBlast() {
+    setContentBlastLoading(true)
+    setContentBlastError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const res = await fetch(`/api/patents/${patent!.id}/content-blast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        if (data.error === 'no_founder_story') {
+          setContentBlastError('Complete the Founder Interview first to unlock Content Blast.')
+        } else {
+          setContentBlastError(data.message ?? 'Generation failed.')
+        }
+        return
+      }
+      setContentBlastData(data as ContentBlast)
+      setHasContentBlast(true)
+      setContentBlastTab(0)
+      setShowContentBlastModal(true)
+    } catch {
+      setContentBlastError('Network error. Please try again.')
+    } finally {
+      setContentBlastLoading(false)
+    }
   }
 
   // 52E: localStorage dismiss helpers for Pattie entry cards
@@ -1822,6 +1889,33 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                 </div>
               )}
 
+              {/* 54B: Content Blast card */}
+              {!isCollaborator && (
+                <div className="rounded-xl border border-purple-100 bg-purple-50 p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">🚀</span>
+                    <p className="text-xs font-semibold text-purple-900">Content Blast</p>
+                  </div>
+                  <p className="text-xs text-purple-700 mb-3">Turn your founder story into 7 days of content — ready to copy and post.</p>
+                  {hasContentBlast ? (
+                    <button onClick={() => { setShowContentBlastModal(true) }} className="text-xs text-purple-700 hover:underline">View Content →</button>
+                  ) : isPro ? (
+                    <button
+                      onClick={handleContentBlast}
+                      disabled={contentBlastLoading}
+                      className="px-3 py-1.5 bg-purple-700 text-white text-xs font-semibold rounded-lg hover:bg-purple-800 disabled:opacity-50 transition-colors"
+                    >
+                      {contentBlastLoading ? 'Generating…' : 'Generate Content'}
+                    </button>
+                  ) : (
+                    <button onClick={() => setUpgradeFeature('content_blast')} className="px-3 py-1.5 border border-purple-300 text-purple-700 text-xs font-semibold rounded-lg hover:bg-purple-100 transition-colors">
+                      Upgrade to Pro
+                    </button>
+                  )}
+                  {contentBlastError && <p className="text-xs text-red-600 mt-2">{contentBlastError}</p>}
+                </div>
+              )}
+
               {!isCollaborator && (
                 <div className={`rounded-xl border p-5 ${
                   (patent as Patent & { arc3_active?: boolean }).arc3_active
@@ -2069,6 +2163,35 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
             }}
             onClose={() => setShowArc3Modal(false)}
           />
+        )}
+
+        {/* ── 54B: CONTENT BLAST MODAL ────────────────────────────────────────── */}
+        {showContentBlastModal && contentBlastData && (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h2 className="font-bold text-lg">🚀 Content Blast</h2>
+                <button onClick={() => setShowContentBlastModal(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              </div>
+              {/* Tab bar */}
+              <div className="flex overflow-x-auto border-b px-4 gap-1 pt-2">
+                {[...contentBlastData.pieces.map(p => p.title.replace('Day ', 'D')), 'Marketplace'].map((tab, i) => (
+                  <button key={i} onClick={() => setContentBlastTab(i)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-t whitespace-nowrap ${contentBlastTab === i ? 'bg-purple-100 text-purple-800' : 'text-gray-500 hover:text-gray-700'}`}>
+                    {tab}
+                  </button>
+                ))}
+              </div>
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-4">
+                {contentBlastTab < contentBlastData.pieces.length ? (
+                  <ContentPieceView piece={contentBlastData.pieces[contentBlastTab]} />
+                ) : (
+                  <MarketplaceView blast={contentBlastData} />
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ── ARC 3 ONBOARDING INTERVIEW MODAL ────────────────────────────────── */}
@@ -3783,6 +3906,106 @@ function LeadsPanel({ patentId, authToken }: { patentId: string; authToken: stri
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ── 54B: Content Blast Modal Sub-components ───────────────────────────────────
+
+function ContentPieceView({ piece }: { piece: ContentPiece }) {
+  const [copied, setCopied] = React.useState<string | null>(null)
+
+  function copy(key: string, text: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key)
+      setTimeout(() => setCopied(null), 2000)
+    })
+  }
+
+  const isDay7 = piece.type === 'video_script'
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="font-semibold text-gray-900">{piece.title}</h3>
+        <p className="text-xs text-gray-500 mt-0.5">{piece.purpose}</p>
+      </div>
+      {Object.entries(piece.platforms).map(([platform, text]) => (
+        <div key={platform} className="border border-gray-200 rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
+            <span className="text-xs font-semibold text-gray-700 capitalize">{platform.replace('_', ' ')}</span>
+            <div className="flex gap-2">
+              {isDay7 && platform === 'video_script' && (
+                <button
+                  onClick={() => {
+                    const blob = new Blob([text], { type: 'text/plain' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `video-script-${piece.title.replace(/\s+/g, '-').toLowerCase()}.txt`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                >
+                  ↓ Download
+                </button>
+              )}
+              <button
+                onClick={() => copy(platform, text)}
+                className="text-xs text-purple-600 hover:text-purple-800 font-medium"
+              >
+                {copied === platform ? '✓ Copied!' : 'Copy'}
+              </button>
+            </div>
+          </div>
+          <pre className="p-3 text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{text}</pre>
+        </div>
+      ))}
+      {piece.suggested_visual && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+          <p className="text-xs font-semibold text-amber-800 mb-0.5">📸 Visual suggestion</p>
+          <p className="text-xs text-amber-700">{piece.suggested_visual}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MarketplaceView({ blast }: { blast: ContentBlast }) {
+  const [copiedDesc, setCopiedDesc] = React.useState(false)
+  const [copiedTag, setCopiedTag] = React.useState(false)
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="font-semibold text-gray-900">Marketplace &amp; Tagline</h3>
+        <p className="text-xs text-gray-500 mt-0.5">Use these on your marketplace listing to attract licensees and buyers.</p>
+      </div>
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
+          <span className="text-xs font-semibold text-gray-700">Marketplace Description</span>
+          <button
+            onClick={() => { navigator.clipboard.writeText(blast.marketplace_description).then(() => { setCopiedDesc(true); setTimeout(() => setCopiedDesc(false), 2000) }) }}
+            className="text-xs text-purple-600 hover:text-purple-800 font-medium"
+          >
+            {copiedDesc ? '✓ Copied!' : 'Copy'}
+          </button>
+        </div>
+        <p className="p-3 text-sm text-gray-700 leading-relaxed">{blast.marketplace_description}</p>
+      </div>
+      <div className="border border-purple-200 rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-2 bg-purple-50 border-b border-purple-200">
+          <span className="text-xs font-semibold text-purple-800">Tagline</span>
+          <button
+            onClick={() => { navigator.clipboard.writeText(blast.tagline).then(() => { setCopiedTag(true); setTimeout(() => setCopiedTag(false), 2000) }) }}
+            className="text-xs text-purple-600 hover:text-purple-800 font-medium"
+          >
+            {copiedTag ? '✓ Copied!' : 'Copy'}
+          </button>
+        </div>
+        <p className="p-4 text-base font-semibold text-purple-900 italic">&ldquo;{blast.tagline}&rdquo;</p>
+      </div>
     </div>
   )
 }
