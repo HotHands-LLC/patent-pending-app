@@ -82,11 +82,15 @@ function PartnersChatWidget() {
   const [streamingText, setStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [rateLimited, setRateLimited] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const bottomRef          = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const inputRef           = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // Scroll within the chat container only — never escape to window
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
   }, [messages, streamingText])
 
   const SUGGESTIONS = [
@@ -199,7 +203,7 @@ function PartnersChatWidget() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4">
         {isEmpty && (
           <div className="mb-6">
             <div className="text-sm text-slate-500 mb-4 text-center">

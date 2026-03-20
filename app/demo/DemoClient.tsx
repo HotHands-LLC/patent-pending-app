@@ -105,8 +105,9 @@ export default function DemoClient() {
   const [streamingText, setStreamingText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [rateLimited, setRateLimited] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef  = useRef<HTMLTextAreaElement>(null)
+  const bottomRef          = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const inputRef           = useRef<HTMLTextAreaElement>(null)
   const hasLoadedRef = useRef(false)
 
   // Load from sessionStorage on mount (preserves within-session history)
@@ -122,9 +123,11 @@ export default function DemoClient() {
     if (messages.length > 0) saveHistory(messages)
   }, [messages])
 
-  // Auto-scroll
+  // Auto-scroll — scoped to container, never escapes to window
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
   }, [messages, streamingText])
 
   const sendMessage = useCallback(async (text: string) => {
@@ -239,7 +242,7 @@ export default function DemoClient() {
       </div>
 
       {/* ── Chat area ──────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 sm:px-6">
         <div className="max-w-2xl mx-auto py-4">
 
           {/* Empty state hero */}

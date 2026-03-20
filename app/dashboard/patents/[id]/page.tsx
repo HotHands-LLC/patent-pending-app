@@ -3451,7 +3451,8 @@ function Arc3InterviewModal({ patentId, patentTitle, authToken, onClose }: {
   const [input, setInput] = React.useState('')
   const [streaming, setStreaming] = React.useState(false)
   const [briefSaved, setBriefSaved] = React.useState(false)
-  const bottomRef = React.useRef<HTMLDivElement>(null)
+  const bottomRef          = React.useRef<HTMLDivElement>(null)
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null)
 
   // Kick off interview on mount
   React.useEffect(() => {
@@ -3460,7 +3461,10 @@ function Arc3InterviewModal({ patentId, patentTitle, authToken, onClose }: {
   }, [])
 
   React.useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // Scroll within the chat container only — never escape to window
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
   }, [messages, streaming])
 
   async function sendMessage(userText?: string) {
@@ -3534,7 +3538,7 @@ function Arc3InterviewModal({ patentId, patentTitle, authToken, onClose }: {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${

@@ -174,14 +174,17 @@ export default function PattieInterviewDrawer({
   const [error, setError]           = useState<string | null>(null)
   const [showInput, setShowInput]   = useState(false)
 
-  const bottomRef    = useRef<HTMLDivElement>(null)
-  const inputRef     = useRef<HTMLTextAreaElement>(null)
-  const abortRef     = useRef<AbortController | null>(null)
-  const openingFired = useRef(false)
+  const bottomRef          = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const inputRef           = useRef<HTMLTextAreaElement>(null)
+  const abortRef           = useRef<AbortController | null>(null)
+  const openingFired       = useRef(false)
 
-  // Auto-scroll
+  // Auto-scroll — scoped to container, never escapes to window
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
   }, [messages, streaming])
 
   // ── Fire opening message on mount ────────────────────────────────────────
@@ -410,8 +413,8 @@ export default function PattieInterviewDrawer({
         </button>
       </div>
 
-      {/* Chat area */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      {/* Chat area — scroll container scoped here, never escapes to window */}
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.map((msg, idx) => (
           <div
             key={idx}

@@ -153,8 +153,9 @@ export default function HomepageClient({ listings }: { listings: FeaturedListing
   const [showGate, setShowGate] = useState(false)
   const [gatedIntentCount, setGatedIntentCount] = useState(0)
   const [rateLimited, setRateLimited] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef  = useRef<HTMLTextAreaElement>(null)
+  const bottomRef          = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const inputRef           = useRef<HTMLTextAreaElement>(null)
   const loadedRef = useRef(false)
 
   useEffect(() => {
@@ -171,7 +172,10 @@ export default function HomepageClient({ listings }: { listings: FeaturedListing
   }, [messages])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // Scroll within the chat container only — never escape to window
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
   }, [messages, streamText])
 
   function handleSignupClick() {
@@ -277,7 +281,7 @@ export default function HomepageClient({ listings }: { listings: FeaturedListing
       </nav>
 
       {/* ── Chat area ─────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 sm:px-6">
         <div className="max-w-2xl mx-auto py-6">
 
           {/* Hero (shown when empty) */}

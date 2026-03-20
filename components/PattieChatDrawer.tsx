@@ -243,6 +243,7 @@ export default function PattieChatDrawer({
   const [thinkingStatus, setThinkingStatus] = useState<string | null>(null)
   const thinkingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
   const abortRef  = useRef<AbortController | null>(null)
   const initialPromptFiredRef = useRef(false)
@@ -295,7 +296,12 @@ export default function PattieChatDrawer({
     }
   }, [messages, saveSummaryAndClose])
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streaming])
+  useEffect(() => {
+    // Scroll within the chat container only — never escape to window
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
+  }, [messages, streaming])
   useEffect(() => { inputRef.current?.focus() }, [])
 
   // ── Apply suggestion via PATCH ─────────────────────────────────────────────
@@ -521,8 +527,8 @@ export default function PattieChatDrawer({
           </div>
         </div>
 
-        {/* Message list */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {/* Message list — scroll container scoped here, never escapes to window */}
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
           {isFirstMessage && (
             <div className="flex justify-start items-end gap-2">
               <PattieAvatar size={26} />

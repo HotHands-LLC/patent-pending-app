@@ -83,8 +83,9 @@ export default function PattieCommandBar({ authToken, firstName, snapshot }: Pat
   const [streaming, setStreaming] = useState(false)
   const [streamText, setStreamText] = useState('')
   const [priming, setPriming] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef  = useRef<HTMLTextAreaElement>(null)
+  const bottomRef          = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const inputRef           = useRef<HTMLTextAreaElement>(null)
   const loadedRef = useRef(false)
 
   useEffect(() => {
@@ -115,7 +116,10 @@ export default function PattieCommandBar({ authToken, firstName, snapshot }: Pat
   }, [messages])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // Scroll within the chat container only — never escape to window
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
   }, [messages, streamText])
 
   const hour = new Date().getHours()
@@ -221,7 +225,7 @@ export default function PattieCommandBar({ authToken, firstName, snapshot }: Pat
 
       {/* ── Chat history ──────────────────────────────────────────────────── */}
       {messages.length > 0 && (
-        <div className="px-5 pt-4 max-h-72 overflow-y-auto">
+        <div ref={scrollContainerRef} className="px-5 pt-4 max-h-72 overflow-y-auto">
           {messages.map((m, i) => <Bubble key={i} msg={m} />)}
           {streaming && !streamText && <TypingDots />}
           {streaming && streamText && <Bubble msg={{ role: 'assistant', content: streamText }} />}
