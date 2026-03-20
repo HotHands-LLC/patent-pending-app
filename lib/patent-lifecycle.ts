@@ -87,6 +87,16 @@ const BLOCKING_CONDITIONS: BlockingCondition[] = [
     pattie_can_act: false,
   },
 
+  {
+    id: 'missing_figures',
+    label: 'No figures attached',
+    description: 'Patent applications typically require at least one figure to illustrate the invention.',
+    blocking_state: 'DRAFT',
+    check: (p) => !p.figures_uploaded,
+    resolution: 'Upload at least one figure or drawing for this patent.',
+    pattie_can_act: false,
+  },
+
   // READY_TO_FILE
   {
     id: 'pending_inventor_signatures',
