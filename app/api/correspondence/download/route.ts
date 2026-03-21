@@ -32,7 +32,9 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const storagePath = req.nextUrl.searchParams.get('path')
-  if (!storagePath) return NextResponse.json({ error: 'Missing path' }, { status: 400 })
+  if (!storagePath || storagePath === 'undefined' || storagePath === 'null') {
+    return NextResponse.json({ error: 'Missing or invalid path' }, { status: 400 })
+  }
 
   const serviceClient = createClient(
     (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),

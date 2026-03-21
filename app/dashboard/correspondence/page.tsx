@@ -178,18 +178,24 @@ export default function CorrespondencePage() {
                     {/* Attachments */}
                     {Array.isArray(item.attachments) && item.attachments.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-2">
-                        {(item.attachments as { name: string; size?: number; storage_path: string }[]).map((att, ai) => (
-                          <a
-                            key={ai}
-                            href={`/api/correspondence/download?path=${encodeURIComponent(att.storage_path)}&token=${authToken}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
-                          >
-                            📎 {att.name}
-                            {att.size && <span className="text-blue-400">({(att.size / 1024).toFixed(0)}KB)</span>}
-                          </a>
-                        ))}
+                        {(item.attachments as { name: string; size?: number; storage_path?: string; url?: string }[]).map((att, ai) => {
+                          const hasStorage = att.storage_path && att.storage_path !== 'undefined'
+                          const href = hasStorage
+                            ? `/api/correspondence/download?path=${encodeURIComponent(att.storage_path!)}&token=${authToken}`
+                            : (att.url ?? '#')
+                          return (
+                            <a
+                              key={ai}
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                            >
+                              📎 {att.name}
+                              {att.size && <span className="text-blue-400">({(att.size / 1024).toFixed(0)}KB)</span>}
+                            </a>
+                          )
+                        })}
                       </div>
                     )}
                     {item.tags && item.tags.length > 0 && (

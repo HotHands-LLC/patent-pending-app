@@ -3576,8 +3576,12 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                         {/* Attachments */}
                         {Array.isArray(item.attachments) && item.attachments.length > 0 && (
                           <div className="mt-3 flex flex-col gap-1.5">
-                            {(item.attachments as { name: string; size?: number; storage_path: string }[]).map((att, ai) => {
-                              const downloadHref = `/api/correspondence/download?path=${encodeURIComponent(att.storage_path)}&token=${authToken}`
+                            {(item.attachments as { name: string; size?: number; storage_path?: string; url?: string }[]).map((att, ai) => {
+                              // Prefer storage_path (Supabase Storage) over legacy Drive url
+                              const hasStorage = att.storage_path && att.storage_path !== 'undefined'
+                              const downloadHref = hasStorage
+                                ? `/api/correspondence/download?path=${encodeURIComponent(att.storage_path!)}&token=${authToken}`
+                                : (att.url ?? null)
                               const isViewable = /\.(pdf|png|jpg|jpeg|heic|heif|webp)$/i.test(att.name)
                               return (
                                 <div key={ai} className="inline-flex items-center gap-2 flex-wrap">
@@ -3586,7 +3590,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                                     {att.size && <span className="text-blue-400">({(att.size / 1024).toFixed(0)}KB)</span>}
                                   </span>
                                   {/* View button — PDF and images only */}
-                                  {isViewable && (
+                                  {isViewable && downloadHref && (
                                     <a
                                       href={downloadHref}
                                       target="_blank"
@@ -3597,10 +3601,21 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                                     </a>
                                   )}
                                   {/* Download button — all types */}
+                                  {downloadHref && (
                                   <button
                                     onClick={async () => {
+                                      if (!hasStorage) {
+                                        // Legacy Drive URL — open in new tab (no blob-download support)
+                                        window.open(downloadHref, '_blank')
+                                        return
+                                      }
                                       try {
                                         const res = await fetch(downloadHref)
+                                        if (!res.ok) {
+                                          console.error('[download] server error', res.status, await res.text())
+                                          window.open(downloadHref, '_blank')
+                                          return
+                                        }
                                         const blob = await res.blob()
                                         const url = URL.createObjectURL(blob)
                                         const a = document.createElement('a')
@@ -3619,6 +3634,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                                   >
                                     Download
                                   </button>
+                                  )}
                                 </div>
                               )
                             })}
