@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import type { InvestorListing } from './page'
 
@@ -21,7 +21,6 @@ const STAGE_COLORS: Record<string, string> = {
 }
 
 const DOMAIN_LABELS: Record<string, string> = {
-  all:       'All',
   hardware:  '⚙️ Hardware',
   software:  '💻 Software',
   materials: '🧪 Materials',
@@ -30,14 +29,12 @@ const DOMAIN_LABELS: Record<string, string> = {
   other:     '🔬 Other',
 }
 
-type SortKey = 'newest' | 'score' | 'funded'
-type StageFilter = 'all' | 'provisional' | 'non_provisional' | 'development' | 'licensing' | 'granted'
-type DomainFilter = 'all' | 'hardware' | 'software' | 'materials' | 'energy' | 'medical' | 'other'
+type SortKey    = 'newest' | 'score' | 'funded'
+type StageFilter  = 'all' | 'provisional' | 'non_provisional' | 'development' | 'licensing' | 'granted'
+type DomainFilter = 'hardware' | 'software' | 'materials' | 'energy' | 'medical' | 'other'
 
 function FundingBar({ raised, goal }: { raised: number; goal: number }) {
   if (!goal) return null
-  const raisedDollars = raised / 100
-  const goalDollars = goal / 100
   const pct = Math.min(100, Math.round((raised / goal) * 100))
   return (
     <div className="mt-3">
@@ -45,82 +42,86 @@ function FundingBar({ raised, goal }: { raised: number; goal: number }) {
         <div className="bg-emerald-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
       </div>
       <div className="flex justify-between text-xs text-gray-400">
-        <span className="font-medium text-gray-700">${raisedDollars.toLocaleString()} raised</span>
-        <span>of ${goalDollars.toLocaleString()}</span>
+        <span className="font-medium text-gray-700">${(raised/100).toLocaleString()} raised</span>
+        <span>of ${(goal/100).toLocaleString()}</span>
       </div>
     </div>
   )
 }
 
 export default function InvestorMarketplaceClient({ listings }: { listings: InvestorListing[] }) {
-  const [stage, setStage]   = useState<StageFilter>('all')
-  const [domain, setDomain] = useState<DomainFilter>('all')
-  const [sort, setSort]     = useState<SortKey>('newest')
-  const [query, setQuery]   = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [stage,   setStage]   = useState<StageFilter>('all')
+  const [sort,    setSort]    = useState<SortKey>('newest')
+  const [query,   setQuery]   = useState('')
+  const [domains, setDomains] = useState<Set<DomainFilter>>(new Set())
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [displayQuery, setDisplayQuery] = useState('')
 
-  // Debounce keyword search 300ms
-  useEffect(() => {
+  // Debounced search
+  const handleSearch = useCallback((val: string) => {
+    setDisplayQuery(val)
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => setDebouncedQuery(query), 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [query])
+    debounceRef.current = setTimeout(() => setQuery(val), 300)
+  }, [])
+
+  const toggleDomain = (d: DomainFilter) => {
+    setDomains(prev => {
+      const next = new Set(prev)
+      if (next.has(d)) next.delete(d); else next.add(d)
+      return next
+    })
+  }
 
   const filtered = useMemo(() => {
-    let result = [...listings]
+    let result = listings
 
     // Stage filter
     if (stage !== 'all') result = result.filter(l => l.stage === stage)
 
-    // Domain filter
-    if (domain !== 'all') result = result.filter(l => l.tech_domain === domain)
+    // Domain chips (multi-select AND within group)
+    if (domains.size > 0) {
+      result = result.filter(l => l.tech_domain && domains.has(l.tech_domain as DomainFilter))
+    }
 
-    // Keyword search — title, abstract, novelty_narrative, tagline
-    if (debouncedQuery.trim()) {
-      const q = debouncedQuery.toLowerCase()
+    // Keyword search
+    if (query.trim()) {
+      const q = query.trim().toLowerCase()
       result = result.filter(l =>
-        (l.title ?? '').toLowerCase().includes(q) ||
+        l.title.toLowerCase().includes(q) ||
         (l.abstract_draft ?? '').toLowerCase().includes(q) ||
         (l.novelty_narrative ?? '').toLowerCase().includes(q) ||
-        (l.marketplace_tagline ?? '').toLowerCase().includes(q)
+        (l.marketplace_tagline ?? '').toLowerCase().includes(q) ||
+        (l.marketplace_description ?? '').toLowerCase().includes(q)
       )
     }
 
     // Sort
     if (sort === 'score') {
-      result = result.sort((a, b) => (b.composite_score ?? 0) - (a.composite_score ?? 0))
+      result = [...result].sort((a, b) => (b.composite_score ?? 0) - (a.composite_score ?? 0))
     } else if (sort === 'funded') {
-      result = result.sort((a, b) => {
+      result = [...result].sort((a, b) => {
         const pctA = a.funding_goal_usd > 0 ? a.total_raised_usd / a.funding_goal_usd : 0
         const pctB = b.funding_goal_usd > 0 ? b.total_raised_usd / b.funding_goal_usd : 0
         return pctB - pctA
       })
     }
-    // newest = default server order
-
     return result
-  }, [listings, stage, domain, sort, debouncedQuery])
+  }, [listings, stage, sort, query, domains])
 
   const STAGES: Array<{ key: StageFilter; label: string }> = [
-    { key: 'all', label: 'All Stages' },
-    { key: 'provisional', label: 'Provisional' },
-    { key: 'non_provisional', label: 'Non-Provisional' },
-    { key: 'development', label: 'Development' },
-    { key: 'licensing', label: 'Licensing' },
+    { key: 'all',              label: 'All' },
+    { key: 'provisional',      label: 'Provisional' },
+    { key: 'non_provisional',  label: 'Non-Provisional' },
+    { key: 'development',      label: 'Development' },
+    { key: 'licensing',        label: 'Licensing' },
   ]
 
-  const DOMAINS = Object.keys(DOMAIN_LABELS) as DomainFilter[]
+  const availableDomains = useMemo(() =>
+    (Object.keys(DOMAIN_LABELS) as DomainFilter[]).filter(d =>
+      listings.some(l => l.tech_domain === d)
+    ), [listings])
 
-  // Only show domain chips that have at least one listing (plus 'all')
-  const activeDomains = useMemo(() => {
-    const present = new Set(listings.map(l => l.tech_domain ?? 'other'))
-    return DOMAINS.filter(d => d === 'all' || present.has(d))
-  }, [listings])
-
-  const hasActiveFilters = stage !== 'all' || domain !== 'all' || debouncedQuery.trim() !== ''
-
-  function clearAll() { setStage('all'); setDomain('all'); setQuery('') }
+  const hasFilters = stage !== 'all' || domains.size > 0 || query.trim()
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -160,9 +161,9 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
       <div className="bg-white border-b border-gray-100 py-10 px-4">
         <div className="max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
           {[
-            { icon: '🔍', title: 'Browse Inventions', desc: 'Find patents open for investment. Filter by stage, domain, or search by keyword.' },
-            { icon: '💵', title: 'Invest from $25', desc: 'Commit any amount. Your stake is proportional to your investment vs. total raised.' },
-            { icon: '📈', title: 'Earn Revenue Share', desc: 'When the patent generates licensing fees or sales, investors receive their proportional share.' },
+            { icon: '🔍', title: 'Browse Inventions',   desc: 'Find patents open for investment. Filter by stage, score, or funding progress.' },
+            { icon: '💵', title: 'Invest from $25',      desc: 'Commit any amount. Your stake is proportional to your investment vs. total raised.' },
+            { icon: '📈', title: 'Earn Revenue Share',   desc: 'When the patent generates licensing fees or sales, investors receive their proportional share.' },
           ].map(s => (
             <div key={s.title}>
               <div className="text-3xl mb-3">{s.icon}</div>
@@ -176,44 +177,46 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
       {/* Listings */}
       <div id="listings" className="max-w-6xl mx-auto px-4 py-10">
 
-        {/* ── Keyword search ─────────────────────────────────────────────── */}
+        {/* ── Search bar ── */}
         <div className="relative mb-4">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
           <input
             type="text"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search patents by title, technology, or keyword…"
-            className="w-full border border-gray-200 bg-white rounded-xl px-4 py-3 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 shadow-sm"
+            value={displayQuery}
+            onChange={e => handleSearch(e.target.value)}
+            placeholder="Search patents by title, technology, or description…"
+            className="w-full pl-9 pr-9 py-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
           />
-          {query && (
+          {displayQuery && (
             <button
-              onClick={() => setQuery('')}
+              onClick={() => { handleSearch(''); setQuery('') }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
-              aria-label="Clear search"
             >
               ×
             </button>
           )}
         </div>
 
-        {/* ── Domain chips ───────────────────────────────────────────────── */}
-        <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
-          {activeDomains.map(d => (
-            <button
-              key={d}
-              onClick={() => setDomain(d === domain ? 'all' : d)}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors whitespace-nowrap ${
-                domain === d
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              {DOMAIN_LABELS[d]}
-            </button>
-          ))}
-        </div>
+        {/* ── Domain chips ── */}
+        {availableDomains.length > 0 && (
+          <div className="flex gap-2 flex-wrap mb-4">
+            {availableDomains.map(d => (
+              <button
+                key={d}
+                onClick={() => toggleDomain(d)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border ${
+                  domains.has(d)
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                }`}
+              >
+                {DOMAIN_LABELS[d]}
+              </button>
+            ))}
+          </div>
+        )}
 
-        {/* ── Stage + sort row ───────────────────────────────────────────── */}
+        {/* ── Stage + sort bar ── */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4 items-start sm:items-center justify-between">
           <div className="flex flex-wrap gap-2">
             {STAGES.map(s => (
@@ -248,57 +251,62 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
           </div>
         </div>
 
-        {/* ── Result count ───────────────────────────────────────────────── */}
+        {/* ── Result count ── */}
         <div className="flex items-center justify-between mb-5">
           <p className="text-xs text-gray-400">
             <span className="font-semibold text-gray-700">{filtered.length}</span>{' '}
-            patent{filtered.length !== 1 ? 's' : ''}
-            {debouncedQuery ? ` matching "${debouncedQuery}"` : ''}
-            {domain !== 'all' ? ` in ${DOMAIN_LABELS[domain]}` : ''}
+            patent{filtered.length !== 1 ? 's' : ''} found
+            {hasFilters && (
+              <button
+                onClick={() => { setStage('all'); setDomains(new Set()); handleSearch(''); setQuery('') }}
+                className="ml-2 text-indigo-500 hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
           </p>
-          {hasActiveFilters && (
-            <button onClick={clearAll} className="text-xs text-indigo-500 hover:underline">
-              Clear filters
-            </button>
-          )}
         </div>
 
-        {/* ── No results ─────────────────────────────────────────────────── */}
+        {/* ── No results ── */}
         {filtered.length === 0 ? (
           <div className="text-center py-24 text-gray-400">
             <div className="text-5xl mb-4">🔬</div>
-            <p className="text-lg font-medium">No patents match your search.</p>
-            <button onClick={clearAll} className="mt-3 text-sm text-indigo-500 hover:underline">
-              Clear all filters
+            <p className="text-lg font-medium text-gray-600">No patents match your search.</p>
+            <p className="text-sm mt-1 mb-4">Try different keywords or clear your filters.</p>
+            <button
+              onClick={() => { setStage('all'); setDomains(new Set()); handleSearch(''); setQuery('') }}
+              className="text-sm text-indigo-500 hover:underline"
+            >
+              Show all patents
             </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filtered.map(patent => {
-              const dealHref = patent.slug ? `/patents/${patent.slug}` : null
+              const dealHref   = patent.slug ? `/patents/${patent.slug}` : null
               const stageBadge = STAGE_COLORS[patent.stage] ?? 'bg-gray-100 text-gray-600'
-              const tagline = patent.marketplace_tagline
-              const desc = patent.marketplace_description?.slice(0, 120)
+              const tagline    = patent.marketplace_tagline
+              const desc       = patent.marketplace_description?.slice(0, 120)
 
               const card = (
                 <div className="group bg-white rounded-2xl border border-gray-200 hover:border-emerald-300 hover:shadow-md transition-all flex flex-col p-5 h-full">
                   {/* Badges row */}
-                  <div className="flex items-center justify-between mb-3 flex-wrap gap-1">
-                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${stageBadge}`}>
-                      {STAGE_LABELS[patent.stage] ?? patent.stage}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      {patent.tech_domain && patent.tech_domain !== 'other' && (
+                  <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${stageBadge}`}>
+                        {STAGE_LABELS[patent.stage] ?? patent.stage}
+                      </span>
+                      {patent.tech_domain && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
-                          {DOMAIN_LABELS[patent.tech_domain as DomainFilter] ?? patent.tech_domain}
-                        </span>
-                      )}
-                      {patent.composite_score != null && (
-                        <span className="text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 rounded-full">
-                          {patent.composite_score}/100
+                          {DOMAIN_LABELS[patent.tech_domain] ?? patent.tech_domain}
                         </span>
                       )}
                     </div>
+                    {patent.composite_score != null && (
+                      <span className="text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 rounded-full shrink-0">
+                        {patent.composite_score}/100
+                      </span>
+                    )}
                   </div>
 
                   {/* Title */}
@@ -306,39 +314,44 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
                     {patent.title}
                   </h2>
 
-                  {/* Tagline / description */}
+                  {/* Tagline / desc */}
                   {tagline && (
                     <p className="text-xs text-gray-500 italic mb-2 leading-relaxed">{tagline}</p>
                   )}
                   {!tagline && desc && (
-                    <p className="text-xs text-gray-500 mb-2 leading-relaxed">{desc}{(patent.marketplace_description?.length ?? 0) > 120 ? '…' : ''}</p>
+                    <p className="text-xs text-gray-500 mb-2 leading-relaxed">
+                      {desc}{patent.marketplace_description && patent.marketplace_description.length > 120 ? '…' : ''}
+                    </p>
                   )}
 
                   {/* Funding bar */}
                   <div className="mt-auto">
                     <FundingBar raised={patent.total_raised_usd} goal={patent.funding_goal_usd} />
-
                     {patent.rev_share_available_pct > 0 && (
                       <p className="text-xs text-emerald-600 mt-2">
                         {patent.rev_share_available_pct}% revenue share available to investors
                       </p>
                     )}
-
-                    <div className="mt-3 flex items-center justify-between">
-                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-                        Invest from $25 →
-                      </span>
-                    </div>
+                    {dealHref && (
+                      <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+                        <span className="text-xs text-gray-400">
+                          {patent.investment_open ? '🟢 Open for investment' : '🔒 Coming soon'}
+                        </span>
+                        <span className="text-xs font-semibold text-indigo-600 group-hover:text-emerald-600 transition-colors">
+                          View Deal →
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )
 
               return dealHref ? (
-                <Link key={patent.id} href={dealHref} className="flex flex-col">
+                <Link key={patent.id} href={dealHref} className="flex flex-col h-full">
                   {card}
                 </Link>
               ) : (
-                <div key={patent.id} className="flex flex-col">
+                <div key={patent.id} className="flex flex-col h-full">
                   {card}
                 </div>
               )
@@ -347,15 +360,15 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
         )}
       </div>
 
-      {/* Risk footer */}
-      <div className="border-t border-gray-200 bg-white py-8 px-4">
-        <div className="max-w-3xl mx-auto text-center">
-          <p className="text-xs text-gray-400 leading-relaxed">
-            <strong className="text-gray-500">Risk Disclosure:</strong> Investing in early-stage intellectual property carries significant risk. Returns are not guaranteed. Patent applications may not be granted. This is not a securities offering.
-          </p>
-          <p className="text-xs text-gray-300 mt-2">
-            Managed by <a href="https://patentpending.app" className="text-indigo-400 hover:underline">PatentPending.app</a>
-          </p>
+      {/* Footer */}
+      <div className="border-t border-gray-200 bg-white mt-16 py-8 px-4">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-400">
+          <span>© 2025 PatentPending. All rights reserved.</span>
+          <div className="flex gap-6">
+            <Link href="/terms" className="hover:text-gray-600">Terms</Link>
+            <Link href="/privacy" className="hover:text-gray-600">Privacy</Link>
+            <Link href="/pricing" className="hover:text-gray-600">Pricing</Link>
+          </div>
         </div>
       </div>
     </div>

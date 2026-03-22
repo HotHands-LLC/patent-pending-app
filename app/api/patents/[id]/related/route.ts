@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
 const supabaseService = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
+  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
 export async function GET(
@@ -12,41 +12,38 @@ export async function GET(
 ) {
   const { id } = await params
 
-  // Fetch current patent's score and tech_domain
+  // Fetch current patent's scores + domain
   const { data: current } = await supabaseService
     .from('patents')
-    .select('id, composite_score: claw_patents(composite_score), stage')
+    .select('id, slug')
     .eq('id', id)
     .single()
 
-  // Get claw scores for current patent
+  if (!current) return NextResponse.json({ related: [] })
+
   const { data: currentClaw } = await supabaseService
     .from('claw_patents')
     .select('composite_score, tech_domain')
     .eq('patent_id', id)
     .single()
 
-  const currentScore = currentClaw?.composite_score ?? null
+  const currentScore  = currentClaw?.composite_score ?? 50
   const currentDomain = currentClaw?.tech_domain ?? null
 
-  // Fetch candidate patents: public-ready, not self
+  // Fetch candidate patents: investment_open OR provisional status, not archived, not self
   const { data: candidates } = await supabaseService
     .from('patents')
     .select('id, title, slug, stage, status')
     .neq('id', id)
     .neq('status', 'archived')
-    .eq('arc3_active', true)
-    .not('slug', 'is', null)
     .or('investment_open.eq.true,status.eq.provisional')
+    .not('slug', 'is', null)
     .limit(50)
 
-  if (!candidates || candidates.length === 0) {
-    return NextResponse.json({ related: [] })
-  }
+  if (!candidates?.length) return NextResponse.json({ related: [] })
 
+  // Enrich with claw scores + domain
   const candidateIds = candidates.map(c => c.id)
-
-  // Get claw data for candidates
   const { data: clawRows } = await supabaseService
     .from('claw_patents')
     .select('patent_id, composite_score, tech_domain, novelty_narrative')
@@ -55,50 +52,40 @@ export async function GET(
   const clawMap: Record<string, { composite_score: number | null; tech_domain: string | null; novelty_narrative: string | null }> = {}
   for (const r of clawRows ?? []) {
     clawMap[r.patent_id] = {
-      composite_score: r.composite_score,
-      tech_domain: r.tech_domain,
+      composite_score:  r.composite_score,
+      tech_domain:      r.tech_domain,
       novelty_narrative: r.novelty_narrative,
     }
   }
 
-  // Score each candidate for relevance:
-  //   +2 if same tech_domain as current
-  //   +1 if composite_score within 15 of current
-  type ScoredCandidate = {
-    id: string
-    title: string
-    slug: string
-    stage: string
-    composite_score: number | null
-    tech_domain: string | null
-    novelty_narrative: string | null
-    _relevance: number
-  }
-
-  const scored: ScoredCandidate[] = candidates.map(c => {
-    const claw = clawMap[c.id] ?? { composite_score: null, tech_domain: null, novelty_narrative: null }
-    let relevance = 0
-    if (currentDomain && claw.tech_domain === currentDomain) relevance += 2
-    if (currentScore != null && claw.composite_score != null &&
-        Math.abs(claw.composite_score - currentScore) <= 15) relevance += 1
-    return {
-      id: c.id,
-      title: c.title,
-      slug: c.slug ?? '',
-      stage: c.stage,
-      composite_score: claw.composite_score,
-      tech_domain: claw.tech_domain,
-      novelty_narrative: claw.novelty_narrative ? claw.novelty_narrative.slice(0, 100) : null,
-      _relevance: relevance,
-    }
-  })
-
-  // Sort: by relevance desc, then composite_score desc; take top 3
-  const related = scored
-    .filter(c => c._relevance > 0 || currentDomain == null)
-    .sort((a, b) => b._relevance - a._relevance || (b.composite_score ?? 0) - (a.composite_score ?? 0))
+  // Score each candidate by relatedness: same domain OR score within 15 points
+  const scored = candidates
+    .map(p => {
+      const claw = clawMap[p.id]
+      const pScore  = claw?.composite_score ?? 0
+      const pDomain = claw?.tech_domain ?? null
+      const sameDomain   = currentDomain && pDomain === currentDomain
+      const nearScore    = Math.abs(pScore - currentScore) <= 15
+      if (!sameDomain && !nearScore) return null
+      return {
+        id:               p.id,
+        title:            p.title,
+        slug:             p.slug,
+        stage:            p.stage,
+        composite_score:  pScore,
+        tech_domain:      pDomain,
+        novelty_narrative: claw?.novelty_narrative
+          ? claw.novelty_narrative.slice(0, 100)
+          : null,
+        // Rank: same domain + near score > same domain only > near score only
+        _rank: (sameDomain ? 2 : 0) + (nearScore ? 1 : 0),
+      }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .sort((a, b) => (b._rank - a._rank) || ((b.composite_score ?? 0) - (a.composite_score ?? 0)))
     .slice(0, 3)
-    .map(({ _relevance: _, ...rest }) => rest)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    .map(({ _rank, ...r }) => r)
 
-  return NextResponse.json({ related })
+  return NextResponse.json({ related: scored })
 }
