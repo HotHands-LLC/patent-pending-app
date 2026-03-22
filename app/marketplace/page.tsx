@@ -1,11 +1,16 @@
 import { createClient } from '@supabase/supabase-js'
-import Link from 'next/link'
 import type { Metadata } from 'next'
-import MarketplaceClient from './MarketplaceClient'
+import InvestorMarketplaceClient from './InvestorMarketplaceClient'
 
 export const metadata: Metadata = {
-  title: 'Patent Marketplace | PatentPending',
-  description: 'Discover, license, and acquire patented technologies from independent inventors.',
+  title: 'Invest in Patents | PatentPending',
+  description: 'Discover early-stage patents open for investment. Earn a share of future revenue — starting from $25.',
+  openGraph: {
+    title: 'Invest in Patents | PatentPending',
+    description: 'Discover early-stage patents open for investment. Earn a share of future revenue — starting from $25.',
+    type: 'website',
+    siteName: 'PatentPending',
+  },
 }
 
 const supabaseService = createClient(
@@ -13,35 +18,77 @@ const supabaseService = createClient(
   (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
 )
 
+export interface InvestorListing {
+  id: string
+  title: string
+  slug: string | null
+  marketplace_tagline: string | null
+  marketplace_description: string | null
+  stage: string
+  status: string
+  funding_goal_usd: number
+  total_raised_usd: number
+  rev_share_available_pct: number
+  investment_open: boolean
+  created_at: string
+  // from claw_patents join
+  novelty_score: number | null
+  commercial_score: number | null
+  composite_score: number | null
+}
+
 export default async function MarketplacePage() {
-  const { data: listings } = await supabaseService
+  // Primary: investment_open with tagline
+  let { data: listings } = await supabaseService
     .from('patents')
-    .select('id, title, marketplace_slug, deal_page_brief, deal_page_summary, status, asking_price_range, marketplace_published_at, marketplace_tags, ip_readiness_score')
-    .eq('marketplace_enabled', true)
-    .not('marketplace_published_at', 'is', null)
-    .order('marketplace_published_at', { ascending: false })
+    .select(`
+      id, title, slug, marketplace_tagline, marketplace_description,
+      stage, status, funding_goal_usd, total_raised_usd,
+      rev_share_available_pct, investment_open, created_at
+    `)
+    .eq('investment_open', true)
+    .not('marketplace_tagline', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(50)
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-[#1a1f36] text-white">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="font-bold text-lg">⚖️ PatentPending</Link>
-          <span className="text-xs text-gray-400">Patent Licensing Marketplace</span>
-        </div>
-      </div>
+  // Fallback: all investment_open if fewer than 3 with tagline
+  if (!listings || listings.length < 3) {
+    const { data: fallback } = await supabaseService
+      .from('patents')
+      .select(`
+        id, title, slug, marketplace_tagline, marketplace_description,
+        stage, status, funding_goal_usd, total_raised_usd,
+        rev_share_available_pct, investment_open, created_at
+      `)
+      .eq('investment_open', true)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    listings = fallback ?? []
+  }
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6">
-        <MarketplaceClient listings={listings ?? []} />
+  // Enrich with claw_patents scores (left join equivalent)
+  const patentIds = (listings ?? []).map(p => p.id)
+  let scoreMap: Record<string, { novelty_score: number | null; commercial_score: number | null; composite_score: number | null }> = {}
+  if (patentIds.length) {
+    const { data: clawRows } = await supabaseService
+      .from('claw_patents')
+      .select('patent_id, novelty_score, commercial_score, composite_score')
+      .in('patent_id', patentIds)
+    for (const r of clawRows ?? []) {
+      scoreMap[r.patent_id] = {
+        novelty_score: r.novelty_score,
+        commercial_score: r.commercial_score,
+        composite_score: r.composite_score,
+      }
+    }
+  }
 
-        <div className="mt-12 pb-8 pt-6 border-t border-gray-200 text-center">
-          <p className="text-xs text-gray-400">
-            All listings managed by{' '}
-            <a href="https://patentpending.app" className="text-indigo-500 hover:underline">PatentPending.app</a>
-            {' '}· Patent information subject to change.
-          </p>
-        </div>
-      </div>
-    </div>
-  )
+  const enriched: InvestorListing[] = (listings ?? []).map(p => ({
+    ...p,
+    novelty_score: scoreMap[p.id]?.novelty_score ?? null,
+    commercial_score: scoreMap[p.id]?.commercial_score ?? null,
+    composite_score: scoreMap[p.id]?.composite_score ?? null,
+  }))
+
+  return <InvestorMarketplaceClient listings={enriched} />
 }
