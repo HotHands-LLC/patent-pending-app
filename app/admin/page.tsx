@@ -160,6 +160,7 @@ export default function AdminPage() {
 
   // ── Maintenance state ─────────────────────────────────────────────────────
   const [patentFilter, setPatentFilter] = useState<'all' | 'human' | 'claw'>('all')
+  const [showArchivedPatents, setShowArchivedPatents] = useState(false)
 
   const [backfillLoading, setBackfillLoading] = useState(false)
   const [backfillDone, setBackfillDone] = useState(false)
@@ -615,9 +616,28 @@ export default function AdminPage() {
           {/* ── PATENTS ──────────────────────────────────────────────────── */}
           {activeSection === 'patents' && (
             <div>
-              <div className="flex items-center justify-between mb-5">
-                <h1 className="text-xl font-bold text-gray-900">All Patents ({stats.patent_table.length})</h1>
-                <div className="flex gap-2">
+              {(() => {
+                const archivedCount = stats.patent_table.filter(p => p.status === 'archived').length
+                const visiblePatents = showArchivedPatents
+                  ? stats.patent_table
+                  : stats.patent_table.filter(p => p.status !== 'archived')
+                const filteredPatents = visiblePatents.filter(p =>
+                  patentFilter === 'all' ? true :
+                  patentFilter === 'claw' ? p.is_claw_draft :
+                  !p.is_claw_draft
+                )
+                return (
+              <div>
+              <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+                <h1 className="text-xl font-bold text-gray-900">
+                  All Patents ({filteredPatents.length}
+                  {!showArchivedPatents && archivedCount > 0 && (
+                    <span className="text-sm font-normal text-gray-400 ml-1">
+                      + {archivedCount} archived
+                    </span>
+                  )})
+                </h1>
+                <div className="flex gap-2 flex-wrap">
                   {(['all', 'human', 'claw'] as const).map(f => (
                     <button
                       key={f}
@@ -631,6 +651,18 @@ export default function AdminPage() {
                       {f === 'all' ? 'All' : f === 'claw' ? '🤖 Claw' : '👤 Human'}
                     </button>
                   ))}
+                  {archivedCount > 0 && (
+                    <button
+                      onClick={() => setShowArchivedPatents(v => !v)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        showArchivedPatents
+                          ? 'bg-red-500 text-white'
+                          : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
+                      }`}
+                    >
+                      📦 {showArchivedPatents ? 'Hide' : 'Show'} Archived ({archivedCount})
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -649,13 +681,7 @@ export default function AdminPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {stats.patent_table
-                        .filter(p =>
-                          patentFilter === 'all' ? true :
-                          patentFilter === 'claw' ? p.is_claw_draft :
-                          !p.is_claw_draft
-                        )
-                        .map(p => {
+                      {filteredPatents.map(p => {
                         const days = daysUntil(p.provisional_deadline)
                         const score = p.claims_score as { novelty?: number } | null
                         return (
@@ -709,6 +735,9 @@ export default function AdminPage() {
                   </table>
                 </div>
               </div>
+              </div>
+                ) // end IIFE return
+              })(/* patents IIFE */)}
             </div>
           )}
 
