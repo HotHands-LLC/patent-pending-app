@@ -1,7 +1,21 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async redirects() {
+    return [
+      // /settings/account → /profile (canonical account settings page)
+      {
+        source: '/settings/account',
+        destination: '/profile',
+        permanent: true,
+      },
+      {
+        source: '/settings',
+        destination: '/profile',
+        permanent: true,
+      },
+    ]
+  },
 };
 
 export default nextConfig;
