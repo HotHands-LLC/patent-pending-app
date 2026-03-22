@@ -66,7 +66,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'ids'
+type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'ids' | 'investors'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -752,6 +752,168 @@ function MarketplaceSettingsCard({
               {saving ? 'Saving…' : 'Save Marketplace Settings'}
             </button>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Investors Tab (56A) ───────────────────────────────────────────────────────
+function InvestorsTab({ patent, authToken, onUpdate }: {
+  patent: Patent; authToken: string
+  onUpdate: (fields: Partial<Record<string, unknown>>) => void
+}) {
+  const [investments, setInvestments]   = useState<Array<{
+    id: string; investor_user_id: string; amount_usd: number
+    rev_share_pct: number; stage_at_investment: string; created_at: string
+  }>>([])
+  const [loading, setLoading]           = useState(true)
+  const [showRevModal, setShowRevModal] = useState(false)
+  const [revType, setRevType]           = useState('license')
+  const [revAmount, setRevAmount]       = useState('')
+  const [revDesc, setRevDesc]           = useState('')
+  const [revConfirm, setRevConfirm]     = useState(false)
+  const [revLoading, setRevLoading]     = useState(false)
+  const [revError, setRevError]         = useState('')
+  const [revSuccess, setRevSuccess]     = useState('')
+
+  const totalRaised = (patent as Patent & { total_raised_usd?: number }).total_raised_usd ?? 0
+  const fundingGoal = (patent as Patent & { funding_goal_usd?: number }).funding_goal_usd ?? 0
+  const revSharePct = (patent as Patent & { rev_share_available_pct?: number }).rev_share_available_pct ?? 0
+  const investmentOpen = (patent as Patent & { investment_open?: boolean }).investment_open ?? false
+  const fundingPct = fundingGoal > 0 ? Math.min(100, Math.round((totalRaised / fundingGoal) * 100)) : 0
+
+  useEffect(() => {
+    fetch(`/api/patents/${patent.id}/investors`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    })
+      .then(r => r.json())
+      .then(d => { setInvestments(d.investments ?? []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [patent.id, authToken])
+
+  async function submitRevenue() {
+    setRevLoading(true); setRevError('')
+    const grossCents = Math.round(parseFloat(revAmount) * 100)
+    try {
+      const res = await fetch(`/api/patents/${patent.id}/revenue-events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ event_type: revType, gross_amount_cents: grossCents, description: revDesc, confirmed: true }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setRevError(data.error ?? 'Failed'); return }
+      setRevSuccess(`Revenue event recorded. ${data.distributions} distribution(s) queued.`)
+      setShowRevModal(false)
+      setRevAmount(''); setRevDesc(''); setRevConfirm(false)
+    } catch { setRevError('Network error') }
+    finally { setRevLoading(false) }
+  }
+
+  // Anonymize: show first name + last initial only
+  function anonymize(userId: string): string {
+    return `Investor ${userId.slice(0, 4).toUpperCase()}`
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Funding summary */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h2 className="font-bold text-gray-900">Investor Ledger</h2>
+          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${investmentOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+            {investmentOpen ? '🟢 Open for investment' : '🔒 Closed'}
+          </span>
+        </div>
+        {fundingGoal > 0 && (
+          <div className="mb-3">
+            <div className="flex justify-between text-xs text-gray-500 mb-1">
+              <span>${(totalRaised / 100).toLocaleString()} raised</span>
+              <span>Goal: ${(fundingGoal / 100).toLocaleString()}</span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-2"><div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${fundingPct}%` }} /></div>
+          </div>
+        )}
+        <p className="text-xs text-gray-500">{revSharePct}% of future revenue shared among all investors</p>
+      </div>
+
+      {/* Report Revenue button */}
+      <div className="flex justify-end">
+        <button onClick={() => setShowRevModal(true)}
+          className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700">
+          + Report Revenue Event
+        </button>
+      </div>
+      {revSuccess && <p className="text-sm text-green-700 font-medium">{revSuccess}</p>}
+
+      {/* Investor list */}
+      {loading ? <p className="text-sm text-gray-400">Loading investors…</p> : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {investments.length === 0 ? (
+            <div className="p-8 text-center text-gray-400 text-sm">No investors yet</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead><tr className="bg-gray-50 border-b border-gray-100">
+                <th className="text-left px-4 py-3 font-semibold text-gray-500">Investor</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-500">Amount</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-500">Rev Share</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-500">Stage</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-500">Date</th>
+              </tr></thead>
+              <tbody className="divide-y divide-gray-50">
+                {investments.map(inv => (
+                  <tr key={inv.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-gray-700">{anonymize(inv.investor_user_id)}</td>
+                    <td className="px-4 py-3">${(inv.amount_usd / 100).toLocaleString()}</td>
+                    <td className="px-4 py-3">{Number(inv.rev_share_pct).toFixed(3)}%</td>
+                    <td className="px-4 py-3 capitalize">{inv.stage_at_investment}</td>
+                    <td className="px-4 py-3 text-gray-400">{new Date(inv.created_at).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Revenue event modal */}
+      {showRevModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <h2 className="font-bold text-gray-900 text-lg">Report Revenue Event</h2>
+            <select value={revType} onChange={e => setRevType(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
+              {['license','sale','settlement','royalty','other'].map(t => (
+                <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+              ))}
+            </select>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+              <input type="number" min={1} placeholder="Gross amount"
+                value={revAmount} onChange={e => setRevAmount(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            </div>
+            <textarea placeholder="Description (optional)" rows={2} value={revDesc}
+              onChange={e => setRevDesc(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-none" />
+            <p className="text-xs text-gray-500">Platform takes 20% before investor distributions are calculated.</p>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={revConfirm} onChange={e => setRevConfirm(e.target.checked)}
+                className="rounded" />
+              I confirm this revenue is accurate
+            </label>
+            {revError && <p className="text-xs text-red-600">{revError}</p>}
+            <div className="flex gap-3">
+              <button onClick={submitRevenue} disabled={revLoading || !revConfirm || !revAmount}
+                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">
+                {revLoading ? 'Submitting…' : 'Submit'}
+              </button>
+              <button onClick={() => { setShowRevModal(false); setRevError('') }}
+                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1691,12 +1853,13 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
           const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
-          const visibleTabs: Tab[] = (['details', 'claims', 'ids', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement'] as Tab[])
+          const visibleTabs: Tab[] = (['details', 'claims', 'ids', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement', 'investors'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'ids') return !isCollaborator  // owner-only
+              if (t === 'investors') return !isCollaborator  // owner-only — 56A investment tab
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               return canView(t)
             })
@@ -2418,6 +2581,12 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
         {/* ── LEADS TAB ───────────────────────────────────────────────────────── */}
         {tab === 'leads' && (
           <LeadsPanel patentId={patent.id} authToken={authToken} />
+        )}
+
+        {/* ── INVESTORS TAB (56A) ─────────────────────────────────────────────── */}
+        {tab === 'investors' && !isCollaborator && (
+          <InvestorsTab patent={patent} authToken={authToken}
+            onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)} />
         )}
 
         {/* ── CLAIMS TAB ──────────────────────────────────────────────────────── */}

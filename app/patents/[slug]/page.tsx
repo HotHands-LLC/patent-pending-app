@@ -60,7 +60,8 @@ export default async function DealPage(
       claims_draft, deal_page_summary, deal_page_market,
       licensing_exclusive, licensing_nonexclusive, licensing_field_of_use,
       arc3_active, created_at,
-      marketplace_description, marketplace_tagline
+      marketplace_description, marketplace_tagline,
+      investment_open, stage, funding_goal_usd, total_raised_usd, rev_share_available_pct
     `)
     .eq('slug', slug)
     .eq('arc3_active', true)
@@ -94,6 +95,11 @@ export default async function DealPage(
         licensing_field_of_use: patent.licensing_field_of_use,
         marketplace_description: patent.marketplace_description ?? null,
         marketplace_tagline: patent.marketplace_tagline ?? null,
+        investment_open: patent.investment_open ?? false,
+        stage: patent.stage ?? 'provisional',
+        funding_goal_usd: patent.funding_goal_usd ?? 0,
+        total_raised_usd: patent.total_raised_usd ?? 0,
+        rev_share_available_pct: patent.rev_share_available_pct ?? 0,
       }}
       topClaims={topClaims}
     />

@@ -78,6 +78,13 @@ export type Patent = {
   // 54D — Pattie-generated marketplace content
   marketplace_description?: string | null
   marketplace_tagline?: string | null
+  // 56A — Investment layer
+  stage?: 'provisional' | 'non_provisional' | 'development' | 'licensing' | 'granted' | null
+  stage_value_usd?: number | null
+  total_raised_usd?: number | null
+  funding_goal_usd?: number | null
+  rev_share_available_pct?: number | null
+  investment_open?: boolean | null
 }
 
 export type PatentDeadline = {

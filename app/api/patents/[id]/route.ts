@@ -48,6 +48,12 @@ const ALLOWED_UPDATE_FIELDS = [
   // 54D — Pattie-generated marketplace content (owner editable)
   'marketplace_description',
   'marketplace_tagline',
+  // 56A — Investment layer (owner editable)
+  'stage',
+  'stage_value_usd',
+  'funding_goal_usd',
+  'rev_share_available_pct',
+  'investment_open',
 ] as const
 
 type AllowedField = typeof ALLOWED_UPDATE_FIELDS[number]

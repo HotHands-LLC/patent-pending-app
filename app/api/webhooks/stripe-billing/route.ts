@@ -129,6 +129,125 @@ export async function POST(req: NextRequest) {
           break
         }
 
+        // ── Patent Investment ──────────────────────────────────────────────
+        if (session.metadata?.type === 'patent_investment') {
+          const {
+            patent_id, investor_user_id, amount_usd,
+            stage, funding_goal_usd, rev_share_available_pct,
+          } = session.metadata
+
+          if (!patent_id || !investor_user_id || !amount_usd) {
+            console.error('[stripe-billing] patent_investment: missing metadata')
+            break
+          }
+
+          const amtCents  = parseInt(amount_usd, 10)
+          const goalCents = parseInt(funding_goal_usd ?? '0', 10)
+          const revPct    = parseFloat(rev_share_available_pct ?? '0')
+
+          // Calculate this investor's rev_share_pct
+          const investorRevSharePct = goalCents > 0
+            ? (amtCents / goalCents) * revPct
+            : 0
+
+          // Insert investment row
+          const { error: invErr } = await supabase
+            .from('patent_investments')
+            .insert({
+              patent_id,
+              investor_user_id,
+              amount_usd:              amtCents,
+              rev_share_pct:           Number(investorRevSharePct.toFixed(4)),
+              stage_at_investment:     stage ?? 'provisional',
+              stripe_checkout_session_id: session.id,
+              stripe_payment_intent_id: session.payment_intent as string ?? null,
+              status:                  'confirmed',
+            })
+
+          if (invErr) {
+            console.error('[stripe-billing] patent_investment insert failed:', invErr)
+            break
+          }
+
+          // Update total_raised on patent
+          const { data: patent } = await supabase
+            .from('patents')
+            .select('title, owner_id, total_raised_usd, funding_goal_usd, slug')
+            .eq('id', patent_id)
+            .single()
+
+          if (patent) {
+            const newTotal = (patent.total_raised_usd ?? 0) + amtCents
+            const goalMet  = goalCents > 0 && newTotal >= goalCents
+
+            await supabase
+              .from('patents')
+              .update({
+                total_raised_usd: newTotal,
+                ...(goalMet ? { investment_open: false } : {}),
+              })
+              .eq('id', patent_id)
+
+            // Notify owner if fully funded
+            if (goalMet && patent.owner_id) {
+              const { data: ownerProfile } = await supabase
+                .from('patent_profiles')
+                .select('email, full_name')
+                .eq('id', patent.owner_id)
+                .single()
+
+              if (ownerProfile?.email) {
+                const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
+                sendEmail(buildEmail({
+                  to: ownerProfile.email,
+                  from: FROM_DEFAULT,
+                  subject: `🎉 ${patent.title} is fully funded!`,
+                  html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+  <h2>🎉 Your patent is fully funded!</h2>
+  <p>Hi ${ownerProfile.full_name?.split(' ')[0] ?? 'there'},</p>
+  <p><strong>${patent.title}</strong> has reached its funding goal of $${(goalCents / 100).toLocaleString()}.</p>
+  <p>Investment is now closed. View your investor ledger to see all backers.</p>
+  <a href="${appUrl}/dashboard/patents/${patent_id}?tab=investors" style="display:inline-block;background:#16a34a;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:16px">View investor ledger →</a>
+</div>`,
+                })).catch(console.error)
+              }
+            }
+          }
+
+          // Confirm email to investor
+          const { data: investorProfile } = await supabase
+            .from('patent_profiles')
+            .select('email, full_name')
+            .eq('id', investor_user_id)
+            .single()
+
+          if (investorProfile?.email && patent) {
+            const appUrl  = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
+            const amtDisplay = `$${(amtCents / 100).toLocaleString()}`
+            const revDisplay = investorRevSharePct.toFixed(2)
+            sendEmail(buildEmail({
+              to: investorProfile.email,
+              from: FROM_DEFAULT,
+              subject: `Investment confirmed — ${patent.title}`,
+              html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+  <h2>Investment confirmed ✅</h2>
+  <p>Hi ${investorProfile.full_name?.split(' ')[0] ?? 'there'},</p>
+  <p>Your investment of <strong>${amtDisplay}</strong> in <strong>${patent.title}</strong> has been confirmed.</p>
+  <ul>
+    <li><strong>Stage:</strong> ${stage}</li>
+    <li><strong>Your revenue share:</strong> ${revDisplay}% of future revenue</li>
+    <li><strong>Amount invested:</strong> ${amtDisplay}</li>
+  </ul>
+  <p style="color:#6b7280;font-size:14px">Revenue distributions are calculated automatically when the patent owner reports a revenue event. You'll receive an email notification for each distribution.</p>
+  <a href="${appUrl}/dashboard/investments" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:16px">View your portfolio →</a>
+</div>`,
+            })).catch(console.error)
+          }
+
+          console.log('[stripe-billing] patent_investment confirmed:', patent_id, investor_user_id, amtCents)
+          break
+        }
+
         if (session.mode !== 'subscription') break
 
         const userId = session.metadata?.user_id
