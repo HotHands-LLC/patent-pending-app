@@ -159,6 +159,8 @@ export default function AdminPage() {
   }, [router])
 
   // ── Maintenance state ─────────────────────────────────────────────────────
+  const [patentFilter, setPatentFilter] = useState<'all' | 'human' | 'claw'>('all')
+
   const [backfillLoading, setBackfillLoading] = useState(false)
   const [backfillDone, setBackfillDone] = useState(false)
   const [backfillResult, setBackfillResult] = useState<{ updated: number } | null>(null)
@@ -613,7 +615,24 @@ export default function AdminPage() {
           {/* ── PATENTS ──────────────────────────────────────────────────── */}
           {activeSection === 'patents' && (
             <div>
-              <h1 className="text-xl font-bold text-gray-900 mb-5">All Patents ({stats.patent_table.length})</h1>
+              <div className="flex items-center justify-between mb-5">
+                <h1 className="text-xl font-bold text-gray-900">All Patents ({stats.patent_table.length})</h1>
+                <div className="flex gap-2">
+                  {(['all', 'human', 'claw'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setPatentFilter(f)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        patentFilter === f
+                          ? 'bg-[#1a1f36] text-white'
+                          : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {f === 'all' ? 'All' : f === 'claw' ? '🤖 Claw' : '👤 Human'}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
@@ -630,19 +649,25 @@ export default function AdminPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {stats.patent_table.map(p => {
+                      {stats.patent_table
+                        .filter(p =>
+                          patentFilter === 'all' ? true :
+                          patentFilter === 'claw' ? p.is_claw_draft :
+                          !p.is_claw_draft
+                        )
+                        .map(p => {
                         const days = daysUntil(p.provisional_deadline)
                         const score = p.claims_score as { novelty?: number } | null
                         return (
                           <tr key={p.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3">
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <Link href={`/dashboard/patents/${p.id}`} className="font-medium text-gray-800 hover:text-blue-600 hover:underline max-w-[200px] truncate block">
                                   {p.title}
                                 </Link>
                                 {p.is_claw_draft && (
                                   <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-100 text-violet-700 border border-violet-200" title="Autonomously drafted by BoClaw — awaiting Chad review">
-                                    🦞 Claw Draft
+                                    🤖 Claw
                                   </span>
                                 )}
                               </div>
