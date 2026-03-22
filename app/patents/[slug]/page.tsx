@@ -15,7 +15,7 @@ export async function generateMetadata(
   const { slug } = await params
   const { data } = await supabaseService
     .from('patents')
-    .select('title, deal_page_summary, status')
+    .select('title, deal_page_summary, marketplace_description, marketplace_tagline, status')
     .eq('slug', slug)
     .eq('arc3_active', true)
     .single()
@@ -26,12 +26,22 @@ export async function generateMetadata(
     : data.status === 'non_provisional' ? 'Patent Pending'
     : 'Patent Provisional'
 
+  // 54D: prefer marketplace_description for meta description (160 char truncation)
+  const metaDesc = data.marketplace_description
+    ? data.marketplace_description.slice(0, 160)
+    : (data.deal_page_summary ?? `Licensing opportunity: ${data.title}`)
+
+  // 54D: append tagline to title when set
+  const metaTitle = data.marketplace_tagline
+    ? `${data.title} — ${data.marketplace_tagline} | PatentPending`
+    : `${data.title} — ${statusLabel} | PatentPending`
+
   return {
-    title: `${data.title} — ${statusLabel} | PatentPending`,
-    description: data.deal_page_summary ?? `Licensing opportunity: ${data.title}`,
+    title: metaTitle,
+    description: metaDesc,
     openGraph: {
       title: data.title,
-      description: data.deal_page_summary ?? `Licensing opportunity for ${data.title}`,
+      description: metaDesc,
       type: 'website',
       siteName: 'PatentPending',
     },
@@ -49,7 +59,8 @@ export default async function DealPage(
       id, title, slug, status, description, inventors, tags,
       claims_draft, deal_page_summary, deal_page_market,
       licensing_exclusive, licensing_nonexclusive, licensing_field_of_use,
-      arc3_active, created_at
+      arc3_active, created_at,
+      marketplace_description, marketplace_tagline
     `)
     .eq('slug', slug)
     .eq('arc3_active', true)
@@ -81,6 +92,8 @@ export default async function DealPage(
         licensing_exclusive: patent.licensing_exclusive,
         licensing_nonexclusive: patent.licensing_nonexclusive,
         licensing_field_of_use: patent.licensing_field_of_use,
+        marketplace_description: patent.marketplace_description ?? null,
+        marketplace_tagline: patent.marketplace_tagline ?? null,
       }}
       topClaims={topClaims}
     />

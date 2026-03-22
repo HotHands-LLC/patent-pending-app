@@ -360,6 +360,20 @@ export async function POST(
     console.error('[content-blast] Failed to save marketplace correspondence:', mktCorrError)
   }
 
+  // ── 54D: Write marketplace_description + marketplace_tagline columns ─────
+  const { error: mktColError } = await supabase
+    .from('patents')
+    .update({
+      marketplace_description: parsed.marketplace_description,
+      marketplace_tagline: parsed.tagline,
+    })
+    .eq('id', patentId)
+
+  if (mktColError) {
+    console.error('[content-blast] Failed to write marketplace columns:', mktColError)
+    // Non-fatal — content still returned; columns will be backfilled on next blast
+  }
+
   // ── Return result ─────────────────────────────────────────────────────────
   return NextResponse.json({
     success: true,

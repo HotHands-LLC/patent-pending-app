@@ -45,6 +45,9 @@ const ALLOWED_UPDATE_FIELDS = [
   'summary_of_invention',    // spec section
   'detailed_description',    // spec section
   'brief_description_of_drawings', // spec section
+  // 54D — Pattie-generated marketplace content (owner editable)
+  'marketplace_description',
+  'marketplace_tagline',
 ] as const
 
 type AllowedField = typeof ALLOWED_UPDATE_FIELDS[number]

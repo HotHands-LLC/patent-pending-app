@@ -75,6 +75,9 @@ export type Patent = {
   inventor_name?: string | null
   uspto_customer_number?: string | null
   lifecycle_state?: string | null
+  // 54D — Pattie-generated marketplace content
+  marketplace_description?: string | null
+  marketplace_tagline?: string | null
 }
 
 export type PatentDeadline = {

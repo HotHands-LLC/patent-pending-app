@@ -15,6 +15,9 @@ interface DealPatent {
   licensing_exclusive: boolean
   licensing_nonexclusive: boolean
   licensing_field_of_use: boolean
+  // 54D — Pattie-generated marketplace content
+  marketplace_description: string | null
+  marketplace_tagline: string | null
 }
 
 interface Props {
@@ -96,9 +99,13 @@ export default function DealPageClient({ patent, topClaims }: Props) {
               <span key={t} className="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded-full">{t}</span>
             ))}
           </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight mb-4">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-tight mb-2">
             {patent.title}
           </h1>
+          {/* 54D: Pattie-generated tagline — directly below title */}
+          {patent.marketplace_tagline && (
+            <p className="text-base text-gray-500 italic mb-3 max-w-2xl">{patent.marketplace_tagline}</p>
+          )}
           {patent.deal_page_summary ? (
             <p className="text-lg text-gray-600 leading-relaxed max-w-3xl">{patent.deal_page_summary}</p>
           ) : patent.description ? (
@@ -109,6 +116,17 @@ export default function DealPageClient({ patent, topClaims }: Props) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left column — main content */}
           <div className="lg:col-span-2 space-y-6">
+
+            {/* 54D: Pattie-generated marketplace description — above technical spec */}
+            {patent.marketplace_description && (
+              <div className="bg-white rounded-2xl border border-purple-200 p-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="text-lg font-bold text-gray-900">About This Invention</h2>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full border border-purple-200">✨ Pattie</span>
+                </div>
+                <p className="text-gray-600 leading-relaxed">{patent.marketplace_description}</p>
+              </div>
+            )}
 
             {/* Market Opportunity */}
             {patent.deal_page_market && (

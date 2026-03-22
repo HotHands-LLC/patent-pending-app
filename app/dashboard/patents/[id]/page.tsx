@@ -348,6 +348,124 @@ function AbstractField({
   )
 }
 
+// ── Generated Description Card (54D) ─────────────────────────────────────────
+function GeneratedDescriptionCard({
+  patent,
+  authToken,
+  onUpdate,
+}: {
+  patent: Patent
+  authToken: string
+  onUpdate: (fields: Partial<Record<string, unknown>>) => void
+}) {
+  const desc    = patent.marketplace_description ?? null
+  const tagline = patent.marketplace_tagline ?? null
+  const [editing, setEditing]   = useState(false)
+  const [draftDesc, setDraftDesc]       = useState(desc ?? '')
+  const [draftTagline, setDraftTagline] = useState(tagline ?? '')
+  const [saving, setSaving]     = useState(false)
+  const [saved, setSaved]       = useState(false)
+
+  if (!desc && !tagline) return null   // nothing to show — Content Blast hasn't run yet
+
+  async function save() {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/patents/${patent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          marketplace_description: draftDesc.trim() || null,
+          marketplace_tagline: draftTagline.trim() || null,
+        }),
+      })
+      if (res.ok) {
+        onUpdate({ marketplace_description: draftDesc.trim() || null, marketplace_tagline: draftTagline.trim() || null })
+        setEditing(false)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2000)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 bg-white rounded-xl border border-purple-200 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-800">Generated Description</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full border border-purple-200">✨ Pattie</span>
+        </div>
+        {!editing && (
+          <button
+            onClick={() => { setDraftDesc(desc ?? ''); setDraftTagline(tagline ?? ''); setEditing(true) }}
+            className="text-xs text-indigo-600 hover:underline font-medium"
+          >
+            Edit
+          </button>
+        )}
+        {saved && <span className="text-xs text-green-600 font-medium">Saved ✓</span>}
+      </div>
+
+      {editing ? (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Tagline <span className="text-gray-400 font-normal">({draftTagline.length}/100)</span>
+            </label>
+            <input
+              type="text"
+              value={draftTagline}
+              maxLength={100}
+              onChange={e => setDraftTagline(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+              placeholder="One-liner tagline…"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">
+              Description <span className="text-gray-400 font-normal">({draftDesc.length}/500)</span>
+            </label>
+            <textarea
+              value={draftDesc}
+              maxLength={500}
+              rows={5}
+              onChange={e => setDraftDesc(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 resize-none"
+              placeholder="Marketplace description…"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] disabled:opacity-50 min-h-[36px]"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-50 min-h-[36px]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {tagline && (
+            <p className="text-xs font-semibold text-purple-700 italic">&ldquo;{tagline}&rdquo;</p>
+          )}
+          {desc && (
+            <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{desc}</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Marketplace Settings Card ─────────────────────────────────────────────────
 function MarketplaceSettingsCard({
   patent,
@@ -3670,12 +3788,20 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
         {/* Save/cancel when editing details */}
         {/* ── MARKETPLACE SETTINGS (Overview tab, owner only) ─────────────────── */}
         {tab === 'details' && !isCollaborator && (
-          <MarketplaceSettingsCard
-            patent={patent}
-            authToken={authToken}
-            canWrite={canWrite}
-            onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
-          />
+          <>
+            <MarketplaceSettingsCard
+              patent={patent}
+              authToken={authToken}
+              canWrite={canWrite}
+              onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
+            />
+            {/* 54D — Generated Description card (only when marketplace_description set) */}
+            <GeneratedDescriptionCard
+              patent={patent}
+              authToken={authToken}
+              onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
+            />
+          </>
         )}
 
         {/* ── SIGNING REQUESTS (visible to all patent owners and collaborators) ── */}
