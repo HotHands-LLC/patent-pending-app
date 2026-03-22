@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import type { InvestorListing } from './page'
 
@@ -20,22 +20,29 @@ const STAGE_COLORS: Record<string, string> = {
   granted: 'bg-green-100 text-green-800',
 }
 
+const DOMAIN_LABELS: Record<string, string> = {
+  all:       'All',
+  hardware:  '⚙️ Hardware',
+  software:  '💻 Software',
+  materials: '🧪 Materials',
+  energy:    '⚡ Energy',
+  medical:   '🏥 Medical',
+  other:     '🔬 Other',
+}
+
 type SortKey = 'newest' | 'score' | 'funded'
 type StageFilter = 'all' | 'provisional' | 'non_provisional' | 'development' | 'licensing' | 'granted'
+type DomainFilter = 'all' | 'hardware' | 'software' | 'materials' | 'energy' | 'medical' | 'other'
 
 function FundingBar({ raised, goal }: { raised: number; goal: number }) {
   if (!goal) return null
-  // Values are in cents
   const raisedDollars = raised / 100
   const goalDollars = goal / 100
   const pct = Math.min(100, Math.round((raised / goal) * 100))
   return (
     <div className="mt-3">
       <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
-        <div
-          className="bg-emerald-500 h-2 rounded-full transition-all"
-          style={{ width: `${pct}%` }}
-        />
+        <div className="bg-emerald-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
       </div>
       <div className="flex justify-between text-xs text-gray-400">
         <span className="font-medium text-gray-700">${raisedDollars.toLocaleString()} raised</span>
@@ -46,31 +53,74 @@ function FundingBar({ raised, goal }: { raised: number; goal: number }) {
 }
 
 export default function InvestorMarketplaceClient({ listings }: { listings: InvestorListing[] }) {
-  const [stage, setStage] = useState<StageFilter>('all')
-  const [sort, setSort] = useState<SortKey>('newest')
+  const [stage, setStage]   = useState<StageFilter>('all')
+  const [domain, setDomain] = useState<DomainFilter>('all')
+  const [sort, setSort]     = useState<SortKey>('newest')
+  const [query, setQuery]   = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Debounce keyword search 300ms
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setDebouncedQuery(query), 300)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [query])
 
   const filtered = useMemo(() => {
-    let result = stage === 'all' ? listings : listings.filter(l => l.stage === stage)
+    let result = [...listings]
+
+    // Stage filter
+    if (stage !== 'all') result = result.filter(l => l.stage === stage)
+
+    // Domain filter
+    if (domain !== 'all') result = result.filter(l => l.tech_domain === domain)
+
+    // Keyword search — title, abstract, novelty_narrative, tagline
+    if (debouncedQuery.trim()) {
+      const q = debouncedQuery.toLowerCase()
+      result = result.filter(l =>
+        (l.title ?? '').toLowerCase().includes(q) ||
+        (l.abstract_draft ?? '').toLowerCase().includes(q) ||
+        (l.novelty_narrative ?? '').toLowerCase().includes(q) ||
+        (l.marketplace_tagline ?? '').toLowerCase().includes(q)
+      )
+    }
+
+    // Sort
     if (sort === 'score') {
-      result = [...result].sort((a, b) => (b.composite_score ?? 0) - (a.composite_score ?? 0))
+      result = result.sort((a, b) => (b.composite_score ?? 0) - (a.composite_score ?? 0))
     } else if (sort === 'funded') {
-      result = [...result].sort((a, b) => {
+      result = result.sort((a, b) => {
         const pctA = a.funding_goal_usd > 0 ? a.total_raised_usd / a.funding_goal_usd : 0
         const pctB = b.funding_goal_usd > 0 ? b.total_raised_usd / b.funding_goal_usd : 0
         return pctB - pctA
       })
     }
-    // newest is default (already ordered by created_at desc from server)
+    // newest = default server order
+
     return result
-  }, [listings, stage, sort])
+  }, [listings, stage, domain, sort, debouncedQuery])
 
   const STAGES: Array<{ key: StageFilter; label: string }> = [
-    { key: 'all', label: 'All' },
+    { key: 'all', label: 'All Stages' },
     { key: 'provisional', label: 'Provisional' },
     { key: 'non_provisional', label: 'Non-Provisional' },
     { key: 'development', label: 'Development' },
     { key: 'licensing', label: 'Licensing' },
   ]
+
+  const DOMAINS = Object.keys(DOMAIN_LABELS) as DomainFilter[]
+
+  // Only show domain chips that have at least one listing (plus 'all')
+  const activeDomains = useMemo(() => {
+    const present = new Set(listings.map(l => l.tech_domain ?? 'other'))
+    return DOMAINS.filter(d => d === 'all' || present.has(d))
+  }, [listings])
+
+  const hasActiveFilters = stage !== 'all' || domain !== 'all' || debouncedQuery.trim() !== ''
+
+  function clearAll() { setStage('all'); setDomain('all'); setQuery('') }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -110,7 +160,7 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
       <div className="bg-white border-b border-gray-100 py-10 px-4">
         <div className="max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
           {[
-            { icon: '🔍', title: 'Browse Inventions', desc: 'Find patents open for investment. Filter by stage, score, or funding progress.' },
+            { icon: '🔍', title: 'Browse Inventions', desc: 'Find patents open for investment. Filter by stage, domain, or search by keyword.' },
             { icon: '💵', title: 'Invest from $25', desc: 'Commit any amount. Your stake is proportional to your investment vs. total raised.' },
             { icon: '📈', title: 'Earn Revenue Share', desc: 'When the patent generates licensing fees or sales, investors receive their proportional share.' },
           ].map(s => (
@@ -126,9 +176,45 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
       {/* Listings */}
       <div id="listings" className="max-w-6xl mx-auto px-4 py-10">
 
-        {/* Filter + sort bar */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-6 items-start sm:items-center justify-between">
-          {/* Stage filter */}
+        {/* ── Keyword search ─────────────────────────────────────────────── */}
+        <div className="relative mb-4">
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search patents by title, technology, or keyword…"
+            className="w-full border border-gray-200 bg-white rounded-xl px-4 py-3 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 shadow-sm"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+
+        {/* ── Domain chips ───────────────────────────────────────────────── */}
+        <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
+          {activeDomains.map(d => (
+            <button
+              key={d}
+              onClick={() => setDomain(d === domain ? 'all' : d)}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors whitespace-nowrap ${
+                domain === d
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {DOMAIN_LABELS[d]}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Stage + sort row ───────────────────────────────────────────── */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-4 items-start sm:items-center justify-between">
           <div className="flex flex-wrap gap-2">
             {STAGES.map(s => (
               <button
@@ -144,7 +230,6 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
               </button>
             ))}
           </div>
-          {/* Sort */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400">Sort:</span>
             {([['newest', 'Newest'], ['score', 'Highest Score'], ['funded', 'Most Funded']] as [SortKey, string][]).map(([k, label]) => (
@@ -163,16 +248,28 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
           </div>
         </div>
 
-        <p className="text-xs text-gray-400 mb-5">
-          {filtered.length} invention{filtered.length !== 1 ? 's' : ''} open for investment
-        </p>
+        {/* ── Result count ───────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between mb-5">
+          <p className="text-xs text-gray-400">
+            <span className="font-semibold text-gray-700">{filtered.length}</span>{' '}
+            patent{filtered.length !== 1 ? 's' : ''}
+            {debouncedQuery ? ` matching "${debouncedQuery}"` : ''}
+            {domain !== 'all' ? ` in ${DOMAIN_LABELS[domain]}` : ''}
+          </p>
+          {hasActiveFilters && (
+            <button onClick={clearAll} className="text-xs text-indigo-500 hover:underline">
+              Clear filters
+            </button>
+          )}
+        </div>
 
+        {/* ── No results ─────────────────────────────────────────────────── */}
         {filtered.length === 0 ? (
           <div className="text-center py-24 text-gray-400">
             <div className="text-5xl mb-4">🔬</div>
-            <p className="text-lg font-medium">No patents match this filter yet.</p>
-            <button onClick={() => setStage('all')} className="mt-3 text-sm text-indigo-500 hover:underline">
-              Show all
+            <p className="text-lg font-medium">No patents match your search.</p>
+            <button onClick={clearAll} className="mt-3 text-sm text-indigo-500 hover:underline">
+              Clear all filters
             </button>
           </div>
         ) : (
@@ -186,15 +283,22 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
               const card = (
                 <div className="group bg-white rounded-2xl border border-gray-200 hover:border-emerald-300 hover:shadow-md transition-all flex flex-col p-5 h-full">
                   {/* Badges row */}
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-1">
                     <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${stageBadge}`}>
                       {STAGE_LABELS[patent.stage] ?? patent.stage}
                     </span>
-                    {patent.composite_score != null && (
-                      <span className="text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 rounded-full">
-                        {patent.composite_score}/100
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {patent.tech_domain && patent.tech_domain !== 'other' && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+                          {DOMAIN_LABELS[patent.tech_domain as DomainFilter] ?? patent.tech_domain}
+                        </span>
+                      )}
+                      {patent.composite_score != null && (
+                        <span className="text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 rounded-full">
+                          {patent.composite_score}/100
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Title */}
@@ -202,26 +306,24 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
                     {patent.title}
                   </h2>
 
-                  {/* Tagline */}
+                  {/* Tagline / description */}
                   {tagline && (
                     <p className="text-xs text-gray-500 italic mb-2 leading-relaxed">{tagline}</p>
                   )}
                   {!tagline && desc && (
-                    <p className="text-xs text-gray-500 mb-2 leading-relaxed">{desc}{patent.marketplace_description && patent.marketplace_description.length > 120 ? '…' : ''}</p>
+                    <p className="text-xs text-gray-500 mb-2 leading-relaxed">{desc}{(patent.marketplace_description?.length ?? 0) > 120 ? '…' : ''}</p>
                   )}
 
                   {/* Funding bar */}
                   <div className="mt-auto">
                     <FundingBar raised={patent.total_raised_usd} goal={patent.funding_goal_usd} />
 
-                    {/* Rev share note */}
                     {patent.rev_share_available_pct > 0 && (
                       <p className="text-xs text-emerald-600 mt-2">
                         {patent.rev_share_available_pct}% revenue share available to investors
                       </p>
                     )}
 
-                    {/* CTA */}
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
                         Invest from $25 →

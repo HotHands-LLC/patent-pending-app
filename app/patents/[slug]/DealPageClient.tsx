@@ -1,8 +1,84 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+
+// ── Related Patents component ─────────────────────────────────────────────────
+const DOMAIN_LABELS: Record<string, string> = {
+  hardware: '⚙️ Hardware', software: '💻 Software',
+  materials: '🧪 Materials', energy: '⚡ Energy',
+  medical: '🏥 Medical', other: '🔬 Other',
+}
+const STAGE_LABELS_SMALL: Record<string, string> = {
+  provisional: 'Provisional', non_provisional: 'Non-Provisional',
+  development: 'Development', licensing: 'Licensing', granted: 'Granted',
+}
+
+interface RelatedPatent {
+  id: string; title: string; slug: string; stage: string
+  composite_score: number | null; tech_domain: string | null
+  novelty_narrative: string | null
+}
+
+function RelatedPatents({ patentId }: { patentId: string }) {
+  const [related, setRelated] = useState<RelatedPatent[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/patents/${patentId}/related`)
+      if (!res.ok) return
+      const data = await res.json()
+      setRelated(data.related ?? [])
+    } catch { /* fail silently */ }
+    finally { setLoaded(true) }
+  }, [patentId])
+
+  useEffect(() => { load() }, [load])
+
+  // Hide if fewer than 2 results
+  if (!loaded || related.length < 2) return null
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-6">
+      <h2 className="text-lg font-bold text-gray-900 mb-4">🔗 More Patents to Explore</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {related.map(p => (
+          <Link
+            key={p.id}
+            href={`/patents/${p.slug}`}
+            className="group flex flex-col gap-2 p-4 rounded-xl border border-gray-100 hover:border-emerald-300 hover:shadow-sm transition-all"
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              {p.tech_domain && p.tech_domain !== 'other' && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+                  {DOMAIN_LABELS[p.tech_domain] ?? p.tech_domain}
+                </span>
+              )}
+              {p.composite_score != null && (
+                <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">
+                  {p.composite_score}/100
+                </span>
+              )}
+            </div>
+            <p className="text-sm font-semibold text-gray-900 leading-snug group-hover:text-emerald-700 transition-colors">
+              {p.title}
+            </p>
+            {p.novelty_narrative && (
+              <p className="text-xs text-gray-500 leading-relaxed line-clamp-2">
+                {p.novelty_narrative}
+              </p>
+            )}
+            <span className="mt-auto text-xs font-semibold text-emerald-700">
+              View Deal →
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 interface DealPatent {
   id: string
@@ -407,6 +483,9 @@ export default function DealPageClient({ patent, topClaims }: Props) {
                 </div>
               </div>
             )}
+
+            {/* ── Related Patents ───────────────────────────────────────── */}
+            <RelatedPatents patentId={patent.id} />
 
             {/* ── Section 7: Risk Disclosure ────────────────────────────── */}
             <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">

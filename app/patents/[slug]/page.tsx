@@ -15,7 +15,7 @@ export async function generateMetadata(
   const { slug } = await params
   const { data } = await supabaseService
     .from('patents')
-    .select('title, deal_page_summary, marketplace_description, marketplace_tagline, status')
+    .select('title, deal_page_summary, marketplace_description, marketplace_tagline, status, novelty_narrative, abstract_draft')
     .eq('slug', slug)
     .eq('arc3_active', true)
     .single()
@@ -26,31 +26,37 @@ export async function generateMetadata(
     : data.status === 'non_provisional' ? 'Patent Pending'
     : 'Patent Provisional'
 
-  const metaDesc = data.marketplace_tagline
-    ? data.marketplace_tagline.slice(0, 160)
-    : data.marketplace_description
-    ? data.marketplace_description.slice(0, 160)
-    : (data.deal_page_summary ?? `Licensing opportunity: ${data.title}`).slice(0, 160)
+  // OG description: novelty_narrative first (155 chars), then abstract, then tagline, then fallback
+  const ogDesc = (
+    data.novelty_narrative
+      ? data.novelty_narrative.slice(0, 155)
+      : data.abstract_draft
+      ? data.abstract_draft.slice(0, 155)
+      : data.marketplace_tagline
+      ? data.marketplace_tagline.slice(0, 155)
+      : (data.deal_page_summary ?? `Licensing opportunity: ${data.title}`).slice(0, 155)
+  )
 
-  const metaTitle = data.marketplace_tagline
-    ? `${data.title} — ${data.marketplace_tagline} | PatentPending`
-    : `${data.title} — ${statusLabel} | PatentPending`
+  const metaTitle = `${data.title} — ${statusLabel} | PatentPending`
+  const canonicalUrl = `https://patentpending.app/patents/${slug}`
 
-  // Task 5 — Open Graph / Social Share
   return {
     title: metaTitle,
-    description: metaDesc,
+    description: ogDesc,
+    alternates: { canonical: canonicalUrl },
     openGraph: {
-      title: `${data.title} — PatentPending.app`,
-      description: metaDesc,
-      url: `https://patentpending.app/patents/${slug}`,
+      title: data.title,
+      description: ogDesc,
+      url: canonicalUrl,
       type: 'website',
       siteName: 'PatentPending',
+      images: [{ url: 'https://patentpending.app/og-default.png', width: 1200, height: 630, alt: data.title }],
     },
     twitter: {
-      card: 'summary',
-      title: `${data.title} — PatentPending.app`,
-      description: metaDesc,
+      card: 'summary_large_image',
+      title: data.title,
+      description: ogDesc,
+      images: ['https://patentpending.app/og-default.png'],
     },
   }
 }

@@ -24,6 +24,8 @@ export interface InvestorListing {
   slug: string | null
   marketplace_tagline: string | null
   marketplace_description: string | null
+  abstract_draft: string | null
+  novelty_narrative: string | null
   stage: string
   status: string
   funding_goal_usd: number
@@ -35,6 +37,7 @@ export interface InvestorListing {
   novelty_score: number | null
   commercial_score: number | null
   composite_score: number | null
+  tech_domain: string | null
 }
 
 export default async function MarketplacePage() {
@@ -43,13 +46,14 @@ export default async function MarketplacePage() {
     .from('patents')
     .select(`
       id, title, slug, marketplace_tagline, marketplace_description,
+      abstract_draft, novelty_narrative,
       stage, status, funding_goal_usd, total_raised_usd,
       rev_share_available_pct, investment_open, created_at
     `)
     .eq('investment_open', true)
     .not('marketplace_tagline', 'is', null)
     .order('created_at', { ascending: false })
-    .limit(50)
+    .limit(100)
 
   // Fallback: all investment_open if fewer than 3 with tagline
   if (!listings || listings.length < 3) {
@@ -57,28 +61,30 @@ export default async function MarketplacePage() {
       .from('patents')
       .select(`
         id, title, slug, marketplace_tagline, marketplace_description,
+        abstract_draft, novelty_narrative,
         stage, status, funding_goal_usd, total_raised_usd,
         rev_share_available_pct, investment_open, created_at
       `)
       .eq('investment_open', true)
       .order('created_at', { ascending: false })
-      .limit(50)
+      .limit(100)
     listings = fallback ?? []
   }
 
   // Enrich with claw_patents scores (left join equivalent)
   const patentIds = (listings ?? []).map(p => p.id)
-  let scoreMap: Record<string, { novelty_score: number | null; commercial_score: number | null; composite_score: number | null }> = {}
+  let scoreMap: Record<string, { novelty_score: number | null; commercial_score: number | null; composite_score: number | null; tech_domain: string | null }> = {}
   if (patentIds.length) {
     const { data: clawRows } = await supabaseService
       .from('claw_patents')
-      .select('patent_id, novelty_score, commercial_score, composite_score')
+      .select('patent_id, novelty_score, commercial_score, composite_score, tech_domain')
       .in('patent_id', patentIds)
     for (const r of clawRows ?? []) {
       scoreMap[r.patent_id] = {
         novelty_score: r.novelty_score,
         commercial_score: r.commercial_score,
         composite_score: r.composite_score,
+        tech_domain: r.tech_domain,
       }
     }
   }
@@ -88,6 +94,7 @@ export default async function MarketplacePage() {
     novelty_score: scoreMap[p.id]?.novelty_score ?? null,
     commercial_score: scoreMap[p.id]?.commercial_score ?? null,
     composite_score: scoreMap[p.id]?.composite_score ?? null,
+    tech_domain: scoreMap[p.id]?.tech_domain ?? null,
   }))
 
   return <InvestorMarketplaceClient listings={enriched} />
