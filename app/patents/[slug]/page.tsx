@@ -75,7 +75,7 @@ export default async function DealPage(
       arc3_active, created_at,
       marketplace_description, marketplace_tagline,
       investment_open, stage, funding_goal_usd, total_raised_usd, rev_share_available_pct,
-      novelty_narrative
+      novelty_narrative, key_differentiator
     `)
     .eq('slug', slug)
     .eq('arc3_active', true)
@@ -140,6 +140,7 @@ export default async function DealPage(
         composite_score: clawRow?.composite_score ?? null,
         prior_art_citations: priorArtCitations,
         investor_count: investorCount ?? 0,
+        key_differentiator: patent.key_differentiator ?? null,
       }}
       topClaims={topClaims}
     />

@@ -111,6 +111,8 @@ interface DealPatent {
   composite_score: number | null
   prior_art_citations: Array<{ title?: string; gap?: string; patent_number?: string }>
   investor_count: number
+  // 55E — Independent novelty validation
+  key_differentiator: string | null
 }
 
 interface Props {
@@ -363,20 +365,28 @@ export default function DealPageClient({ patent, topClaims }: Props) {
             )}
 
             {/* ── Section 3: About This Invention ──────────────────────── */}
-            {(patent.marketplace_description || patent.deal_page_summary || patent.description) && (
+            {(patent.marketplace_description || patent.deal_page_summary || patent.description || patent.key_differentiator) && (
               <div className="bg-white rounded-2xl border border-gray-200 p-6">
                 <h2 className="text-lg font-bold text-gray-900 mb-3">About This Invention</h2>
+
+                {/* 55E: key_differentiator pull quote — most investor-readable sentence */}
+                {patent.key_differentiator && (
+                  <blockquote className="border-l-4 border-blue-500 pl-4 italic text-gray-700 my-4 text-base leading-relaxed">
+                    {patent.key_differentiator}
+                  </blockquote>
+                )}
+
                 {patent.marketplace_description ? (
                   <div className="space-y-3">
                     {patent.marketplace_description.split('\n\n').map((para, i) => (
                       <p key={i} className="text-gray-600 leading-relaxed">{para}</p>
                     ))}
                   </div>
-                ) : (
+                ) : (patent.deal_page_summary || patent.description) ? (
                   <p className="text-gray-600 leading-relaxed">
                     {(patent.deal_page_summary ?? patent.description ?? '').slice(0, 300)}
                   </p>
-                )}
+                ) : null}
               </div>
             )}
 
