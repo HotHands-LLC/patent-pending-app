@@ -20,6 +20,9 @@ interface ClawPatent {
   claw_notes: string | null
   patent_id: string | null
   created_at: string
+  improvement_day: number | null
+  provisional_ready: boolean | null
+  archived_at: string | null
 }
 
 type GroupedBatch = { date: string; patents: ClawPatent[] }
@@ -37,7 +40,14 @@ function ScoreBar({ label, value, color }: { label: string; value: number | null
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, provisionalReady }: { status: string; provisionalReady?: boolean | null }) {
+  if (provisionalReady) {
+    return (
+      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+        🏆 Provisional Ready
+      </span>
+    )
+  }
   const cfg: Record<string, string> = {
     draft:               'bg-gray-100 text-gray-600',
     claimed:             'bg-green-100 text-green-700',
@@ -45,6 +55,7 @@ function StatusBadge({ status }: { status: string }) {
     reviewed:            'bg-blue-100 text-blue-700',
     filed:               'bg-indigo-100 text-indigo-700',
     abandoned:           'bg-red-100 text-red-700',
+    archived:            'bg-red-50 text-red-400',
   }
   const label: Record<string, string> = {
     draft:               'Draft',
@@ -53,6 +64,7 @@ function StatusBadge({ status }: { status: string }) {
     reviewed:            'Reviewed',
     filed:               'Filed',
     abandoned:           'Abandoned',
+    archived:            '📦 Archived',
   }
   return (
     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cfg[status] ?? 'bg-gray-100 text-gray-500'}`}>
@@ -117,11 +129,12 @@ function ClaimModal({ patent, authToken, onClose, onClaimed }:
 }
 
 export default function ClawPatentsAdminPage() {
-  const [patents, setPatents]     = useState<ClawPatent[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [authToken, setAuthToken] = useState('')
+  const [patents, setPatents]         = useState<ClawPatent[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [authToken, setAuthToken]     = useState('')
   const [claimTarget, setClaimTarget] = useState<ClawPatent | null>(null)
-  const [toast, setToast]         = useState('')
+  const [toast, setToast]             = useState('')
+  const [showArchived, setShowArchived] = useState(false)
   const router = useRouter()
 
   const load = useCallback(async () => {
@@ -133,9 +146,9 @@ export default function ClawPatentsAdminPage() {
 
     const { data, error } = await supabase
       .from('claw_patents')
-      .select('id,title,invention_area,novelty_score,commercial_score,filing_complexity,composite_score,status,drive_url,batch_date,batch_rank,novelty_rationale,claw_notes,patent_id,created_at')
+      .select('id,title,invention_area,novelty_score,commercial_score,filing_complexity,composite_score,status,drive_url,batch_date,batch_rank,novelty_rationale,claw_notes,patent_id,created_at,improvement_day,provisional_ready,archived_at')
       .order('composite_score', { ascending: false })
-      .limit(100)
+      .limit(200)
 
     if (!error && data) setPatents(data as ClawPatent[])
     setLoading(false)
@@ -143,10 +156,14 @@ export default function ClawPatentsAdminPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Filter: hide archived by default
+  const visiblePatents = showArchived ? patents : patents.filter(p => p.status !== 'archived')
+  const archivedCount  = patents.filter(p => p.status === 'archived').length
+
   // Group by batch_date
   const groups: GroupedBatch[] = []
   const seen = new Set<string>()
-  for (const p of patents) {
+  for (const p of visiblePatents) {
     const d = p.batch_date ?? p.created_at.slice(0, 10)
     if (!seen.has(d)) { seen.add(d); groups.push({ date: d, patents: [] }) }
     groups.find(g => g.date === d)!.patents.push(p)
@@ -175,10 +192,27 @@ export default function ClawPatentsAdminPage() {
       )}
 
       {/* Header */}
-      <div className="bg-[#1a1f36] text-white px-6 py-4 flex items-center gap-4">
+      <div className="bg-[#1a1f36] text-white px-6 py-4 flex items-center gap-4 flex-wrap">
         <Link href="/admin" className="text-gray-400 hover:text-white text-sm">← Admin</Link>
         <h1 className="font-bold text-lg">🦞 PatentClaw Invents</h1>
-        <span className="text-gray-400 text-xs">{patents.length} total drafts</span>
+        <span className="text-gray-400 text-xs">{visiblePatents.length} drafts</span>
+        {patents.filter(p => p.provisional_ready).length > 0 && (
+          <span className="text-xs bg-emerald-500 text-white px-2 py-0.5 rounded-full font-semibold">
+            🏆 {patents.filter(p => p.provisional_ready).length} provisional-ready
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setShowArchived(v => !v)}
+            className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+              showArchived
+                ? 'bg-red-500 text-white'
+                : 'bg-white/10 text-gray-300 hover:bg-white/20'
+            }`}
+          >
+            📦 {showArchived ? 'Hide' : 'Show'} Archived ({archivedCount})
+          </button>
+        </div>
       </div>
 
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-10">
@@ -206,9 +240,19 @@ export default function ClawPatentsAdminPage() {
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className="text-lg">{medals[rank - 1] ?? '🔬'}</span>
                           <h3 className="font-bold text-gray-900 text-sm leading-snug">{p.title}</h3>
-                          <StatusBadge status={p.status} />
+                          <StatusBadge status={p.status} provisionalReady={p.provisional_ready} />
+                          {p.improvement_day != null && p.improvement_day > 1 && !p.provisional_ready && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-semibold">
+                              Day {p.improvement_day}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-gray-400">{p.invention_area}</p>
+                        {p.archived_at && (
+                          <p className="text-xs text-red-400 mt-0.5">
+                            Archived {new Date(p.archived_at).toLocaleDateString()}
+                          </p>
+                        )}
                       </div>
                       {p.composite_score != null && (
                         <div className="text-right shrink-0">
