@@ -25,7 +25,7 @@ interface AdminStats {
     filing_status: string; claims_status: string; spec_uploaded: boolean;
     figures_uploaded: boolean; paid: boolean; correspondence_count: number;
     updated_at: string; claims_score: Record<string, unknown> | null;
-    provisional_deadline: string | null;
+    provisional_deadline: string | null; is_claw_draft: boolean;
   }>
   user_table: Array<{
     id: string; name: string; email: string; is_admin: boolean;
@@ -636,9 +636,16 @@ export default function AdminPage() {
                         return (
                           <tr key={p.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3">
-                              <Link href={`/dashboard/patents/${p.id}`} className="font-medium text-gray-800 hover:text-blue-600 hover:underline max-w-[200px] truncate block">
-                                {p.title}
-                              </Link>
+                              <div className="flex items-center gap-1.5">
+                                <Link href={`/dashboard/patents/${p.id}`} className="font-medium text-gray-800 hover:text-blue-600 hover:underline max-w-[200px] truncate block">
+                                  {p.title}
+                                </Link>
+                                {p.is_claw_draft && (
+                                  <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-100 text-violet-700 border border-violet-200" title="Autonomously drafted by BoClaw — awaiting Chad review">
+                                    🦞 Claw Draft
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-4 py-3">
                               <span className={`px-2 py-0.5 rounded text-xs font-semibold ${

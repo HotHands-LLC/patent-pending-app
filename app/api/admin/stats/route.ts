@@ -175,6 +175,7 @@ export async function GET(req: NextRequest) {
     updated_at: p.updated_at,
     claims_score: p.claims_score,
     provisional_deadline: p.provisional_deadline,
+    is_claw_draft: p.is_claw_draft ?? false,
   }))
 
   return NextResponse.json({
