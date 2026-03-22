@@ -66,7 +66,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'ids' | 'investors'
+type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'ids' | 'investors' | 'admin'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -916,6 +916,266 @@ function InvestorsTab({ patent, authToken, onUpdate }: {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Admin Tab (58A) — internal lens, admin-only ──────────────────────────────
+const ADMIN_EMAILS = ['support@hotdeck.com', 'agent@hotdeck.com']
+
+function ScoreBar({ label, value, note, invert }: { label: string; value: number | null; note?: string; invert?: boolean }) {
+  const pct = Math.max(0, Math.min(100, value ?? 0))
+  const barColor = invert
+    ? pct <= 40 ? 'bg-green-400' : pct <= 70 ? 'bg-amber-400' : 'bg-red-400'
+    : pct >= 70 ? 'bg-blue-500' : pct >= 40 ? 'bg-amber-400' : 'bg-gray-300'
+  return (
+    <div className="flex items-center gap-3 text-xs">
+      <span className="w-28 text-gray-600 shrink-0">{label}</span>
+      <div className="flex-1 bg-gray-100 rounded-full h-2">
+        <div className={`h-2 rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-12 text-right font-mono font-semibold text-gray-700">{value ?? '—'}/100</span>
+      {note && <span className="text-gray-400 text-[10px] italic">{note}</span>}
+    </div>
+  )
+}
+
+function AdminTab({ patent, authToken, userEmail }: {
+  patent: Patent; authToken: string; userEmail: string
+}) {
+  const [scores, setScores] = useState<{
+    novelty_score: number | null; commercial_score: number | null
+    filing_complexity: number | null; composite_score: number | null; scored_at: string | null
+  } | null>(null)
+  const [obsLogs, setObsLogs]     = useState<Array<{ id: string; step: string; severity: string; description: string; status: string }>>([])
+  const [rescoring, setRescoring] = useState(false)
+  const [rescoreMsg, setRescoreMsg] = useState('')
+  const [investFields, setInvestFields] = useState({
+    stage:                  (patent as Patent & Record<string, unknown>).stage as string ?? 'provisional',
+    investment_open:        !!((patent as Patent & Record<string, unknown>).investment_open),
+    funding_goal_usd:       Number((patent as Patent & Record<string, unknown>).funding_goal_usd ?? 0),
+    rev_share_available_pct: Number((patent as Patent & Record<string, unknown>).rev_share_available_pct ?? 0),
+    total_raised_usd:       Number((patent as Patent & Record<string, unknown>).total_raised_usd ?? 0),
+  })
+  const [investSaving, setInvestSaving] = useState(false)
+  const [investSaved, setInvestSaved]   = useState(false)
+
+  useEffect(() => {
+    if (!ADMIN_EMAILS.includes(userEmail)) return
+
+    // Fetch claw_patents scores
+    fetch(`/api/patents/${patent.id}/admin-scores`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    }).then(r => r.json()).then(d => setScores(d)).catch(() => {})
+
+    // Fetch observer logs
+    fetch(`/api/patents/${patent.id}/observer-logs`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    }).then(r => r.json()).then(d => setObsLogs(d.logs ?? [])).catch(() => {})
+  }, [patent.id, authToken, userEmail])
+
+  async function handleRescore() {
+    setRescoring(true); setRescoreMsg('Scoring with Gemini 2.5 Pro…')
+    try {
+      const res = await fetch(`/api/patents/${patent.id}/rescore`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      const data = await res.json()
+      if (!res.ok) { setRescoreMsg(data.error ?? 'Rescore failed'); return }
+      setScores({
+        novelty_score: data.novelty_score, commercial_score: data.commercial_score,
+        filing_complexity: data.filing_complexity, composite_score: data.composite_score,
+        scored_at: data.scored_at,
+      })
+      setRescoreMsg(`✅ Scored at ${new Date(data.scored_at).toLocaleTimeString()}`)
+    } catch { setRescoreMsg('Network error') }
+    finally { setRescoring(false) }
+  }
+
+  async function saveInvestFields() {
+    setInvestSaving(true)
+    await fetch(`/api/patents/${patent.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify(investFields),
+    })
+    setInvestSaving(false); setInvestSaved(true)
+    setTimeout(() => setInvestSaved(false), 2000)
+  }
+
+  // Filing readiness
+  const specText    = (patent as Patent & { spec_draft?: string | null }).spec_draft ?? ''
+  const claimsText  = patent.claims_draft ?? ''
+  const specWords   = specText.split(/\s+/).filter(Boolean).length
+  const detailMatch = specText.match(/Detailed Description[\s\S]*?(?=Abstract|Brief Description of the Drawing|$)/i)
+  const detailWords = detailMatch ? detailMatch[0].split(/\s+/).filter(Boolean).length : specWords
+  const claimCount  = (claimsText.match(/^\s*\d+\./gm) ?? []).length
+  const hasFigures  = patent.figures_uploaded
+  const hasFigDesc  = !!((patent as Patent & Record<string, unknown>).figure_descriptions)
+  const hasAbstract = !!patent.abstract_draft
+  const hasTitle    = !!patent.title?.trim()
+  const specOk      = detailWords >= 600
+
+  const checks = [
+    { label: 'Title',             ok: hasTitle,   partial: false,  detail: patent.title?.slice(0, 50) },
+    { label: 'Abstract',          ok: hasAbstract, partial: false, detail: hasAbstract ? `${(patent.abstract_draft ?? '').split(/\s+/).length} words` : 'missing' },
+    { label: 'Specification',     ok: specOk,      partial: specWords > 0 && !specOk, detail: `${detailWords} detail words (gate: 600+)` },
+    { label: 'Claims',            ok: claimCount >= 1, partial: false, detail: `${claimCount} claims` },
+    { label: 'Figures',           ok: !!hasFigures, partial: !hasFigures && hasFigDesc, detail: hasFigures ? 'SVG uploaded' : hasFigDesc ? 'Descriptions only — no SVG' : 'Missing' },
+    { label: 'Cover Sheet',       ok: !!patent.cover_sheet_acknowledged, partial: false, detail: patent.cover_sheet_acknowledged ? 'Generated' : 'Not generated' },
+  ]
+
+  const sevColors: Record<string, string> = { P0: 'bg-red-100 text-red-700', P1: 'bg-amber-100 text-amber-700', P2: 'bg-gray-100 text-gray-600' }
+  const statColors: Record<string, string> = {
+    open: 'bg-red-100 text-red-700', fix_dispatched: 'bg-blue-100 text-blue-700',
+    selector_resolved: 'bg-green-100 text-green-700', resolved: 'bg-green-100 text-green-700',
+  }
+  const statIcons: Record<string, string> = { open: '🔴', fix_dispatched: '🔧', selector_resolved: '✅', resolved: '✅' }
+
+  const composite = scores?.composite_score
+  const n = scores?.novelty_score; const v = scores?.commercial_score; const c = scores?.filing_complexity
+
+  return (
+    <div className="space-y-5 py-2">
+      {/* N/V/C Score Panel */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-bold text-gray-900 text-sm">Patent Score</h2>
+          <div className="flex items-center gap-3">
+            {composite != null && (
+              <span className="text-2xl font-black text-[#1a1f36]">{composite}<span className="text-sm text-gray-400">/100</span></span>
+            )}
+            <button onClick={handleRescore} disabled={rescoring}
+              className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-semibold">
+              {rescoring ? '⏳ Scoring…' : '✨ Re-Score'}
+            </button>
+          </div>
+        </div>
+
+        {scores == null ? (
+          <p className="text-xs text-gray-400 italic">Score available after AI evaluation. Use Re-Score above.</p>
+        ) : (
+          <div className="space-y-2">
+            <ScoreBar label="Novelty" value={n ?? null} />
+            <ScoreBar label="Commercial Value" value={v ?? null} />
+            <ScoreBar label="Complexity" value={c ?? null} invert note="lower = easier to file" />
+            {n != null && v != null && c != null && (
+              <p className="text-[10px] text-gray-400 mt-1 font-mono">
+                ({n}×0.4) + ({v}×0.4) + ((100−{c})×0.2) = {composite}
+              </p>
+            )}
+            {scores.scored_at && (
+              <p className="text-[10px] text-gray-400">Last scored: {new Date(scores.scored_at).toLocaleString()}</p>
+            )}
+          </div>
+        )}
+        {rescoreMsg && <p className="text-xs mt-2 text-indigo-700">{rescoreMsg}</p>}
+      </div>
+
+      {/* Filing Readiness */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 className="font-bold text-gray-900 text-sm mb-3">Filing Readiness</h2>
+        <div className="space-y-1.5">
+          {checks.map(ch => (
+            <div key={ch.label} className="flex items-center gap-2 text-xs">
+              <span className="text-base">{ch.ok ? '✅' : ch.partial ? '⚠️' : '❌'}</span>
+              <span className="w-24 font-medium text-gray-700">{ch.label}</span>
+              <span className="text-gray-400">{ch.detail}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Investment Status */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-bold text-gray-900 text-sm">Investment Status</h2>
+          {investSaved && <span className="text-xs text-green-600 font-semibold">Saved ✓</span>}
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28">Stage</label>
+            <select value={investFields.stage}
+              onChange={e => setInvestFields(f => ({ ...f, stage: e.target.value }))}
+              className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400">
+              {['provisional','non_provisional','development','licensing','granted'].map(s => (
+                <option key={s} value={s}>{s.replace('_',' ')}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28">Funding Goal ($)</label>
+            <input type="number" value={investFields.funding_goal_usd / 100}
+              onChange={e => setInvestFields(f => ({ ...f, funding_goal_usd: Math.round(Number(e.target.value) * 100) }))}
+              className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              placeholder="e.g. 500" />
+          </div>
+          {investFields.funding_goal_usd > 0 && (
+            <div className="text-xs text-gray-400">
+              Raised: ${(investFields.total_raised_usd / 100).toLocaleString()} / ${(investFields.funding_goal_usd / 100).toLocaleString()}
+              <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1">
+                <div className="bg-emerald-500 h-1.5 rounded-full"
+                  style={{ width: `${Math.min(100, Math.round(investFields.total_raised_usd / investFields.funding_goal_usd * 100))}%` }} />
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28">Rev Share %</label>
+            <input type="number" min={0} max={100} step={1}
+              value={investFields.rev_share_available_pct}
+              onChange={e => setInvestFields(f => ({ ...f, rev_share_available_pct: Number(e.target.value) }))}
+              className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28">Investment Open</label>
+            <button onClick={() => setInvestFields(f => ({ ...f, investment_open: !f.investment_open }))}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${investFields.investment_open ? 'bg-emerald-500' : 'bg-gray-200'}`}>
+              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${investFields.investment_open ? 'translate-x-4' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+          <button onClick={saveInvestFields} disabled={investSaving}
+            className="text-xs px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg hover:bg-[#2d3561] disabled:opacity-50 font-semibold">
+            {investSaving ? 'Saving…' : 'Save Investment Settings'}
+          </button>
+        </div>
+      </div>
+
+      {/* Observer Friction Events */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 className="font-bold text-gray-900 text-sm mb-3">Observer Friction Events</h2>
+        {obsLogs.length === 0 ? (
+          <p className="text-xs text-gray-400 italic">No Observer data yet. Observer runs nightly at 12:30 AM CT.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="bg-gray-50 border-b border-gray-100">
+                {['Sev','Step','Description','Status'].map(h => (
+                  <th key={h} className="text-left px-3 py-2 font-semibold text-gray-500">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody className="divide-y divide-gray-50">
+                {obsLogs.map(log => (
+                  <tr key={log.id}>
+                    <td className="px-3 py-2">
+                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${sevColors[log.severity] ?? 'bg-gray-100 text-gray-600'}`}>
+                        {log.severity}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-gray-600">{log.step}</td>
+                    <td className="px-3 py-2 text-gray-700 max-w-xs truncate">{log.description.slice(0, 80)}</td>
+                    <td className="px-3 py-2">
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${statColors[log.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                        {statIcons[log.status] ?? ''} {log.status.replace('_',' ')}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1853,13 +2113,15 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
           const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
-          const visibleTabs: Tab[] = (['details', 'claims', 'ids', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement', 'investors'] as Tab[])
+          const isAdmin = ADMIN_EMAILS.includes(userEmail)
+          const visibleTabs: Tab[] = (['details', 'claims', 'ids', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement', 'investors', ...(isAdmin ? ['admin' as Tab] : [])] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'ids') return !isCollaborator  // owner-only
               if (t === 'investors') return !isCollaborator  // owner-only — 56A investment tab
+              if (t === 'admin') return ADMIN_EMAILS.includes(userEmail)  // admin-only — 58A
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               return canView(t)
             })
@@ -1870,7 +2132,9 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
               key={t}
               onClick={() => setTab(t)}
               className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize min-h-[40px] ${
-                tab === t ? 'bg-white text-[#1a1f36] shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                t === 'admin'
+                  ? tab === t ? 'bg-gray-700 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'
+                  : tab === t ? 'bg-white text-[#1a1f36] shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               {t === 'correspondence'
@@ -1907,6 +2171,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                   </span>
                 ) : t === 'enhancement' ? '✨ Enhancement'
                 : t === 'ids' ? 'IDS'
+                : t === 'admin' ? '⚙️ Admin'
                 : t === 'details' ? 'Overview'
                 : 'Details'
               }
@@ -2587,6 +2852,11 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
         {tab === 'investors' && !isCollaborator && (
           <InvestorsTab patent={patent} authToken={authToken}
             onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)} />
+        )}
+
+        {/* ── ADMIN TAB (58A) — internal lens, never shown to non-admins ──────── */}
+        {tab === 'admin' && ADMIN_EMAILS.includes(userEmail) && (
+          <AdminTab patent={patent} authToken={authToken} userEmail={userEmail} />
         )}
 
         {/* ── CLAIMS TAB ──────────────────────────────────────────────────────── */}
