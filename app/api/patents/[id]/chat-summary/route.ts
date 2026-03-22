@@ -57,38 +57,73 @@ export async function POST(
     return NextResponse.json({ error: (e as Error).message }, { status: 400 })
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'AI not configured' }, { status: 503 })
-  }
-
   // Build conversation text
   const conversationText = messages
     .map(m => `${m.role === 'user' ? 'Inventor' : 'Pattie'}: ${m.content}`)
     .join('\n\n')
 
-  // Call Claude Sonnet for summary
-  const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: SUMMARY_PROMPT,
-      messages: [{ role: 'user', content: conversationText }],
-    }),
-  })
+  // ── Call Anthropic (primary) or Gemini (fallback when no Anthropic key) ──
+  let rawText = ''
 
-  if (!anthropicRes.ok) {
-    console.error('[chat-summary] Anthropic error:', await anthropicRes.text())
-    return NextResponse.json({ error: 'summary_failed' }, { status: 422 })
+  if (process.env.ANTHROPIC_API_KEY) {
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system: SUMMARY_PROMPT,
+        messages: [{ role: 'user', content: conversationText }],
+      }),
+    })
+    if (anthropicRes.ok) {
+      const data = await anthropicRes.json()
+      rawText = data.content?.[0]?.text ?? ''
+    } else {
+      console.error('[chat-summary] Anthropic error:', await anthropicRes.text())
+    }
   }
 
-  const data = await anthropicRes.json()
-  const rawText: string = data.content?.[0]?.text ?? ''
+  // Gemini fallback (if no Anthropic key or Anthropic failed)
+  if (!rawText && process.env.GEMINI_API_KEY) {
+    const geminiPrompt = `${SUMMARY_PROMPT}\n\nConversation to summarize:\n${conversationText}`
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: geminiPrompt }] }],
+          generationConfig: { maxOutputTokens: 1024, temperature: 0.3 },
+        }),
+      }
+    )
+    if (geminiRes.ok) {
+      const gd = await geminiRes.json()
+      rawText = gd.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+      console.log('[chat-summary] Used Gemini fallback for summary')
+    } else {
+      console.error('[chat-summary] Gemini fallback error:', await geminiRes.text())
+    }
+  }
+
+  // Last resort: build a simple summary without AI (always saves something)
+  if (!rawText) {
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant')
+    rawText = JSON.stringify({
+      summary: lastAssistant
+        ? `Pattie session completed. Last response: ${lastAssistant.content.slice(0, 200)}`
+        : `Pattie session with ${messages.length} messages — no AI key available for summary.`,
+      suggestions: [],
+      openItems: [],
+      inventorInput: messages.find(m => m.role === 'user')?.content?.slice(0, 200) ?? '',
+    })
+    console.log('[chat-summary] Used no-AI fallback — saving minimal summary')
+  }
 
   let parsed: { summary: string; suggestions: string[]; openItems: string[]; inventorInput: string }
   try {
