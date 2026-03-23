@@ -205,6 +205,7 @@ export async function GET(req: NextRequest) {
       updated_at: p.updated_at,
       claims_score: p.claims_score,
       provisional_deadline: p.provisional_deadline,
+      ip_readiness_score: p.ip_readiness_score ?? null,
       is_claw_draft: p.is_claw_draft ?? false,
       // Claw-specific display fields (null for human patents)
       claw_composite_score: claw?.composite_score ?? null,

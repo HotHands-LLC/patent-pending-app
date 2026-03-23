@@ -26,6 +26,7 @@ interface AdminStats {
     figures_uploaded: boolean; paid: boolean; correspondence_count: number;
     updated_at: string; claims_score: Record<string, unknown> | null;
     provisional_deadline: string | null; is_claw_draft: boolean;
+    ip_readiness_score: number | null;
     // Claw-specific display fields
     claw_composite_score: number | null;
     claw_claims_count: number | null;
@@ -167,6 +168,14 @@ export default function AdminPage() {
   // ── Maintenance state ─────────────────────────────────────────────────────
   const [patentFilter, setPatentFilter] = useState<'all' | 'human' | 'claw'>('all')
   const [showArchivedPatents, setShowArchivedPatents] = useState(false)
+  const [patentSort, setPatentSort] = useState<{ col: 'score' | 'deadline' | 'updated'; dir: 'asc' | 'desc' }>({ col: 'updated', dir: 'desc' })
+  function toggleSort(col: 'score' | 'deadline' | 'updated') {
+    setPatentSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: col === 'updated' ? 'desc' : col === 'score' ? 'desc' : 'asc' })
+  }
+  function sortIndicator(col: 'score' | 'deadline' | 'updated') {
+    if (patentSort.col !== col) return <span className="text-gray-300 ml-1">↕</span>
+    return <span className="text-blue-500 ml-1">{patentSort.dir === 'asc' ? '▲' : '▼'}</span>
+  }
 
   const [backfillLoading, setBackfillLoading] = useState(false)
   const [backfillDone, setBackfillDone] = useState(false)
@@ -631,7 +640,21 @@ export default function AdminPage() {
                   patentFilter === 'all' ? true :
                   patentFilter === 'claw' ? p.is_claw_draft :
                   !p.is_claw_draft
-                )
+                ).sort((a, b) => {
+                  const dir = patentSort.dir === 'asc' ? 1 : -1
+                  if (patentSort.col === 'score') {
+                    const sa = a.is_claw_draft ? (a.claw_composite_score ?? -1) : (a.ip_readiness_score ?? -1)
+                    const sb = b.is_claw_draft ? (b.claw_composite_score ?? -1) : (b.ip_readiness_score ?? -1)
+                    return (sa - sb) * dir
+                  }
+                  if (patentSort.col === 'deadline') {
+                    const da = a.provisional_deadline ? new Date(a.provisional_deadline).getTime() : Infinity
+                    const db = b.provisional_deadline ? new Date(b.provisional_deadline).getTime() : Infinity
+                    return (da - db) * dir
+                  }
+                  // updated
+                  return (new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()) * dir
+                })
                 return (
               <div>
               <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
@@ -681,9 +704,9 @@ export default function AdminPage() {
                         <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Claims</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Paid</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Spec</th>
-                        <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Score</th>
-                        <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Deadline</th>
-                        <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider">Updated</th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700" onClick={() => toggleSort('score')}>Score{sortIndicator('score')}</th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700" onClick={() => toggleSort('deadline')}>Deadline{sortIndicator('deadline')}</th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700" onClick={() => toggleSort('updated')}>Updated{sortIndicator('updated')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -737,7 +760,9 @@ export default function AdminPage() {
                                 ? (p.claw_composite_score != null
                                     ? <span className="font-mono font-semibold text-violet-700">{p.claw_composite_score}</span>
                                     : '—')
-                                : (score?.novelty ? `${score.novelty}/10` : '—')
+                                : (p.ip_readiness_score != null
+                                    ? <span className="font-mono text-gray-700">{p.ip_readiness_score}</span>
+                                    : '—')
                               }
                             </td>
                             <td className="px-4 py-3">
