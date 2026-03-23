@@ -169,6 +169,24 @@ export default function AdminPage() {
   const [patentFilter, setPatentFilter] = useState<'all' | 'human' | 'claw'>('all')
   const [showArchivedPatents, setShowArchivedPatents] = useState(false)
   const [patentSort, setPatentSort] = useState<{ col: 'score' | 'deadline' | 'updated'; dir: 'asc' | 'desc' }>({ col: 'updated', dir: 'desc' })
+  const [intakeLimit, setIntakeLimit] = useState<number | null>(null)
+  const [intakeSaving, setIntakeSaving] = useState(false)
+  const [intakeSaved, setIntakeSaved] = useState(false)
+  const [intakeInput, setIntakeInput] = useState<number>(0)
+  React.useEffect(() => {
+    if (!authToken) return
+    supabase.from('app_settings').select('value').eq('key', 'claw_nightly_new_patent_limit').single()
+      .then(({ data }) => {
+        const v = data ? parseInt(data.value, 10) : 0
+        setIntakeLimit(v); setIntakeInput(v)
+      })
+  }, [authToken])
+  async function saveIntakeLimit() {
+    setIntakeSaving(true); setIntakeSaved(false)
+    await supabase.from('app_settings').upsert({ key: 'claw_nightly_new_patent_limit', value: String(intakeInput) })
+    setIntakeLimit(intakeInput); setIntakeSaving(false); setIntakeSaved(true)
+    setTimeout(() => setIntakeSaved(false), 3000)
+  }
   function toggleSort(col: 'score' | 'deadline' | 'updated') {
     setPatentSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: col === 'updated' ? 'desc' : col === 'score' ? 'desc' : 'asc' })
   }
@@ -631,6 +649,32 @@ export default function AdminPage() {
           {/* ── PATENTS ──────────────────────────────────────────────────── */}
           {activeSection === 'patents' && (
             <div>
+              {/* ── Intake limit control ──────────────────────────────── */}
+              <div className="mb-4 p-4 bg-violet-50 border border-violet-200 rounded-xl flex items-center gap-4 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-violet-900">🧪 Nightly new patent limit</p>
+                  <p className="text-xs text-violet-600 mt-0.5">0 = paused. Claw still processes existing patents regardless.</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    type="number" min={0} max={50} step={1}
+                    value={intakeInput}
+                    onChange={e => setIntakeInput(Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))}
+                    className="w-20 px-2 py-1.5 border border-violet-300 rounded-lg text-sm text-center font-mono focus:outline-none focus:ring-2 focus:ring-violet-400"
+                  />
+                  <button
+                    onClick={saveIntakeLimit}
+                    disabled={intakeSaving}
+                    className="px-3 py-1.5 bg-violet-700 text-white text-sm font-semibold rounded-lg hover:bg-violet-800 disabled:opacity-50"
+                  >
+                    {intakeSaving ? 'Saving…' : intakeSaved ? 'Saved ✓' : 'Save'}
+                  </button>
+                  {intakeLimit === 0 && !intakeSaved && (
+                    <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded-full">⏸ Paused</span>
+                  )}
+                </div>
+              </div>
+
               {(() => {
                 const archivedCount = stats.patent_table.filter(p => p.status === 'archived').length
                 const visiblePatents = showArchivedPatents
