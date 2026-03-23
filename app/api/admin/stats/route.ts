@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
     { data: revisionJobs },
     { data: usageLogs },
     { data: correspondence },
+    { data: clawScores },
   ] = await Promise.all([
     serviceClient.from('patents').select('*', { count: 'exact' }),
     serviceClient.from('profiles').select('id, display_name, email, is_admin, created_at, require_2fa, subscription_status'),
@@ -77,6 +78,10 @@ export async function GET(req: NextRequest) {
       .select('id, patent_id, type, created_at')
       .order('created_at', { ascending: false })
       .limit(100),
+    // Claw patent scores — keyed by patent_id for the list display
+    serviceClient.from('claw_patents')
+      .select('patent_id, composite_score, novelty_score, commercial_score, improvement_day, provisional_ready, spec_draft, claims_draft')
+      .not('patent_id', 'is', null),
   ])
 
   // ── Aggregate stats ────────────────────────────────────────────────────────
@@ -161,22 +166,54 @@ export async function GET(req: NextRequest) {
     return acc
   }, {})
 
-  const patentTable = (patents ?? []).map(p => ({
-    id: p.id,
-    title: p.title,
-    owner_id: p.owner_id,
-    status: p.status,
-    filing_status: p.filing_status,
-    claims_status: p.claims_status,
-    spec_uploaded: p.spec_uploaded,
-    figures_uploaded: p.figures_uploaded,
-    paid: !!p.payment_confirmed_at,
-    correspondence_count: corrByPatent[p.id] ?? 0,
-    updated_at: p.updated_at,
-    claims_score: p.claims_score,
-    provisional_deadline: p.provisional_deadline,
-    is_claw_draft: p.is_claw_draft ?? false,
-  }))
+  // Build claw_patents lookup by patent_id for admin list display
+  type ClawScore = {
+    patent_id: string
+    composite_score: number | null
+    novelty_score: number | null
+    commercial_score: number | null
+    improvement_day: number | null
+    provisional_ready: boolean | null
+    spec_draft: string | null
+    claims_draft: string | null
+  }
+  const clawByPatentId = new Map<string, ClawScore>(
+    (clawScores ?? []).map((c: ClawScore) => [c.patent_id, c])
+  )
+
+  const patentTable = (patents ?? []).map(p => {
+    const claw = p.is_claw_draft ? clawByPatentId.get(p.id) : undefined
+    // For Claw patents: derive claims count from claims_draft line count
+    const clawClaimsCount = claw?.claims_draft
+      ? (claw.claims_draft.match(/^\d+\./gm) ?? []).length
+      : null
+    // Spec indicator: green if spec_draft or specification > 800 words
+    const clawSpecOk = claw?.spec_draft
+      ? claw.spec_draft.trim().split(/\s+/).length >= 800
+      : !!(p.specification && p.specification.trim().split(/\s+/).length >= 800)
+    return {
+      id: p.id,
+      title: p.title,
+      owner_id: p.owner_id,
+      status: p.status,
+      filing_status: p.filing_status,
+      claims_status: p.claims_status,
+      spec_uploaded: p.spec_uploaded,
+      figures_uploaded: p.figures_uploaded,
+      paid: !!p.payment_confirmed_at,
+      correspondence_count: corrByPatent[p.id] ?? 0,
+      updated_at: p.updated_at,
+      claims_score: p.claims_score,
+      provisional_deadline: p.provisional_deadline,
+      is_claw_draft: p.is_claw_draft ?? false,
+      // Claw-specific display fields (null for human patents)
+      claw_composite_score: claw?.composite_score ?? null,
+      claw_claims_count: clawClaimsCount,
+      claw_spec_ok: p.is_claw_draft ? clawSpecOk : null,
+      claw_provisional_ready: claw?.provisional_ready ?? null,
+      claw_improvement_day: claw?.improvement_day ?? null,
+    }
+  })
 
   return NextResponse.json({
     summary: {

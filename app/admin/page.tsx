@@ -26,6 +26,12 @@ interface AdminStats {
     figures_uploaded: boolean; paid: boolean; correspondence_count: number;
     updated_at: string; claims_score: Record<string, unknown> | null;
     provisional_deadline: string | null; is_claw_draft: boolean;
+    // Claw-specific display fields
+    claw_composite_score: number | null;
+    claw_claims_count: number | null;
+    claw_spec_ok: boolean | null;
+    claw_provisional_ready: boolean | null;
+    claw_improvement_day: number | null;
   }>
   user_table: Array<{
     id: string; name: string; email: string; is_admin: boolean;
@@ -706,19 +712,33 @@ export default function AdminPage() {
                               }`}>{p.filing_status}</span>
                             </td>
                             <td className="px-4 py-3">
-                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                p.claims_status === 'complete' ? 'bg-green-100 text-green-700' :
-                                p.claims_status === 'failed' ? 'bg-red-100 text-red-700' :
-                                p.claims_status === 'generating' ? 'bg-amber-100 text-amber-700' :
-                                'bg-gray-100 text-gray-500'
-                              }`}>{p.claims_status ?? '—'}</span>
+                              {p.is_claw_draft ? (
+                                p.claw_claims_count != null
+                                  ? <span className="px-2 py-0.5 rounded text-xs font-semibold bg-violet-100 text-violet-700">{p.claw_claims_count} claims</span>
+                                  : <span className="text-gray-400 text-xs">—</span>
+                              ) : (
+                                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                  p.claims_status === 'complete' ? 'bg-green-100 text-green-700' :
+                                  p.claims_status === 'failed' ? 'bg-red-100 text-red-700' :
+                                  p.claims_status === 'generating' ? 'bg-amber-100 text-amber-700' :
+                                  'bg-gray-100 text-gray-500'
+                                }`}>{p.claims_status ?? '—'}</span>
+                              )}
                             </td>
                             <td className="px-4 py-3">{p.paid ? '✅ $49' : '—'}</td>
                             <td className="px-4 py-3">
-                              {p.spec_uploaded ? '✅' : p.figures_uploaded ? '📐' : '—'}
+                              {p.is_claw_draft
+                                ? (p.claw_spec_ok ? '✅' : '—')
+                                : (p.spec_uploaded ? '✅' : p.figures_uploaded ? '📐' : '—')
+                              }
                             </td>
                             <td className="px-4 py-3">
-                              {score?.novelty ? `${score.novelty}/10` : '—'}
+                              {p.is_claw_draft
+                                ? (p.claw_composite_score != null
+                                    ? <span className="font-mono font-semibold text-violet-700">{p.claw_composite_score}</span>
+                                    : '—')
+                                : (score?.novelty ? `${score.novelty}/10` : '—')
+                              }
                             </td>
                             <td className="px-4 py-3">
                               {days !== null ? (
