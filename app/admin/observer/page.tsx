@@ -163,7 +163,7 @@ export default function ObserverAdminPage() {
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
                 <Tooltip
-                  formatter={(val, name) => [
+                  formatter={(val: unknown, name: string) => [
                     name === 'score' ? `${Number(val).toFixed(1)}/100` : val,
                     name === 'score' ? 'Health Score' : 'Delta'
                   ]}

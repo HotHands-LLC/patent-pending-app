@@ -30,8 +30,8 @@ export async function GET(req: NextRequest) {
   const status = await checkAiBudget(serviceClient, user.id)
 
   return NextResponse.json({
-    allowed:     status.allowed,   // always true
-    warning:     status.warning,   // null or string
+    allowed:     !status.overBudget,
+    warning:     status.overBudget ? 'Monthly AI budget exceeded' : null,
     percentUsed: status.percentUsed,
     budget:      status.budget,
     used:        status.used,
