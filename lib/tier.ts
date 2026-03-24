@@ -58,6 +58,7 @@ export function isPro(
 
 export type TierFeature =
   | 'pattie'
+  | 'pattie_interview'
   | 'claims_edit'
   | 'zip_download'
   | 'correspondence_write'

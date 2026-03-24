@@ -15,6 +15,23 @@ interface DealPatent {
   licensing_exclusive: boolean
   licensing_nonexclusive: boolean
   licensing_field_of_use: boolean
+  marketplace_description?: string | null
+  marketplace_tagline?: string | null
+  investment_open?: boolean | null
+  stage?: string | null
+  funding_goal_usd?: number | null
+  total_raised_usd?: number | null
+  rev_share_available_pct?: number | null
+  stage_value_usd?: number | null
+  novelty_narrative?: string | null
+  created_at?: string | null
+  novelty_score?: number | null
+  commercial_score?: number | null
+  filing_complexity?: number | null
+  composite_score?: number | null
+  prior_art_citations?: unknown[] | null
+  investor_count?: number | null
+  key_differentiator?: string | null
 }
 
 interface Props {
