@@ -723,6 +723,111 @@ function MarketplaceSettingsCard({
   )
 }
 
+// ── Admin Prev/Next Nav ────────────────────────────────────────────────────────
+// Only renders when URL contains ?from=admin params
+// Reads sort+pos+total from searchParams, fetches adjacent patent IDs from Supabase
+function AdminPatentNav({
+  currentId,
+  sort,
+  dir,
+  pos,
+  total,
+}: {
+  currentId: string
+  sort: string
+  dir: string
+  pos: number
+  total: number
+}) {
+  const router = useRouter()
+  const [prevPatent, setPrevPatent] = React.useState<{ id: string; title: string } | null>(null)
+  const [nextPatent, setNextPatent] = React.useState<{ id: string; title: string } | null>(null)
+  const [loading, setLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    async function fetchNeighbors() {
+      try {
+        // Fetch all patents in the same sort order to find neighbors
+        // Sort mapping:
+        const orderMap: Record<string, string> = {
+          'score': 'ip_readiness_score',
+          'deadline': 'provisional_deadline',
+          'updated': 'updated_at',
+        }
+        const col = orderMap[sort] || 'updated_at'
+        const ascending = dir === 'asc'
+
+        const { data, error } = await supabase
+          .from('patents')
+          .select('id, title')
+          .order(col, { ascending, nullsFirst: false })
+          .limit(500)
+
+        if (error || !data) return
+
+        const idx = data.findIndex(p => p.id === currentId)
+        if (idx === -1) return
+
+        setPrevPatent(idx > 0 ? data[idx - 1] : null)
+        setNextPatent(idx < data.length - 1 ? data[idx + 1] : null)
+      } catch (e) {
+        console.error('AdminPatentNav fetch error', e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchNeighbors()
+  }, [currentId, sort, dir])
+
+  function navTo(patent: { id: string; title: string }, newPos: number) {
+    router.push(
+      `/dashboard/patents/${patent.id}?from=admin&sort=${sort}&dir=${dir}&pos=${newPos}&total=${total}`
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-[#1a1f36] text-white px-4 py-2 flex items-center justify-between text-xs text-gray-400">
+        <span>Loading nav…</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-[#1a1f36] text-white px-4 py-2 flex items-center justify-between text-xs">
+      {/* Prev */}
+      <button
+        onClick={() => prevPatent && navTo(prevPatent, pos - 1)}
+        disabled={!prevPatent}
+        className="flex flex-col items-start gap-0.5 disabled:opacity-30 hover:opacity-80 transition-opacity text-left min-w-[140px]"
+      >
+        <span className="font-semibold">← Previous</span>
+        {prevPatent && (
+          <span className="text-gray-400 text-[10px] truncate max-w-[140px]">{prevPatent.title}</span>
+        )}
+      </button>
+
+      {/* Position counter */}
+      <div className="text-center text-gray-300">
+        <div className="font-semibold">Patent {pos} of {total}</div>
+        <div className="text-[10px] text-gray-500">sorted by {sort} {dir}</div>
+      </div>
+
+      {/* Next */}
+      <button
+        onClick={() => nextPatent && navTo(nextPatent, pos + 1)}
+        disabled={!nextPatent}
+        className="flex flex-col items-end gap-0.5 disabled:opacity-30 hover:opacity-80 transition-opacity text-right min-w-[140px]"
+      >
+        <span className="font-semibold">Next →</span>
+        {nextPatent && (
+          <span className="text-gray-400 text-[10px] truncate max-w-[140px]">{nextPatent.title}</span>
+        )}
+      </button>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PatentDetail() {
   const [patent, setPatent] = useState<Patent | null>(null)
@@ -784,6 +889,12 @@ export default function PatentDetail() {
   const params = useParams()
   const searchParams = useSearchParams()
   const id = params.id as string
+
+  const fromAdmin = searchParams.get('from') === 'admin'
+  const adminSort = searchParams.get('sort') ?? 'updated'
+  const adminDir = searchParams.get('dir') ?? 'desc'
+  const adminPos = parseInt(searchParams.get('pos') ?? '1', 10)
+  const adminTotal = parseInt(searchParams.get('total') ?? '1', 10)
 
   const showToast = useCallback((msg: string) => { setToast(msg) }, [])
 
@@ -1232,6 +1343,15 @@ export default function PatentDetail() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
+      {fromAdmin && patent && (
+        <AdminPatentNav
+          currentId={patent.id}
+          sort={adminSort}
+          dir={adminDir}
+          pos={adminPos}
+          total={adminTotal}
+        />
+      )}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
 
         {/* Breadcrumb */}

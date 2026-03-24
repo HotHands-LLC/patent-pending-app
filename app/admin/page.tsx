@@ -767,7 +767,10 @@ export default function AdminPage() {
                           <tr key={p.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <Link href={`/dashboard/patents/${p.id}`} className="font-medium text-gray-800 hover:text-blue-600 hover:underline max-w-[200px] truncate block">
+                                <Link
+                                  href={`/dashboard/patents/${p.id}?from=admin&sort=${patentSort.col}&dir=${patentSort.dir}&pos=${filteredPatents.indexOf(p) + 1}&total=${filteredPatents.length}`}
+                                  className="font-medium text-gray-800 hover:text-blue-600 hover:underline max-w-[200px] truncate block"
+                                >
                                   {p.title}
                                 </Link>
                                 {p.is_claw_draft && (
