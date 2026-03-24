@@ -2,17 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
 
-export const dynamic = 'force-dynamic'
-
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 function getUserClient(token: string) {
   return createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -103,7 +101,7 @@ export async function PATCH(req: NextRequest) {
   <p>Your PatentPending account has been upgraded to Pro — compliments of the PatentPending team.</p>
   <ul>
     <li><strong>Deep Research Pass</strong> — prior art analysis to strengthen your claims</li>
-    <li><strong>Pattie Polish</strong> — USPTO-precision language polish</li>
+    <li><strong>AI Refinement Pass</strong> — USPTO-precision language polish</li>
     <li><strong>Unlimited revision rounds</strong></li>
     <li><strong>AI Figure Generation</strong> — USPTO-style technical drawings</li>
   </ul>

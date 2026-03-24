@@ -3,14 +3,12 @@ import { createClient } from '@supabase/supabase-js'
 import { sendClaimsReadyEmail } from '@/lib/email'
 import { scoreClaimsDraft } from '@/lib/claims-score'
 
-export const dynamic = 'force-dynamic'
-
 const GEMINI_MODEL = 'gemini-2.5-pro'
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
 
 const supabase = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 // GET /api/cron/process-revisions
@@ -184,8 +182,8 @@ async function getOwnerEmail(userId: string): Promise<string> {
       `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users/${userId}`,
       {
         headers: {
-          apikey: (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key'),
-          Authorization: `Bearer ${(process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')}`,
+          apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`,
         },
       }
     )

@@ -18,7 +18,6 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { sanitizeForPdf } from '@/lib/pdf-sanitize'
 
-
 // ── Page geometry ─────────────────────────────────────────────────────────────
 const PAGE_W         = 612   // 8.5" × 72
 const PAGE_H         = 792   // 11"  × 72

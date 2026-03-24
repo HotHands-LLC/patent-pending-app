@@ -21,8 +21,8 @@ interface PartnerPageData {
 
 async function getPartnerBySlug(slug: string): Promise<PartnerPageData | null> {
   const supabase = createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
   const { data, error } = await supabase
@@ -181,7 +181,7 @@ export default async function PartnerProfilePage({ params }: { params: { slug: s
 
       {/* Footer */}
       <footer className="py-6 px-4 text-center text-xs text-gray-400 border-t border-gray-100">
-        <p>PatentPending.app</p>
+        <p>PatentPending.app — Hot Hands LLC · Lubbock, TX</p>
         <p className="mt-1">PatentPending.app is not a law firm and does not provide legal advice. This page is published by a PatentPending Partner.</p>
       </footer>
     </div>

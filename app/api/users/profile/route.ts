@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-export const dynamic = 'force-dynamic'
-
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 function getUserClient(token: string) {
   return createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -21,8 +19,6 @@ const ALLOWED = [
   'company', 'uspto_customer_number',
   'default_assignee_name', 'default_assignee_address',
   'referred_by_code', 'referred_by_partner_id',
-  'pattie_guidance',
-  'onboarding_shown',
 ] as const
 
 /** GET /api/users/profile — returns current user's profile */
@@ -34,7 +30,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseService
     .from('patent_profiles')
-    .select('id, email, full_name, name_first, name_middle, name_last, company, phone, address_line_1, address_line_2, city, state, zip, country, uspto_customer_number, default_assignee_name, default_assignee_address, inventor_contact_id, attorney_contact_id, assignee_contact_id, pattie_guidance, subscription_status, subscription_period_end, is_attorney, bar_number, firm_name, bar_state, attorney_tos_accepted_at')
+    .select('id, email, full_name, name_first, name_middle, name_last, company, phone, address_line_1, address_line_2, city, state, zip, country, uspto_customer_number, default_assignee_name, default_assignee_address, inventor_contact_id, attorney_contact_id, assignee_contact_id')
     .eq('id', user.id)
     .single()
 
@@ -74,7 +70,7 @@ export async function PATCH(req: NextRequest) {
     .from('patent_profiles')
     .update(updates)
     .eq('id', user.id)
-    .select('id, email, full_name, name_first, name_middle, name_last, phone, address_line_1, address_line_2, city, state, zip, country, company, uspto_customer_number, default_assignee_name, default_assignee_address, pattie_guidance, onboarding_shown')
+    .select('id, email, full_name, name_first, name_middle, name_last, phone, address_line_1, address_line_2, city, state, zip, country, company, uspto_customer_number, default_assignee_name, default_assignee_address')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

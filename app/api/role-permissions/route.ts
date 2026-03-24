@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPermissionsMatrix } from '@/app/api/admin/role-permissions/route'
 
-export const dynamic = 'force-dynamic'
-
 /**
  * GET /api/role-permissions?role=xxx
  * Public. Returns { [feature]: boolean } map for a single role.

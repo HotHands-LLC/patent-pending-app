@@ -15,10 +15,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
-
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 export type SubscriptionStatus = 'free' | 'pro' | 'complimentary'
@@ -59,7 +58,6 @@ export function isPro(
 
 export type TierFeature =
   | 'pattie'
-  | 'pattie_interview'
   | 'claims_edit'
   | 'zip_download'
   | 'correspondence_write'

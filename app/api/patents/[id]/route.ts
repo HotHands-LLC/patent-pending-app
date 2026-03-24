@@ -4,8 +4,8 @@ import { computeIpReadinessScore } from '@/lib/ip-readiness'
 import { evaluatePatentPhase } from '@/lib/filing-pipeline'
 
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 const ALLOWED_FILING_STATUSES = ['draft', 'approved', 'filed', 'provisional_filed', 'nonprov_filed', 'issued', 'granted'] as const
@@ -73,8 +73,8 @@ export async function PATCH(
 
   // Verify user via anon client
   const userClient = createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
   const { data: { user } } = await userClient.auth.getUser()
@@ -160,8 +160,6 @@ export async function PATCH(
 // ── Referral qualifying event (async, non-blocking) ────────────────────────
 import { waitUntil } from '@vercel/functions'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
-
-export const dynamic = 'force-dynamic'
 
 /** GA4 Measurement Protocol — server-side filing_completed event */
 async function trackFilingCompleted(userId: string, patentId: string) {

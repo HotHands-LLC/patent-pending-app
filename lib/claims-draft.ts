@@ -1,5 +1,4 @@
 // Claims Draft Generator — uses Gemini 2.5 Pro (legally critical)
-
 // Called async from webhook handler after payment confirmed
 
 const GEMINI_MODEL = 'gemini-2.5-pro' // confirmed available 2026-03-05
@@ -22,8 +21,8 @@ export async function generateClaimsDraft(
 ): Promise<void> {
   const { createClient } = await import('@supabase/supabase-js')
   const supabase = createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
   const prompt = buildClaimsPrompt(intake)

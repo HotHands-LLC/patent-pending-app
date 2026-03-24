@@ -1,6 +1,5 @@
 'use client'
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { stripSessionSummary } from '@/lib/pattie-sop'
+import { useState, useRef, useEffect, useCallback } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Suggestion {
@@ -14,7 +13,6 @@ interface Suggestion {
 interface Message {
   role: 'user' | 'assistant'
   content: string
-  hidden?: boolean           // if true: included in API history but never rendered (used for initialPrompt)
   suggestion?: Suggestion   // optional inline suggestion card
   suggestionState?: 'pending' | 'applied' | 'rejected' | 'editing'
   editedValue?: string       // if user edits before applying
@@ -40,8 +38,6 @@ interface PattieChatDrawerProps {
   patentStatus?: string
   onTierRequired?: (feature: string) => void
   onFieldApplied?: (fieldName: string, value: string) => void  // callback when suggestion applied
-  /** When provided, Pattie fires this as the first message automatically on open */
-  initialPrompt?: string
 }
 
 const STARTER_CHIPS_DEFAULT = [
@@ -79,32 +75,6 @@ function TypingDots() {
         <span key={i} className="w-2 h-2 rounded-full bg-gray-400 animate-bounce"
           style={{ animationDelay: `${i * 0.15}s`, animationDuration: '0.9s' }} />
       ))}
-    </div>
-  )
-}
-
-// ── Contextual thinking status messages ─────────────────────────────────────
-function getThinkingMessages(text: string): string[] {
-  const t = text.toLowerCase()
-  if (/\bclaim|independent|dependent|prior art|claim set/.test(t))
-    return ['Reading your claims…', 'Checking claim structure…', 'Drafting claim language…']
-  if (/\bspec|description|embodiment|figure|drawing/.test(t))
-    return ['Reviewing your specification…', 'Analyzing technical details…', 'Drafting description…']
-  if (/\babstract/.test(t))
-    return ['Reading your abstract…', 'Checking USPTO format…', 'Drafting abstract…']
-  if (/\bsearch|prior art|novel|similar|patent landscape/.test(t))
-    return ['Thinking through prior art…', 'Reviewing patent landscape…', 'Checking novelty…']
-  return ['Reading your patent…', 'Thinking…', 'Drafting response…']
-}
-
-function ThinkingChip({ status }: { status: string }) {
-  return (
-    <div className="flex justify-start items-end gap-2 mb-1">
-      <PattieAvatar size={26} />
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-full text-xs text-indigo-600 font-medium animate-pulse">
-        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDuration: '0.8s' }} />
-        {status}
-      </div>
     </div>
   )
 }
@@ -226,7 +196,6 @@ export default function PattieChatDrawer({
   canEdit = false,
   patentStatus,
   onFieldApplied,
-  initialPrompt,
 }: PattieChatDrawerProps) {
   void canEdit
   const isGrantedPatent = patentStatus === 'granted'
@@ -239,70 +208,13 @@ export default function PattieChatDrawer({
   const [input, setInput]         = useState('')
   const [streaming, setStreaming]  = useState(false)
   const [error, setError]         = useState('')
-  const [closePending, setClosePending] = useState(false)   // close warning dialog
-  const [summaryToast, setSummaryToast] = useState<'saving' | 'saved' | 'error' | null>(null)
-  const [thinkingStatus, setThinkingStatus] = useState<string | null>(null)
-  const thinkingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
   const abortRef  = useRef<AbortController | null>(null)
-  const initialPromptFiredRef = useRef(false)
-  // Session ID: stable per drawer open
-  const sessionId = useMemo(() => crypto.randomUUID(), [])
 
-  const isFirstMessage = messages.filter(m => !m.hidden).length === 0
+  const isFirstMessage = messages.length === 0
 
-  // ── Auto-save a single message (fire-and-forget) ──────────────────────────
-  const saveMessage = useCallback((role: 'user' | 'assistant', content: string) => {
-    if (!authToken || !content.trim()) return
-    fetch(`/api/patents/${patentId}/chat-messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ session_id: sessionId, role, content }),
-    }).catch(() => {/* non-blocking */})
-  }, [authToken, patentId, sessionId])
-
-  // ── Session summary on close (if 3+ exchanges) ────────────────────────────
-  const saveSummaryAndClose = useCallback(async (msgs: Message[]) => {
-    const exchanges = msgs.filter(m => !m.suggestion || m.suggestionState !== 'pending').length
-    if (exchanges < 3) { onClose(); return }
-
-    setSummaryToast('saving')
-    const plainMsgs = msgs.map(m => ({ role: m.role, content: m.content }))
-
-    fetch(`/api/patents/${patentId}/chat-summary`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ messages: plainMsgs, patent_title: patentTitle }),
-    }).then(r => {
-      if (!r.ok) throw new Error('save failed')
-      setSummaryToast('saved')
-      setTimeout(() => { setSummaryToast(null); onClose() }, 2000)
-    }).catch(() => {
-      setSummaryToast('error')
-      setTimeout(() => { setSummaryToast(null); onClose() }, 2000)
-    })
-  }, [authToken, patentId, patentTitle, onClose])
-
-  // ── Close handler (checks for pending suggestions) ────────────────────────
-  const handleClose = useCallback(() => {
-    const hasPendingSuggestions = messages.some(
-      m => m.suggestion && m.suggestionState === 'pending'
-    )
-    if (hasPendingSuggestions) {
-      setClosePending(true)
-    } else {
-      saveSummaryAndClose(messages)
-    }
-  }, [messages, saveSummaryAndClose])
-
-  useEffect(() => {
-    // Scroll within the chat container only — never escape to window
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
-    }
-  }, [messages, streaming])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streaming])
   useEffect(() => { inputRef.current?.focus() }, [])
 
   // ── Apply suggestion via PATCH ─────────────────────────────────────────────
@@ -333,29 +245,17 @@ export default function PattieChatDrawer({
   }, [messages, patentId, authToken, onFieldApplied])
 
   // ── Send message ──────────────────────────────────────────────────────────
-  const sendMessage = useCallback(async (overrideText?: string, hidden?: boolean) => {
+  const sendMessage = useCallback(async (overrideText?: string) => {
     const text = (overrideText ?? input).trim()
     if (!text || streaming) return
 
     setInput('')
     setError('')
-    const userMsg: Message = { role: 'user', content: text, hidden: hidden === true }
-    // Auto-save user message (don't save hidden/system messages to session history)
-    if (!hidden) saveMessage('user', text)
-    // Strip suggestion/state from messages when building API payload (include hidden for context)
+    const userMsg: Message = { role: 'user', content: text }
+    // Strip suggestion/state from messages when building API payload
     const apiMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
     setMessages(prev => [...prev, userMsg])
     setStreaming(true)
-
-    // Start thinking status rotation
-    const thinkingMsgs = getThinkingMessages(text)
-    let thinkIdx = 0
-    setThinkingStatus(thinkingMsgs[0])
-    if (thinkingTimerRef.current) clearInterval(thinkingTimerRef.current)
-    thinkingTimerRef.current = setInterval(() => {
-      thinkIdx = (thinkIdx + 1) % thinkingMsgs.length
-      setThinkingStatus(thinkingMsgs[thinkIdx])
-    }, 2500)
 
     // Add empty assistant bubble
     setMessages(prev => [...prev, { role: 'assistant', content: '', suggestionState: undefined }])
@@ -400,26 +300,11 @@ export default function PattieChatDrawer({
 
             // Text delta
             if (parsed.text) {
-              // First token — clear thinking status
-              if (thinkingTimerRef.current) { clearInterval(thinkingTimerRef.current); thinkingTimerRef.current = null }
-              setThinkingStatus(null)
               setMessages(prev => {
                 const copy = [...prev]
                 const last = copy[copy.length - 1]
                 if (last?.role === 'assistant') {
                   copy[copy.length - 1] = { ...last, content: last.content + parsed.text }
-                }
-                return copy
-              })
-            }
-
-            // Session summary saved — strip the summary block from rendered message text
-            if (parsed.type === 'session_summary_saved') {
-              setMessages(prev => {
-                const copy = [...prev]
-                const last = copy[copy.length - 1]
-                if (last?.role === 'assistant' && last.content) {
-                  copy[copy.length - 1] = { ...last, content: stripSessionSummary(last.content) }
                 }
                 return copy
               })
@@ -453,32 +338,11 @@ export default function PattieChatDrawer({
         return copy
       })
     } finally {
-      // Clear thinking status
-      if (thinkingTimerRef.current) { clearInterval(thinkingTimerRef.current); thinkingTimerRef.current = null }
-      setThinkingStatus(null)
-      // Auto-save completed assistant message
-      setMessages(prev => {
-        const last = prev[prev.length - 1]
-        if (last?.role === 'assistant' && last.content) {
-          saveMessage('assistant', last.content)
-        }
-        return prev
-      })
       setStreaming(false)
       abortRef.current = null
       setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }, [input, messages, streaming, patentId, authToken, onTierRequired, saveMessage])
-
-  // Auto-fire initialPrompt as first message (only once on open)
-  useEffect(() => {
-    if (initialPrompt && !initialPromptFiredRef.current && !streaming) {
-      initialPromptFiredRef.current = true
-      // Small delay so the drawer renders first
-      setTimeout(() => sendMessage(initialPrompt, true), 300)  // hidden=true: never renders in UI
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPrompt])
+  }, [input, messages, streaming, patentId, authToken, onTierRequired])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
@@ -500,7 +364,7 @@ export default function PattieChatDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/30 z-40 sm:hidden" onClick={handleClose} aria-hidden />
+      <div className="fixed inset-0 bg-black/30 z-40 sm:hidden" onClick={onClose} aria-hidden />
       <div
         className="fixed inset-0 z-50 flex flex-col bg-white shadow-2xl sm:inset-auto sm:right-0 sm:top-0 sm:bottom-0 sm:w-[420px] sm:border-l sm:border-gray-200"
         role="dialog" aria-label="Pattie Chat" aria-modal="true"
@@ -519,7 +383,7 @@ export default function PattieChatDrawer({
               className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
               Clear
             </button>
-            <button onClick={handleClose} aria-label="Close chat"
+            <button onClick={onClose} aria-label="Close chat"
               className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded hover:bg-gray-100">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -528,8 +392,8 @@ export default function PattieChatDrawer({
           </div>
         </div>
 
-        {/* Message list — scroll container scoped here, never escapes to window */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {/* Message list */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
           {isFirstMessage && (
             <div className="flex justify-start items-end gap-2">
               <PattieAvatar size={26} />
@@ -551,14 +415,12 @@ export default function PattieChatDrawer({
             </div>
           )}
 
-          {(() => {
-            const visibleMessages = messages.filter(m => !m.hidden)
-            return visibleMessages.map((msg, idx) => (
+          {messages.map((msg, idx) => (
             <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
               {msg.role === 'assistant' && <PattieAvatar size={26} />}
               <div className={`max-w-[85%] space-y-2 ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col`}>
                 {/* Text bubble */}
-                {(msg.content || (msg.role === 'assistant' && streaming && idx === visibleMessages.length - 1)) && (
+                {(msg.content || (msg.role === 'assistant' && streaming && idx === messages.length - 1)) && (
                   <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed
                     ${msg.role === 'user' ? 'bg-[#4f46e5] text-white rounded-br-sm' : 'bg-gray-100 text-[#1a1f36] rounded-bl-sm'}`}>
                     {msg.role === 'assistant' && msg.content === '' && streaming ? (
@@ -592,24 +454,15 @@ export default function PattieChatDrawer({
                 )}
               </div>
             </div>
-          ))
-          })()} {/* end visibleMessages IIFE */}
+          ))}
 
-          {streaming && messages.filter(m => !m.hidden).at(-1)?.role !== 'assistant' && (
+          {streaming && messages[messages.length - 1]?.role !== 'assistant' && (
             <div className="flex justify-start items-end gap-2">
               <PattieAvatar size={26} />
               <div className="bg-gray-100 text-[#1a1f36] px-3 py-2 rounded-2xl rounded-bl-sm">
                 <TypingDots />
               </div>
             </div>
-          )}
-
-          {/* Thinking status chip — shows before first stream token */}
-          {thinkingStatus && !streaming && (
-            <ThinkingChip status={thinkingStatus} />
-          )}
-          {thinkingStatus && streaming && (
-            <ThinkingChip status={thinkingStatus} />
           )}
 
           {error && (
@@ -653,72 +506,6 @@ export default function PattieChatDrawer({
           </p>
         </div>
       </div>
-
-      {/* ── Summary saving toast ─────────────────────────────────────────── */}
-      {/* Summary saving toast — bottom-right, non-blocking */}
-      {summaryToast && (
-        <div className={`fixed bottom-6 right-6 z-[60] text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg transition-all ${
-          summaryToast === 'saving' ? 'bg-[#1a1f36] text-white' :
-          summaryToast === 'saved'  ? 'bg-green-600 text-white' :
-          'bg-gray-100 text-gray-500'
-        }`}>
-          {summaryToast === 'saving' ? '🦞 Saving conversation summary…' :
-           summaryToast === 'saved'  ? '✓ Saved to Correspondence' :
-           'Couldn\'t save summary'}
-        </div>
-      )}
-
-      {/* ── Close warning: pending suggestions ──────────────────────────────── */}
-      {closePending && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
-            <h3 className="font-bold text-[#1a1f36] text-base mb-2">Unsaved Pattie suggestions</h3>
-            <p className="text-sm text-gray-500 mb-4 leading-relaxed">
-              Your conversation will be saved to Correspondence, but pending suggestions won&apos;t be applied automatically.
-            </p>
-            <div className="space-y-2">
-              <button
-                onClick={() => {
-                  // Apply all pending suggestions
-                  setMessages(prev => {
-                    const copy = [...prev]
-                    copy.forEach((m, i) => {
-                      if (m.suggestion && m.suggestionState === 'pending') {
-                        copy[i] = { ...m, suggestionState: 'applied' }
-                        // Fire the PATCH
-                        fetch(`/api/patents/${patentId}`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-                          body: JSON.stringify({ [m.suggestion.field_name]: m.suggestion.proposed_value }),
-                        }).catch(() => {})
-                        onFieldApplied?.(m.suggestion.field_name, m.suggestion.proposed_value)
-                      }
-                    })
-                    return copy
-                  })
-                  setClosePending(false)
-                  saveSummaryAndClose(messages)
-                }}
-                className="w-full py-2.5 bg-[#4f46e5] text-white rounded-xl text-sm font-semibold hover:bg-[#4338ca] transition-colors"
-              >
-                Apply all suggestions &amp; close
-              </button>
-              <button
-                onClick={() => { setClosePending(false); saveSummaryAndClose(messages) }}
-                className="w-full py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
-              >
-                Close anyway
-              </button>
-              <button
-                onClick={() => setClosePending(false)}
-                className="w-full py-2 text-gray-400 text-sm hover:text-gray-600 transition-colors"
-              >
-                Stay in chat
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }

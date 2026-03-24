@@ -19,35 +19,11 @@ import Arc3Modal from '@/components/Arc3Modal'
 import DownloadPackageModal from '@/components/DownloadPackageModal'
 import MarkFiledModal from '@/components/MarkFiledModal'
 import { computeIpReadinessScore, getIpReadinessCriteria } from '@/lib/ip-readiness'
+import AdminInvestmentGate from '@/components/AdminInvestmentGate'
 import FilingGuide from '@/components/FilingGuide'
 import EnhancementTab from '@/components/EnhancementTab'
 import PattieChatDrawer from '@/components/PattieChatDrawer'
-import ResearchFindingsPanel from '@/components/ResearchFindingsPanel'
-import PattieInterviewDrawer from '@/components/patents/PattieInterviewDrawer'
-import IDSCandidatesTab from '@/components/patents/IDSCandidatesTab'
 import { USPTO_FEES } from '@/lib/uspto-fees'
-import SigningRequestsPanel from '@/components/signing/SigningRequestsPanel'
-import { usePatentLifecycle } from '@/hooks/usePatentLifecycle'
-
-// ── 54B: Content Blast types ──────────────────────────────────────────────────
-interface ContentPiece {
-  day: number
-  type: string
-  title: string
-  purpose: string
-  platforms: Record<string, string>
-  suggested_visual?: string
-}
-
-interface ContentBlast {
-  pieces: ContentPiece[]
-  marketplace_description: string
-  tagline: string
-  correspondence_id?: string
-  marketplace_corr_id?: string
-  success?: boolean
-}
-import PattieEntryCard from '@/components/patents/PattieEntryCard'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -66,7 +42,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'ids' | 'investors' | 'admin'
+type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -232,7 +208,7 @@ function fileIcon(type: string): string {
   if (type.includes('word') || type.includes('doc')) return '📝'
   if (type.startsWith('image/')) return '🖼️'
   if (type === 'text/plain') return '📃'
-  if (type === 'text/markdown' || type === 'text/x-markdown') return '🗒️'
+  if (type === 'text/markdown') return '🗒️'
   return '📁'
 }
 
@@ -348,135 +324,19 @@ function AbstractField({
   )
 }
 
-// ── Generated Description Card (54D) ─────────────────────────────────────────
-function GeneratedDescriptionCard({
-  patent,
-  authToken,
-  onUpdate,
-}: {
-  patent: Patent
-  authToken: string
-  onUpdate: (fields: Partial<Record<string, unknown>>) => void
-}) {
-  const desc    = patent.marketplace_description ?? null
-  const tagline = patent.marketplace_tagline ?? null
-  const [editing, setEditing]   = useState(false)
-  const [draftDesc, setDraftDesc]       = useState(desc ?? '')
-  const [draftTagline, setDraftTagline] = useState(tagline ?? '')
-  const [saving, setSaving]     = useState(false)
-  const [saved, setSaved]       = useState(false)
-
-  if (!desc && !tagline) return null   // nothing to show — Content Blast hasn't run yet
-
-  async function save() {
-    setSaving(true)
-    try {
-      const res = await fetch(`/api/patents/${patent.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({
-          marketplace_description: draftDesc.trim() || null,
-          marketplace_tagline: draftTagline.trim() || null,
-        }),
-      })
-      if (res.ok) {
-        onUpdate({ marketplace_description: draftDesc.trim() || null, marketplace_tagline: draftTagline.trim() || null })
-        setEditing(false)
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
-      }
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="mt-4 bg-white rounded-xl border border-purple-200 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-gray-800">Generated Description</span>
-          <span className="text-[10px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full border border-purple-200">✨ Pattie</span>
-        </div>
-        {!editing && (
-          <button
-            onClick={() => { setDraftDesc(desc ?? ''); setDraftTagline(tagline ?? ''); setEditing(true) }}
-            className="text-xs text-indigo-600 hover:underline font-medium"
-          >
-            Edit
-          </button>
-        )}
-        {saved && <span className="text-xs text-green-600 font-medium">Saved ✓</span>}
-      </div>
-
-      {editing ? (
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">
-              Tagline <span className="text-gray-400 font-normal">({draftTagline.length}/100)</span>
-            </label>
-            <input
-              type="text"
-              value={draftTagline}
-              maxLength={100}
-              onChange={e => setDraftTagline(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-              placeholder="One-liner tagline…"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1">
-              Description <span className="text-gray-400 font-normal">({draftDesc.length}/500)</span>
-            </label>
-            <textarea
-              value={draftDesc}
-              maxLength={500}
-              rows={5}
-              onChange={e => setDraftDesc(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 resize-none"
-              placeholder="Marketplace description…"
-            />
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={save}
-              disabled={saving}
-              className="px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg text-xs font-semibold hover:bg-[#2d3561] disabled:opacity-50 min-h-[36px]"
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button
-              onClick={() => setEditing(false)}
-              className="px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-50 min-h-[36px]"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {tagline && (
-            <p className="text-xs font-semibold text-purple-700 italic">&ldquo;{tagline}&rdquo;</p>
-          )}
-          {desc && (
-            <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{desc}</p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Marketplace Settings Card ─────────────────────────────────────────────────
 function MarketplaceSettingsCard({
   patent,
   authToken,
   canWrite,
   onUpdate,
+  isAdmin,
 }: {
   patent: Patent
   authToken: string
   canWrite: boolean
   onUpdate: (fields: Partial<Record<string, unknown>>) => void
+  isAdmin?: boolean
 }) {
   const [open, setOpen]           = useState(false)
   const [saving, setSaving]       = useState(false)
@@ -500,6 +360,16 @@ function MarketplaceSettingsCard({
     ((patent as Record<string, unknown>).youtube_embed_url as string | null) ?? ''
   )
   const [tagInput, setTagInput]   = useState('')
+  const [dealType, setDealType] = useState<'equity'|'revshare'|'fixed'|'inquiry'>(
+    ((patent as Record<string,unknown>).deal_structure_type as 'equity'|'revshare'|'fixed'|'inquiry') ?? 'inquiry'
+  )
+  const [dealEquityPct, setDealEquityPct] = useState(
+    String(((patent as Record<string,unknown>).rev_share_available_pct as number|null) ?? '')
+  )
+  const [dealStageValue, setDealStageValue] = useState(
+    String(((patent as Record<string,unknown>).stage_value_usd as number|null) ?? '')
+  )
+  const [dealRevShareTerm, setDealRevShareTerm] = useState('')
 
   function addTag(raw: string) {
     const cleaned = raw.trim().toLowerCase().replace(/[^a-z0-9-]/g, '')
@@ -537,6 +407,9 @@ function MarketplaceSettingsCard({
           deal_page_brief: brief.trim() || null,
           marketplace_tags: mktTags,
           youtube_embed_url: youtubeUrl.trim() || null,
+          deal_structure_type: dealType,
+          rev_share_available_pct: (dealType === 'equity' || dealType === 'revshare') ? (parseFloat(dealEquityPct) || null) : null,
+          stage_value_usd: (dealType === 'equity' || dealType === 'fixed') ? (parseInt(dealStageValue) || null) : null,
           ...(mktEnabled && !(patent as Record<string, unknown>).marketplace_published_at
             ? { marketplace_published_at: new Date().toISOString() }
             : {}),
@@ -550,6 +423,9 @@ function MarketplaceSettingsCard({
           deal_page_brief: brief.trim() || null,
           marketplace_tags: mktTags,
           youtube_embed_url: youtubeUrl.trim() || null,
+          deal_structure_type: dealType,
+          rev_share_available_pct: (dealType === 'equity' || dealType === 'revshare') ? (parseFloat(dealEquityPct) || null) : null,
+          stage_value_usd: (dealType === 'equity' || dealType === 'fixed') ? (parseInt(dealStageValue) || null) : null,
         })
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
@@ -598,6 +474,75 @@ function MarketplaceSettingsCard({
                 mktEnabled ? 'translate-x-6' : 'translate-x-1'
               }`} />
             </button>
+          </div>
+
+          {/* Deal Structure */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-2">Deal Structure</label>
+            <div className="flex gap-2 flex-wrap">
+              {(['equity','revshare','fixed','inquiry'] as const).map(type => (
+                <button
+                  key={type}
+                  type="button"
+                  disabled={!canWrite}
+                  onClick={() => canWrite && setDealType(type)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                    dealType === type
+                      ? 'bg-[#1a1f36] text-white border-[#1a1f36]'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {type === 'equity' ? 'Equity %' : type === 'revshare' ? 'Rev Share' : type === 'fixed' ? 'Fixed Price' : 'Inquiry Only'}
+                </button>
+              ))}
+            </div>
+
+            {dealType === 'equity' && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Equity offered (%)</label>
+                  <input type="number" min="0" max="100" disabled={!canWrite} value={dealEquityPct} onChange={e => setDealEquityPct(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+                    placeholder="e.g. 15" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Seeking ($)</label>
+                  <input type="number" min="0" disabled={!canWrite} value={dealStageValue} onChange={e => setDealStageValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+                    placeholder="e.g. 45000" />
+                </div>
+              </div>
+            )}
+
+            {dealType === 'revshare' && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Rev share (%)</label>
+                  <input type="number" min="0" max="100" disabled={!canWrite} value={dealEquityPct} onChange={e => setDealEquityPct(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+                    placeholder="e.g. 8" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Term</label>
+                  <input type="text" disabled={!canWrite} value={dealRevShareTerm} onChange={e => setDealRevShareTerm(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+                    placeholder='e.g. "5 years"' />
+                </div>
+              </div>
+            )}
+
+            {dealType === 'fixed' && (
+              <div className="mt-3">
+                <label className="block text-xs text-gray-500 mb-1">Asking price ($)</label>
+                <input type="number" min="0" disabled={!canWrite} value={dealStageValue} onChange={e => setDealStageValue(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
+                  placeholder="e.g. 28000" />
+              </div>
+            )}
+
+            {dealType === 'inquiry' && (
+              <p className="mt-2 text-xs text-gray-400 italic">Deal terms shared directly with interested parties.</p>
+            )}
           </div>
 
           {/* Slug */}
@@ -739,6 +684,13 @@ function MarketplaceSettingsCard({
                     </div>
                   ))}
                 </div>
+                {score < 60 && (
+                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-xs text-amber-700 font-medium">
+                      ⚠️ Listings with scores below 60 receive fewer inquiries. Improve your patent to increase visibility.
+                    </p>
+                  </div>
+                )}
               </div>
             )
           })()}
@@ -752,430 +704,21 @@ function MarketplaceSettingsCard({
               {saving ? 'Saving…' : 'Save Marketplace Settings'}
             </button>
           )}
-        </div>
-      )}
-    </div>
-  )
-}
 
-// ── Investors Tab (56A) ───────────────────────────────────────────────────────
-function InvestorsTab({ patent, authToken, onUpdate }: {
-  patent: Patent; authToken: string
-  onUpdate: (fields: Partial<Record<string, unknown>>) => void
-}) {
-  const [investments, setInvestments]   = useState<Array<{
-    id: string; investor_user_id: string; amount_usd: number
-    rev_share_pct: number; stage_at_investment: string; created_at: string
-  }>>([])
-  const [loading, setLoading]           = useState(true)
-  const [showRevModal, setShowRevModal] = useState(false)
-  const [revType, setRevType]           = useState('license')
-  const [revAmount, setRevAmount]       = useState('')
-  const [revDesc, setRevDesc]           = useState('')
-  const [revConfirm, setRevConfirm]     = useState(false)
-  const [revLoading, setRevLoading]     = useState(false)
-  const [revError, setRevError]         = useState('')
-  const [revSuccess, setRevSuccess]     = useState('')
-
-  const totalRaised = (patent as Patent & { total_raised_usd?: number }).total_raised_usd ?? 0
-  const fundingGoal = (patent as Patent & { funding_goal_usd?: number }).funding_goal_usd ?? 0
-  const revSharePct = (patent as Patent & { rev_share_available_pct?: number }).rev_share_available_pct ?? 0
-  const investmentOpen = (patent as Patent & { investment_open?: boolean }).investment_open ?? false
-  const fundingPct = fundingGoal > 0 ? Math.min(100, Math.round((totalRaised / fundingGoal) * 100)) : 0
-
-  useEffect(() => {
-    fetch(`/api/patents/${patent.id}/investors`, {
-      headers: { Authorization: `Bearer ${authToken}` }
-    })
-      .then(r => r.json())
-      .then(d => { setInvestments(d.investments ?? []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [patent.id, authToken])
-
-  async function submitRevenue() {
-    setRevLoading(true); setRevError('')
-    const grossCents = Math.round(parseFloat(revAmount) * 100)
-    try {
-      const res = await fetch(`/api/patents/${patent.id}/revenue-events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ event_type: revType, gross_amount_cents: grossCents, description: revDesc, confirmed: true }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setRevError(data.error ?? 'Failed'); return }
-      setRevSuccess(`Revenue event recorded. ${data.distributions} distribution(s) queued.`)
-      setShowRevModal(false)
-      setRevAmount(''); setRevDesc(''); setRevConfirm(false)
-    } catch { setRevError('Network error') }
-    finally { setRevLoading(false) }
-  }
-
-  // Anonymize: show first name + last initial only
-  function anonymize(userId: string): string {
-    return `Investor ${userId.slice(0, 4).toUpperCase()}`
-  }
-
-  return (
-    <div className="space-y-5">
-      {/* Funding summary */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h2 className="font-bold text-gray-900">Investor Ledger</h2>
-          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${investmentOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-            {investmentOpen ? '🟢 Open for investment' : '🔒 Closed'}
-          </span>
-        </div>
-        {fundingGoal > 0 && (
-          <div className="mb-3">
-            <div className="flex justify-between text-xs text-gray-500 mb-1">
-              <span>${(totalRaised / 100).toLocaleString()} raised</span>
-              <span>Goal: ${(fundingGoal / 100).toLocaleString()}</span>
-            </div>
-            <div className="w-full bg-gray-100 rounded-full h-2"><div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${fundingPct}%` }} /></div>
-          </div>
-        )}
-        <p className="text-xs text-gray-500">{revSharePct}% of future revenue shared among all investors</p>
-      </div>
-
-      {/* Report Revenue button */}
-      <div className="flex justify-end">
-        <button onClick={() => setShowRevModal(true)}
-          className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700">
-          + Report Revenue Event
-        </button>
-      </div>
-      {revSuccess && <p className="text-sm text-green-700 font-medium">{revSuccess}</p>}
-
-      {/* Investor list */}
-      {loading ? <p className="text-sm text-gray-400">Loading investors…</p> : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          {investments.length === 0 ? (
-            <div className="p-8 text-center text-gray-400 text-sm">No investors yet</div>
-          ) : (
-            <table className="w-full text-xs">
-              <thead><tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left px-4 py-3 font-semibold text-gray-500">Investor</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-500">Amount</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-500">Rev Share</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-500">Stage</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-500">Date</th>
-              </tr></thead>
-              <tbody className="divide-y divide-gray-50">
-                {investments.map(inv => (
-                  <tr key={inv.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-700">{anonymize(inv.investor_user_id)}</td>
-                    <td className="px-4 py-3">${(inv.amount_usd / 100).toLocaleString()}</td>
-                    <td className="px-4 py-3">{Number(inv.rev_share_pct).toFixed(3)}%</td>
-                    <td className="px-4 py-3 capitalize">{inv.stage_at_investment}</td>
-                    <td className="px-4 py-3 text-gray-400">{new Date(inv.created_at).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {isAdmin && (
+            <AdminInvestmentGate
+              patentId={patent.id}
+              authToken={authToken}
+              investmentOpen={!!((patent as Record<string,unknown>).investment_open)}
+              fundingGoalUsd={((patent as Record<string,unknown>).funding_goal_usd as number|null) ?? null}
+              revShareAvailablePct={((patent as Record<string,unknown>).rev_share_available_pct as number|null) ?? null}
+              minInvestmentUsd={((patent as Record<string,unknown>).min_investment_usd as number|null) ?? null}
+              maxInvestmentUsd={((patent as Record<string,unknown>).max_investment_usd as number|null) ?? null}
+              onUpdate={onUpdate}
+            />
           )}
         </div>
       )}
-
-      {/* Revenue event modal */}
-      {showRevModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
-            <h2 className="font-bold text-gray-900 text-lg">Report Revenue Event</h2>
-            <select value={revType} onChange={e => setRevType(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400">
-              {['license','sale','settlement','royalty','other'].map(t => (
-                <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-              ))}
-            </select>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
-              <input type="number" min={1} placeholder="Gross amount"
-                value={revAmount} onChange={e => setRevAmount(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
-            </div>
-            <textarea placeholder="Description (optional)" rows={2} value={revDesc}
-              onChange={e => setRevDesc(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-none" />
-            <p className="text-xs text-gray-500">Platform takes 20% before investor distributions are calculated.</p>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={revConfirm} onChange={e => setRevConfirm(e.target.checked)}
-                className="rounded" />
-              I confirm this revenue is accurate
-            </label>
-            {revError && <p className="text-xs text-red-600">{revError}</p>}
-            <div className="flex gap-3">
-              <button onClick={submitRevenue} disabled={revLoading || !revConfirm || !revAmount}
-                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">
-                {revLoading ? 'Submitting…' : 'Submit'}
-              </button>
-              <button onClick={() => { setShowRevModal(false); setRevError('') }}
-                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm hover:bg-gray-50">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Admin Tab (58A) — internal lens, admin-only ──────────────────────────────
-const ADMIN_EMAILS = ['support@hotdeck.com', 'agent@hotdeck.com']
-
-function ScoreBar({ label, value, note, invert }: { label: string; value: number | null; note?: string; invert?: boolean }) {
-  const pct = Math.max(0, Math.min(100, value ?? 0))
-  const barColor = invert
-    ? pct <= 40 ? 'bg-green-400' : pct <= 70 ? 'bg-amber-400' : 'bg-red-400'
-    : pct >= 70 ? 'bg-blue-500' : pct >= 40 ? 'bg-amber-400' : 'bg-gray-300'
-  return (
-    <div className="flex items-center gap-3 text-xs">
-      <span className="w-28 text-gray-600 shrink-0">{label}</span>
-      <div className="flex-1 bg-gray-100 rounded-full h-2">
-        <div className={`h-2 rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="w-12 text-right font-mono font-semibold text-gray-700">{value ?? '—'}/100</span>
-      {note && <span className="text-gray-400 text-[10px] italic">{note}</span>}
-    </div>
-  )
-}
-
-function AdminTab({ patent, authToken, userEmail }: {
-  patent: Patent; authToken: string; userEmail: string
-}) {
-  const [scores, setScores] = useState<{
-    novelty_score: number | null; commercial_score: number | null
-    filing_complexity: number | null; composite_score: number | null; scored_at: string | null
-  } | null>(null)
-  const [obsLogs, setObsLogs]     = useState<Array<{ id: string; step: string; severity: string; description: string; status: string }>>([])
-  const [rescoring, setRescoring] = useState(false)
-  const [rescoreMsg, setRescoreMsg] = useState('')
-  const [investFields, setInvestFields] = useState({
-    stage:                  (patent as Patent & Record<string, unknown>).stage as string ?? 'provisional',
-    investment_open:        !!((patent as Patent & Record<string, unknown>).investment_open),
-    funding_goal_usd:       Number((patent as Patent & Record<string, unknown>).funding_goal_usd ?? 0),
-    rev_share_available_pct: Number((patent as Patent & Record<string, unknown>).rev_share_available_pct ?? 0),
-    total_raised_usd:       Number((patent as Patent & Record<string, unknown>).total_raised_usd ?? 0),
-  })
-  const [investSaving, setInvestSaving] = useState(false)
-  const [investSaved, setInvestSaved]   = useState(false)
-
-  useEffect(() => {
-    if (!ADMIN_EMAILS.includes(userEmail)) return
-
-    // Fetch claw_patents scores
-    fetch(`/api/patents/${patent.id}/admin-scores`, {
-      headers: { Authorization: `Bearer ${authToken}` }
-    }).then(r => r.json()).then(d => setScores(d)).catch(() => {})
-
-    // Fetch observer logs
-    fetch(`/api/patents/${patent.id}/observer-logs`, {
-      headers: { Authorization: `Bearer ${authToken}` }
-    }).then(r => r.json()).then(d => setObsLogs(d.logs ?? [])).catch(() => {})
-  }, [patent.id, authToken, userEmail])
-
-  async function handleRescore() {
-    setRescoring(true); setRescoreMsg('Scoring with Gemini 2.5 Pro…')
-    try {
-      const res = await fetch(`/api/patents/${patent.id}/rescore`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${authToken}` },
-      })
-      const data = await res.json()
-      if (!res.ok) { setRescoreMsg(data.error ?? 'Rescore failed'); return }
-      setScores({
-        novelty_score: data.novelty_score, commercial_score: data.commercial_score,
-        filing_complexity: data.filing_complexity, composite_score: data.composite_score,
-        scored_at: data.scored_at,
-      })
-      setRescoreMsg(`✅ Scored at ${new Date(data.scored_at).toLocaleTimeString()}`)
-    } catch { setRescoreMsg('Network error') }
-    finally { setRescoring(false) }
-  }
-
-  async function saveInvestFields() {
-    setInvestSaving(true)
-    await fetch(`/api/patents/${patent.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify(investFields),
-    })
-    setInvestSaving(false); setInvestSaved(true)
-    setTimeout(() => setInvestSaved(false), 2000)
-  }
-
-  // Filing readiness
-  const specText    = (patent as Patent & { spec_draft?: string | null }).spec_draft ?? ''
-  const claimsText  = patent.claims_draft ?? ''
-  const specWords   = specText.split(/\s+/).filter(Boolean).length
-  const detailMatch = specText.match(/Detailed Description[\s\S]*?(?=Abstract|Brief Description of the Drawing|$)/i)
-  const detailWords = detailMatch ? detailMatch[0].split(/\s+/).filter(Boolean).length : specWords
-  const claimCount  = (claimsText.match(/^\s*\d+\./gm) ?? []).length
-  const hasFigures  = patent.figures_uploaded
-  const hasFigDesc  = !!((patent as Patent & Record<string, unknown>).figure_descriptions)
-  const hasAbstract = !!patent.abstract_draft
-  const hasTitle    = !!patent.title?.trim()
-  const specOk      = detailWords >= 600
-
-  const checks = [
-    { label: 'Title',             ok: hasTitle,   partial: false,  detail: patent.title?.slice(0, 50) },
-    { label: 'Abstract',          ok: hasAbstract, partial: false, detail: hasAbstract ? `${(patent.abstract_draft ?? '').split(/\s+/).length} words` : 'missing' },
-    { label: 'Specification',     ok: specOk,      partial: specWords > 0 && !specOk, detail: `${detailWords} detail words (gate: 600+)` },
-    { label: 'Claims',            ok: claimCount >= 1, partial: false, detail: `${claimCount} claims` },
-    { label: 'Figures',           ok: !!hasFigures, partial: !hasFigures && hasFigDesc, detail: hasFigures ? 'SVG uploaded' : hasFigDesc ? 'Descriptions only — no SVG' : 'Missing' },
-    { label: 'Cover Sheet',       ok: !!patent.cover_sheet_acknowledged, partial: false, detail: patent.cover_sheet_acknowledged ? 'Generated' : 'Not generated' },
-  ]
-
-  const sevColors: Record<string, string> = { P0: 'bg-red-100 text-red-700', P1: 'bg-amber-100 text-amber-700', P2: 'bg-gray-100 text-gray-600' }
-  const statColors: Record<string, string> = {
-    open: 'bg-red-100 text-red-700', fix_dispatched: 'bg-blue-100 text-blue-700',
-    selector_resolved: 'bg-green-100 text-green-700', resolved: 'bg-green-100 text-green-700',
-  }
-  const statIcons: Record<string, string> = { open: '🔴', fix_dispatched: '🔧', selector_resolved: '✅', resolved: '✅' }
-
-  const composite = scores?.composite_score
-  const n = scores?.novelty_score; const v = scores?.commercial_score; const c = scores?.filing_complexity
-
-  return (
-    <div className="space-y-5 py-2">
-      {/* N/V/C Score Panel */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-bold text-gray-900 text-sm">Patent Score</h2>
-          <div className="flex items-center gap-3">
-            {composite != null && (
-              <span className="text-2xl font-black text-[#1a1f36]">{composite}<span className="text-sm text-gray-400">/100</span></span>
-            )}
-            <button onClick={handleRescore} disabled={rescoring}
-              className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-semibold">
-              {rescoring ? '⏳ Scoring…' : '✨ Re-Score'}
-            </button>
-          </div>
-        </div>
-
-        {scores == null ? (
-          <p className="text-xs text-gray-400 italic">Score available after AI evaluation. Use Re-Score above.</p>
-        ) : (
-          <div className="space-y-2">
-            <ScoreBar label="Novelty" value={n ?? null} />
-            <ScoreBar label="Commercial Value" value={v ?? null} />
-            <ScoreBar label="Complexity" value={c ?? null} invert note="lower = easier to file" />
-            {n != null && v != null && c != null && (
-              <p className="text-[10px] text-gray-400 mt-1 font-mono">
-                ({n}×0.4) + ({v}×0.4) + ((100−{c})×0.2) = {composite}
-              </p>
-            )}
-            {scores.scored_at && (
-              <p className="text-[10px] text-gray-400">Last scored: {new Date(scores.scored_at).toLocaleString()}</p>
-            )}
-          </div>
-        )}
-        {rescoreMsg && <p className="text-xs mt-2 text-indigo-700">{rescoreMsg}</p>}
-      </div>
-
-      {/* Filing Readiness */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="font-bold text-gray-900 text-sm mb-3">Filing Readiness</h2>
-        <div className="space-y-1.5">
-          {checks.map(ch => (
-            <div key={ch.label} className="flex items-center gap-2 text-xs">
-              <span className="text-base">{ch.ok ? '✅' : ch.partial ? '⚠️' : '❌'}</span>
-              <span className="w-24 font-medium text-gray-700">{ch.label}</span>
-              <span className="text-gray-400">{ch.detail}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Investment Status */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-gray-900 text-sm">Investment Status</h2>
-          {investSaved && <span className="text-xs text-green-600 font-semibold">Saved ✓</span>}
-        </div>
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-600 w-28">Stage</label>
-            <select value={investFields.stage}
-              onChange={e => setInvestFields(f => ({ ...f, stage: e.target.value }))}
-              className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400">
-              {['provisional','non_provisional','development','licensing','granted'].map(s => (
-                <option key={s} value={s}>{s.replace('_',' ')}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-600 w-28">Funding Goal ($)</label>
-            <input type="number" value={investFields.funding_goal_usd / 100}
-              onChange={e => setInvestFields(f => ({ ...f, funding_goal_usd: Math.round(Number(e.target.value) * 100) }))}
-              className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400"
-              placeholder="e.g. 500" />
-          </div>
-          {investFields.funding_goal_usd > 0 && (
-            <div className="text-xs text-gray-400">
-              Raised: ${(investFields.total_raised_usd / 100).toLocaleString()} / ${(investFields.funding_goal_usd / 100).toLocaleString()}
-              <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1">
-                <div className="bg-emerald-500 h-1.5 rounded-full"
-                  style={{ width: `${Math.min(100, Math.round(investFields.total_raised_usd / investFields.funding_goal_usd * 100))}%` }} />
-              </div>
-            </div>
-          )}
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-600 w-28">Rev Share %</label>
-            <input type="number" min={0} max={100} step={1}
-              value={investFields.rev_share_available_pct}
-              onChange={e => setInvestFields(f => ({ ...f, rev_share_available_pct: Number(e.target.value) }))}
-              className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400" />
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-600 w-28">Investment Open</label>
-            <button onClick={() => setInvestFields(f => ({ ...f, investment_open: !f.investment_open }))}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${investFields.investment_open ? 'bg-emerald-500' : 'bg-gray-200'}`}>
-              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${investFields.investment_open ? 'translate-x-4' : 'translate-x-0.5'}`} />
-            </button>
-          </div>
-          <button onClick={saveInvestFields} disabled={investSaving}
-            className="text-xs px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg hover:bg-[#2d3561] disabled:opacity-50 font-semibold">
-            {investSaving ? 'Saving…' : 'Save Investment Settings'}
-          </button>
-        </div>
-      </div>
-
-      {/* Observer Friction Events */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="font-bold text-gray-900 text-sm mb-3">Observer Friction Events</h2>
-        {obsLogs.length === 0 ? (
-          <p className="text-xs text-gray-400 italic">No Observer data yet. Observer runs nightly at 12:30 AM CT.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead><tr className="bg-gray-50 border-b border-gray-100">
-                {['Sev','Step','Description','Status'].map(h => (
-                  <th key={h} className="text-left px-3 py-2 font-semibold text-gray-500">{h}</th>
-                ))}
-              </tr></thead>
-              <tbody className="divide-y divide-gray-50">
-                {obsLogs.map(log => (
-                  <tr key={log.id}>
-                    <td className="px-3 py-2">
-                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${sevColors[log.severity] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {log.severity}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 font-mono text-gray-600">{log.step}</td>
-                    <td className="px-3 py-2 text-gray-700 max-w-xs truncate">{log.description.slice(0, 80)}</td>
-                    <td className="px-3 py-2">
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${statColors[log.status] ?? 'bg-gray-100 text-gray-500'}`}>
-                        {statIcons[log.status] ?? ''} {log.status.replace('_',' ')}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   )
 }
@@ -1202,8 +745,6 @@ export default function PatentDetail() {
   const [claimsMsg, setClaimsMsg] = useState('')
   const [showCorrespondenceForm, setShowCorrespondenceForm] = useState(false)
   const [expandedCorr, setExpandedCorr] = useState<string | null>(null)
-  const [deletingCorrId, setDeletingCorrId] = useState<string | null>(null)
-  const [corrDeleteConfirm, setCorrDeleteConfirm] = useState<string | null>(null)
   const [ownerId, setOwnerId] = useState('')
   const [authToken, setAuthToken] = useState('')
   const [isPro, setIsPro] = useState(false)
@@ -1228,20 +769,6 @@ export default function PatentDetail() {
   const [showArc3Modal, setShowArc3Modal] = useState(false)
   const [showArc3Interview, setShowArc3Interview] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
-  const [pattieInitialPrompt, setPattieInitialPrompt] = useState<string | undefined>(undefined)
-  const [showArc1Interview, setShowArc1Interview] = useState(false)
-  // 54A: Founder story state
-  const [hasFounderStory, setHasFounderStory] = useState(false)
-  const [founderStoryDismissed, setFounderStoryDismissed] = useState(false)
-  // 54B: Content Blast state
-  const [hasContentBlast, setHasContentBlast] = useState(false)
-  const [contentBlastLoading, setContentBlastLoading] = useState(false)
-  const [contentBlastError, setContentBlastError] = useState<string | null>(null)
-  const [contentBlastData, setContentBlastData] = useState<ContentBlast | null>(null)
-  const [showContentBlastModal, setShowContentBlastModal] = useState(false)
-  const [contentBlastTab, setContentBlastTab] = useState(0)
-  // 54C: Checkout state
-  const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -1250,6 +777,7 @@ export default function PatentDetail() {
   const [titleDraft, setTitleDraft] = useState('')
   const [draftingSpec, setDraftingSpec] = useState(false)
   const [showSpecDraft, setShowSpecDraft] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
 
   const router = useRouter()
@@ -1258,28 +786,6 @@ export default function PatentDetail() {
   const id = params.id as string
 
   const showToast = useCallback((msg: string) => { setToast(msg) }, [])
-
-  async function handleDeleteCorrespondence(corrId: string) {
-    setDeletingCorrId(corrId)
-    try {
-      const res = await fetch(`/api/patents/${id}/correspondence/${corrId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${authToken}` },
-      })
-      if (res.ok) {
-        setCorrespondence(prev => prev.filter(c => c.id !== corrId))
-        showToast('🗑️ Correspondence record deleted.')
-      } else {
-        const d = await res.json().catch(() => ({}))
-        showToast(d.error ?? 'Delete failed')
-      }
-    } catch {
-      showToast('Delete failed — network error')
-    } finally {
-      setDeletingCorrId(null)
-      setCorrDeleteConfirm(null)
-    }
-  }
 
   async function loadAll() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -1306,6 +812,10 @@ export default function PatentDetail() {
       (status === 'pro' && (!periodEnd || new Date(periodEnd) > new Date()))
     setIsPro(proActive)
     setIsAttorney(profileData?.is_attorney ?? false)
+
+    // Check admin status
+    const { data: adminProfile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+    if (adminProfile?.is_admin) setIsAdmin(true)
 
     if (!p) { router.push('/dashboard/patents'); return }
 
@@ -1424,50 +934,6 @@ export default function PatentDetail() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, authToken, patent?.id])
 
-  // Auto-open Pattie when ?pattie= param is present (from new patent creation flow)
-  useEffect(() => {
-    const pattieAutoPrompt = searchParams.get('pattie')
-    if (pattieAutoPrompt && patent) {
-      setPattieInitialPrompt(decodeURIComponent(pattieAutoPrompt))
-      setShowPattie(true)
-      // Clean URL to avoid re-triggering on refresh
-      router.replace(`/dashboard/patents/${patent.id}`, { scroll: false })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, patent?.id])
-
-  // 54A: Load founder story dismissal from localStorage
-  useEffect(() => {
-    if (!patent?.id) return
-    setFounderStoryDismissed(localStorage.getItem(`founder_story_dismissed_${patent.id}`) === 'true')
-  }, [patent?.id])
-
-  // 54A + 54B: Check if founder story and content blast correspondence exist
-  useEffect(() => {
-    if (!patent?.id) return
-    const check = async () => {
-      try {
-        const { data } = await supabase
-          .from('patent_correspondence')
-          .select('id')
-          .eq('patent_id', patent.id)
-          .contains('tags', ['founder_story'])
-          .limit(1)
-        setHasFounderStory((data?.length ?? 0) > 0)
-      } catch { setHasFounderStory(false) }
-      try {
-        const blastRows = await supabase
-          .from('patent_correspondence')
-          .select('id')
-          .eq('patent_id', patent.id)
-          .contains('tags', ['content_blast'])
-          .limit(1)
-        setHasContentBlast((blastRows.data?.length ?? 0) > 0)
-      } catch { setHasContentBlast(false) }
-    }
-    check()
-  }, [patent?.id])
-
   // Handle post-upgrade return from Stripe — show toast + refresh Pro state
   useEffect(() => {
     if (searchParams.get('upgrade') === 'success') {
@@ -1482,26 +948,6 @@ export default function PatentDetail() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
-
-  // Handle ?blast=paid return from Stripe Checkout — show toast, clean URL, re-fetch patent
-  useEffect(() => {
-    if (searchParams.get('blast') === 'paid' && patent) {
-      // Clean URL first
-      router.replace(`/dashboard/patents/${patent.id}`, { scroll: false })
-      // Show confirmation toast
-      showToast('💳 Payment confirmed — ready to generate your content blast.')
-      // Re-fetch patent so content_blast_purchased_at is populated and card re-renders
-      loadAll()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, patent?.id])
-
-  // 54C: Clear stale content blast error when patent has no purchase (page reload / navigation)
-  useEffect(() => {
-    if (patent && !(patent as Patent & { content_blast_purchased_at?: string | null }).content_blast_purchased_at) {
-      setContentBlastError(null)
-    }
-  }, [patent?.id])
 
   // Auto-poll claims_status while generating/refining — clears when done or timed out
   useEffect(() => {
@@ -1780,126 +1226,8 @@ export default function PatentDetail() {
   const isLocked = patent.is_locked ?? false
   const isGranted = patent.status === 'granted'
   const canWrite = !isLocked && (!isCollaborator || collabCanEdit)
-  // 52A: Patent lifecycle state machine — used in 52E for lifecycle badge
-  const lifecycle = usePatentLifecycle(patent)
   // Claims are always read-only for granted patents (issued — nothing to edit)
   const claimsReadOnly = isGranted || !canWrite
-
-  // 52E: openPattieWith helper — sets a preloaded prompt and opens the Pattie drawer
-  function openPattieWith(prompt: string) {
-    setPattieInitialPrompt(prompt)
-    setShowPattie(true)
-  }
-
-  // 54A: Open Pattie with the founder interview prompt
-  function openFounderInterview() {
-    const title = patent?.title ?? 'your invention'
-    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    openPattieWith(`You are Pattie, the patent AI for PatentPending. You are conducting a short founder interview for "${title}".
-
-Your goal: capture the inventor's authentic story. Ask ONE question at a time. Listen, follow up naturally, then move on. Do NOT list all questions upfront.
-
-Start by congratulating them: "Congratulations on filing ${title}! Before we dive in — can you tell me what this invention actually does? Explain it like you're telling a friend."
-
-Cover these in natural order: (1) What it does, (2) The origin spark, (3) The problem it solves, (4) The hardest part of the journey, (5) Any surprises, (6) The 5-year vision, (7) Message to other inventors, (8) Where they spend time online.
-
-After 6-10 exchanges, say you have what you need and ask if they want to add anything. Then use the create_correspondence tool to save a structured founder story document with sections: The Invention, The Origin, The Problem It Solves, The Journey, The Vision, In Their Own Words, Their Platforms, Pattie's Notes. Title it "Founder Story — ${title}". Type: "other".
-
-Then confirm: "Your founder story is saved in your Correspondence tab. When you're ready to turn it into social posts, just ask."`)
-  }
-
-  // 54B: Content Blast handler
-  async function handleContentBlast() {
-    setContentBlastLoading(true)
-    setContentBlastError(null)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      const res = await fetch(`/api/patents/${patent!.id}/content-blast`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({}),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        if (data.error === 'no_founder_story') {
-          setContentBlastError('Complete the Founder Interview first to unlock Content Blast.')
-        } else if (res.status === 402 || data.error === 'payment_required') {
-          // Not purchased — silently re-fetch patent so card flips to "Unlock" state
-          await loadAll()
-          return
-        } else {
-          setContentBlastError(data.message ?? 'Generation failed.')
-        }
-        return
-      }
-      setContentBlastData(data as ContentBlast)
-      setHasContentBlast(true)
-      setContentBlastTab(0)
-      setShowContentBlastModal(true)
-    } catch {
-      setContentBlastError('Network error. Please try again.')
-    } finally {
-      setContentBlastLoading(false)
-    }
-  }
-
-  // 54C: Content Blast purchase handler
-  async function handleContentBlastPurchase() {
-    // Optimistic check — if already purchased locally, skip checkout and generate directly
-    const blastPurchasedLocal = !!(patent as Patent & { content_blast_purchased_at?: string | null }).content_blast_purchased_at
-    if (blastPurchasedLocal) {
-      handleContentBlast()
-      return
-    }
-
-    setCheckoutLoading(true)
-    setContentBlastError(null)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      const res = await fetch(`/api/patents/${patent!.id}/content-blast/checkout`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setContentBlastError(data.message ?? 'Could not start checkout.')
-        return
-      }
-      if (data.alreadyPurchased) {
-        // Race condition: already purchased — reload and go straight to generation
-        window.location.reload()
-        return
-      }
-      if (data.url) {
-        window.location.href = data.url // redirect to Stripe Checkout
-      }
-    } catch {
-      setContentBlastError('Network error. Please try again.')
-    } finally {
-      setCheckoutLoading(false)
-    }
-  }
-
-  // 52E: localStorage dismiss helpers for Pattie entry cards
-  function isPattieEntryDismissed(patentId: string, tabName: string): boolean {
-    if (typeof window === 'undefined') return false
-    return localStorage.getItem(`pattie_entry_dismissed_${patentId}_${tabName}`) === 'true'
-  }
-  function dismissPattieEntry(patentId: string, tabName: string): void {
-    if (typeof window === 'undefined') return
-    localStorage.setItem(`pattie_entry_dismissed_${patentId}_${tabName}`, 'true')
-  }
-
-  // 52E: urgency color map for lifecycle badge
-  const URGENCY_COLORS = {
-    none:     { badge: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' },
-    low:      { badge: 'bg-blue-50 text-blue-700', dot: 'bg-blue-400' },
-    medium:   { badge: 'bg-yellow-50 text-yellow-700', dot: 'bg-yellow-400' },
-    high:     { badge: 'bg-orange-50 text-orange-700', dot: 'bg-orange-500' },
-    critical: { badge: 'bg-red-50 text-red-700', dot: 'bg-red-500' },
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -2113,15 +1441,11 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
           const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
-          const isAdmin = ADMIN_EMAILS.includes(userEmail)
-          const visibleTabs: Tab[] = (['details', 'claims', 'ids', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement', 'investors', ...(isAdmin ? ['admin' as Tab] : [])] as Tab[])
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
-              if (t === 'ids') return !isCollaborator  // owner-only
-              if (t === 'investors') return !isCollaborator  // owner-only — 56A investment tab
-              if (t === 'admin') return ADMIN_EMAILS.includes(userEmail)  // admin-only — 58A
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               return canView(t)
             })
@@ -2132,9 +1456,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
               key={t}
               onClick={() => setTab(t)}
               className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize min-h-[40px] ${
-                t === 'admin'
-                  ? tab === t ? 'bg-gray-700 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'
-                  : tab === t ? 'bg-white text-[#1a1f36] shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                tab === t ? 'bg-white text-[#1a1f36] shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               {t === 'correspondence'
@@ -2170,8 +1492,6 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                     )}
                   </span>
                 ) : t === 'enhancement' ? '✨ Enhancement'
-                : t === 'ids' ? 'IDS'
-                : t === 'admin' ? '⚙️ Admin'
                 : t === 'details' ? 'Overview'
                 : 'Details'
               }
@@ -2181,97 +1501,10 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
           ) // end visibleTabs return
         })(/* canView IIFE */)}
 
-        {/* ── ARC 1 INTERVIEW EMPTY-STATE CARD ─────────────────────────────────
-            Shown when abstract + description + claims_draft are all empty.
-            Disappears once any of the three fields has content.             */}
-        {(() => {
-          const hasAbstract     = !!(patent as Record<string,unknown>).abstract_draft
-          const hasDescription  = !!(patent as Record<string,unknown>).description
-          const hasClaims       = !!(patent as Record<string,unknown>).claims_draft
-          const isNewPatent     = !hasAbstract && !hasDescription && !hasClaims
-          const canInterview    = !isCollaborator && canWrite  // free for all — gate is at export
-          return isNewPatent && canInterview ? (
-            <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50 p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <span className="text-2xl flex-shrink-0">✨</span>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-violet-900 text-sm">Start with a conversation</p>
-                <p className="text-violet-700 text-xs mt-0.5">
-                  Tell Pattie about your invention and she&apos;ll draft your patent fields automatically.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowArc1Interview(true)}
-                className="flex-shrink-0 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-semibold hover:bg-violet-700 transition-colors whitespace-nowrap"
-              >
-                Start Interview →
-              </button>
-            </div>
-          ) : null
-        })()}
-
         {/* ── DETAILS TAB ─────────────────────────────────────────────────────── */}
         {tab === 'details' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-
-              {/* 52E: Lifecycle State Badge */}
-              {lifecycle && (
-                <div className="mb-2">
-                  {/* State badge */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${URGENCY_COLORS[lifecycle.urgency].badge}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${URGENCY_COLORS[lifecycle.urgency].dot}`} />
-                      {lifecycle.label}
-                    </span>
-                    <span className="text-xs text-gray-400">{lifecycle.definition?.description}</span>
-                  </div>
-
-                  {/* Blocking conditions warning */}
-                  {lifecycle.isBlocked && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-2">
-                      <p className="text-xs font-semibold text-amber-800 mb-1">⚠️ {lifecycle.blocking.length} condition{lifecycle.blocking.length !== 1 ? 's' : ''} blocking next step</p>
-                      <ul className="space-y-1">
-                        {lifecycle.blocking.map(b => (
-                          <li key={b.id} className="text-xs text-amber-700">
-                            <span className="font-medium">{b.label}:</span> {b.resolution}
-                            {b.pattie_can_act && (
-                              <button
-                                onClick={() => openPattieWith(`I need help with: ${b.label}. ${b.resolution}`)}
-                                className="ml-2 text-indigo-600 hover:underline"
-                              >Pattie can help →</button>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Next nodes preview */}
-                  {lifecycle.nextNodes.length > 0 && (
-                    <p className="text-xs text-gray-400">
-                      Next: {lifecycle.nextNodes.slice(0, 2).map(s =>
-                        s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
-                      ).join(' → ')}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* 54A: Founder Story Nudge — shows when PROVISIONAL_ACTIVE + no founder story + not dismissed */}
-              {patent && patent.lifecycle_state === 'PROVISIONAL_ACTIVE' && !hasFounderStory && !founderStoryDismissed && !isCollaborator && (
-                <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 flex gap-3 items-start">
-                  <span className="text-2xl flex-shrink-0">🎉</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-green-900">You filed! Tell your invention&apos;s story.</p>
-                    <p className="text-xs text-green-700 mt-0.5 mb-3">Pattie will ask you a few questions — takes about 5 minutes. Saved to Correspondence for marketing and context.</p>
-                    <div className="flex gap-2">
-                      <button onClick={openFounderInterview} className="px-3 py-1.5 bg-green-700 text-white text-xs font-semibold rounded-lg hover:bg-green-800 transition-colors">Tell My Story</button>
-                      <button onClick={() => { localStorage.setItem(`founder_story_dismissed_${patent.id}`, 'true'); setFounderStoryDismissed(true) }} className="px-3 py-1.5 border border-green-300 text-green-700 text-xs font-semibold rounded-lg hover:bg-green-100 transition-colors">Not now</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
                 <h2 className="font-semibold text-[#1a1f36] mb-4">Patent Details</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2488,70 +1721,6 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                 </div>
               )}
 
-              {/* 54A: Founder Story permanent link — always visible to owner */}
-              {!isCollaborator && (
-                <div className="rounded-xl border border-gray-200 bg-white p-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-700">Inventor Story</p>
-                    <p className="text-xs text-gray-400">Capture your journey for marketing &amp; reference.</p>
-                  </div>
-                  <button onClick={openFounderInterview} className="text-xs text-indigo-600 hover:underline flex-shrink-0 ml-3">✨ Founder Story</button>
-                </div>
-              )}
-
-              {/* 54B/54C: Content Blast card — 4 states */}
-              {!isCollaborator && (
-                <div className="rounded-xl border border-purple-100 bg-purple-50 p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-base">🚀</span>
-                    <p className="text-xs font-semibold text-purple-900">Content Blast</p>
-                  </div>
-                  <p className="text-xs text-purple-700 mb-3">Turn your founder story into 7 days of content — ready to copy and post.</p>
-                  {(() => {
-                    const blastPurchased = !!(patent as Patent & { content_blast_purchased_at?: string | null }).content_blast_purchased_at
-                    if (hasContentBlast) {
-                      // State 1: content already generated — view it
-                      return (
-                        <button onClick={() => setShowContentBlastModal(true)} className="text-xs text-purple-700 hover:underline">
-                          View Content →
-                        </button>
-                      )
-                    }
-                    if (!isPro) {
-                      // State 2: free user — upsell to Pro
-                      return (
-                        <button onClick={() => setUpgradeFeature?.('content_blast')} className="px-3 py-1.5 border border-purple-300 text-purple-700 text-xs font-semibold rounded-lg hover:bg-purple-100 transition-colors">
-                          Upgrade to Pro
-                        </button>
-                      )
-                    }
-                    if (!blastPurchased) {
-                      // State 3: Pro + not purchased — show $12 purchase button
-                      return (
-                        <button
-                          onClick={handleContentBlastPurchase}
-                          disabled={checkoutLoading}
-                          className="px-3 py-1.5 bg-purple-700 text-white text-xs font-semibold rounded-lg hover:bg-purple-800 disabled:opacity-50 transition-colors"
-                        >
-                          {checkoutLoading ? 'Loading…' : 'Unlock Content Blast — $12'}
-                        </button>
-                      )
-                    }
-                    // State 4: Pro + purchased — generate
-                    return (
-                      <button
-                        onClick={handleContentBlast}
-                        disabled={contentBlastLoading}
-                        className="px-3 py-1.5 bg-purple-700 text-white text-xs font-semibold rounded-lg hover:bg-purple-800 disabled:opacity-50 transition-colors"
-                      >
-                        {contentBlastLoading ? 'Generating…' : 'Generate Content'}
-                      </button>
-                    )
-                  })()}
-                  {contentBlastError && <p className="text-xs text-red-600 mt-2">{contentBlastError}</p>}
-                </div>
-              )}
-
               {!isCollaborator && (
                 <div className={`rounded-xl border p-5 ${
                   (patent as Patent & { arc3_active?: boolean }).arc3_active
@@ -2615,7 +1784,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                   ) : (
                     <>
                       <p className="text-xs text-indigo-700 mb-3">
-                        List this patent for licensing. HHLLC represents you for 10% commission. No upfront cost.
+                        List this patent for licensing. HHLLC represents you for 20% commission. No upfront cost.
                       </p>
                       <button
                         onClick={() => setShowArc3Modal(true)}
@@ -2801,35 +1970,6 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
           />
         )}
 
-        {/* ── 54B: CONTENT BLAST MODAL ────────────────────────────────────────── */}
-        {showContentBlastModal && contentBlastData && (
-          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between p-4 border-b">
-                <h2 className="font-bold text-lg">🚀 Content Blast</h2>
-                <button onClick={() => setShowContentBlastModal(false)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
-              </div>
-              {/* Tab bar */}
-              <div className="flex overflow-x-auto border-b px-4 gap-1 pt-2">
-                {[...contentBlastData.pieces.map(p => p.title.replace('Day ', 'D')), 'Marketplace'].map((tab, i) => (
-                  <button key={i} onClick={() => setContentBlastTab(i)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-t whitespace-nowrap ${contentBlastTab === i ? 'bg-purple-100 text-purple-800' : 'text-gray-500 hover:text-gray-700'}`}>
-                    {tab}
-                  </button>
-                ))}
-              </div>
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto p-4">
-                {contentBlastTab < contentBlastData.pieces.length ? (
-                  <ContentPieceView piece={contentBlastData.pieces[contentBlastTab]} />
-                ) : (
-                  <MarketplaceView blast={contentBlastData} />
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* ── ARC 3 ONBOARDING INTERVIEW MODAL ────────────────────────────────── */}
         {showArc3Interview && patent && authToken && (
           <Arc3InterviewModal
@@ -2846,17 +1986,6 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
         {/* ── LEADS TAB ───────────────────────────────────────────────────────── */}
         {tab === 'leads' && (
           <LeadsPanel patentId={patent.id} authToken={authToken} />
-        )}
-
-        {/* ── INVESTORS TAB (56A) ─────────────────────────────────────────────── */}
-        {tab === 'investors' && !isCollaborator && (
-          <InvestorsTab patent={patent} authToken={authToken}
-            onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)} />
-        )}
-
-        {/* ── ADMIN TAB (58A) — internal lens, never shown to non-admins ──────── */}
-        {tab === 'admin' && ADMIN_EMAILS.includes(userEmail) && (
-          <AdminTab patent={patent} authToken={authToken} userEmail={userEmail} />
         )}
 
         {/* ── CLAIMS TAB ──────────────────────────────────────────────────────── */}
@@ -2923,33 +2052,13 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                 </button>
               </div>
             ) : !patent.claims_draft ? (
-              <div>
-                {/* 52E: Pattie-first entry card for empty claims */}
-                {!isPattieEntryDismissed(patent.id, 'claims') ? (
-                  <PattieEntryCard
-                    prompt="Pattie can draft your claims starting from independent Claim 1. Ready?"
-                    primaryLabel="Draft with Pattie"
-                    onPrimary={() => openPattieWith('Please draft patent claims for this invention. Start with a broad independent Claim 1, then add 3-4 dependent claims narrowing on specific features.')}
-                    secondaryLabel="Write manually"
-                    onSecondary={() => { dismissPattieEntry(patent.id, 'claims'); setPatent(prev => prev ? { ...prev, claims_draft: ' ' } : null) }}
-                  />
-                ) : null}
-                <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-                  <div className="text-3xl mb-3">⏳</div>
-                  <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
-                  <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
-                </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+                <div className="text-3xl mb-3">⏳</div>
+                <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
+                <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
               </div>
             ) : (
               <div className="space-y-5">
-                {/* 52E: Refine with Pattie nudge — shown when claims draft exists */}
-                {!claimsReadOnly && (
-                  <button
-                    onClick={() => openPattieWith('Please review and help improve these patent claims. Identify any issues with scope, dependency structure, or potential §101 concerns.')}
-                    className="text-xs text-indigo-600 hover:underline mb-2"
-                  >✨ Refine with Pattie →</button>
-                )}
-
                 {/* Filing Readiness Score card — FEATURE 1B */}
                 {claimsScore && <ScoreCard score={claimsScore} />}
 
@@ -2999,8 +2108,14 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                         </button>
                       </div>
                     </div>
-                    {/* Classified findings panel — replaces raw <pre> blob */}
-                    <ResearchFindingsPanel stagedContent={patent.claims_draft_research_pending ?? ''} />
+                    {/* Preview of staged claims */}
+                    <details className="mt-3">
+                      <summary className="text-xs text-amber-700 cursor-pointer hover:text-amber-900 font-medium">Preview researched claims ▾</summary>
+                      <pre className="mt-2 text-xs text-gray-700 bg-white border border-amber-100 rounded-lg p-3 overflow-auto max-h-48 whitespace-pre-wrap font-mono leading-relaxed">
+                        {patent.claims_draft_research_pending?.slice(0, 2000)}
+                        {(patent.claims_draft_research_pending?.length ?? 0) > 2000 ? '…' : ''}
+                      </pre>
+                    </details>
                   </div>
                 )}
 
@@ -3525,16 +2640,6 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                   <div className="p-5">
                     {!patent.spec_draft ? (
                       <>
-                        {/* 52E: Pattie-first entry card for empty spec */}
-                        {!isPattieEntryDismissed(patent.id, 'description') && (
-                          <PattieEntryCard
-                            prompt="Pattie can draft your specification based on your invention details. Want to start there?"
-                            primaryLabel="Start with Pattie"
-                            onPrimary={() => openPattieWith('Please draft a detailed specification for this patent. Start with the technical field, background, summary of the invention, and detailed description.')}
-                            secondaryLabel="Write manually"
-                            onSecondary={() => dismissPattieEntry(patent.id, 'description')}
-                          />
-                        )}
                         <p className="text-sm text-gray-600 mb-4">
                           Don&apos;t have a specification yet? Let AI draft one from your claims. It&apos;ll generate Background, Summary, and Detailed Description sections — you review and refine.
                         </p>
@@ -3637,23 +2742,12 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
 
             {/* Abstract field — optional for provisional, required for non-provisional */}
             {computeStepStatus(patent)[3] && (
-              <div>
-                {/* 52E: Ask Pattie pill for abstract */}
-                {canWrite && (
-                  <button
-                    onClick={() => openPattieWith('Please draft a USPTO-compliant abstract for this patent (150 words max). The abstract should summarize the invention\'s technical field, problem solved, and key solution.')}
-                    className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full hover:bg-indigo-100 mb-2 inline-flex items-center gap-1"
-                  >
-                    ✨ Ask Pattie
-                  </button>
-                )}
-                <AbstractField
-                  patent={patent}
-                  authToken={authToken}
-                  canWrite={canWrite}
-                  onUpdate={(val) => setPatent(prev => prev ? { ...prev, abstract_draft: val } : null)}
-                />
-              </div>
+              <AbstractField
+                patent={patent}
+                authToken={authToken}
+                canWrite={canWrite}
+                onUpdate={(val) => setPatent(prev => prev ? { ...prev, abstract_draft: val } : null)}
+              />
             )}
 
             {/* Step 6: Figures upload + AI Generate */}
@@ -3692,9 +2786,6 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                       </button>
                     </div>
                   )}
-                  {/* 52E: Static Pattie note for figures tab */}
-                  <p className="text-xs text-gray-400 mt-3">Need help with figure descriptions? Ask Pattie in the chat.</p>
-
                   {/* Generated figures gallery — with description fields + Pattie analysis */}
                   {patent.figures_uploaded && figureUrls.length > 0 && (
                     <div className="mb-4">
@@ -3968,16 +3059,6 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
           />
         )}
 
-        {/* ── IDS CANDIDATES TAB ──────────────────────────────────────────────── */}
-        {tab === 'ids' && patent && authToken && (
-          <IDSCandidatesTab
-            patentId={patent.id}
-            authToken={authToken}
-            onToast={showToast}
-            onTierRequired={(feature) => setUpgradeFeature(feature)}
-          />
-        )}
-
         {/* ── CORRESPONDENCE TAB ──────────────────────────────────────────────── */}
         {tab === 'correspondence' && (
           <div>
@@ -4063,62 +3144,30 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
               <div className="space-y-2">
                 {correspondence.map(item => (
                   <div key={item.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div className="flex items-stretch">
-                      <button onClick={() => setExpandedCorr(expandedCorr === item.id ? null : item.id)}
-                        className="flex-1 text-left p-4 hover:bg-gray-50 transition-colors min-w-0">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2 mb-1">
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${CORRESPONDENCE_TYPE_COLORS[item.type] || 'bg-gray-100 text-gray-600'}`}>
-                                {CORRESPONDENCE_TYPE_LABELS[item.type] || item.type}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-[#1a1f36] text-sm">{item.title}</span>
-                              {Array.isArray(item.attachments) && item.attachments.length > 0 && (
-                                <span className="text-xs text-blue-500" title={`${item.attachments.length} attachment`}>📎</span>
-                              )}
-                            </div>
-                            <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-400">
-                              <span>{new Date(item.correspondence_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                              {item.from_party && <span>From: {item.from_party}</span>}
-                              {item.to_party && <span>To: {item.to_party}</span>}
-                            </div>
+                    <button onClick={() => setExpandedCorr(expandedCorr === item.id ? null : item.id)}
+                      className="w-full text-left p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${CORRESPONDENCE_TYPE_COLORS[item.type] || 'bg-gray-100 text-gray-600'}`}>
+                              {CORRESPONDENCE_TYPE_LABELS[item.type] || item.type}
+                            </span>
                           </div>
-                          <span className="text-gray-300 flex-shrink-0 text-lg">{expandedCorr === item.id ? '▲' : '▼'}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-[#1a1f36] text-sm">{item.title}</span>
+                            {Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                              <span className="text-xs text-blue-500" title={`${item.attachments.length} attachment`}>📎</span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-400">
+                            <span>{new Date(item.correspondence_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                            {item.from_party && <span>From: {item.from_party}</span>}
+                            {item.to_party && <span>To: {item.to_party}</span>}
+                          </div>
                         </div>
-                      </button>
-                      {!isCollaborator && (
-                        <div className="flex items-center pr-3 pl-1 border-l border-gray-100">
-                          {corrDeleteConfirm === item.id ? (
-                            <div className="flex items-center gap-1 text-xs">
-                              <span className="text-gray-500 whitespace-nowrap">Delete?</span>
-                              <button
-                                onClick={() => handleDeleteCorrespondence(item.id)}
-                                disabled={deletingCorrId === item.id}
-                                className="px-2 py-1 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 disabled:opacity-50"
-                              >
-                                {deletingCorrId === item.id ? '…' : 'Yes'}
-                              </button>
-                              <button
-                                onClick={() => setCorrDeleteConfirm(null)}
-                                className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200"
-                              >
-                                No
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setCorrDeleteConfirm(item.id)}
-                              title="Delete this record"
-                              className="text-gray-300 hover:text-red-500 transition-colors text-base p-1"
-                            >
-                              🗑️
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                        <span className="text-gray-300 flex-shrink-0 text-lg">{expandedCorr === item.id ? '▲' : '▼'}</span>
+                      </div>
+                    </button>
                     {expandedCorr === item.id && (
                       <div className="px-4 pb-4 border-t border-gray-50">
                         {item.content && (
@@ -4132,69 +3181,19 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                         )}
                         {/* Attachments */}
                         {Array.isArray(item.attachments) && item.attachments.length > 0 && (
-                          <div className="mt-3 flex flex-col gap-1.5">
-                            {(item.attachments as { name: string; size?: number; storage_path?: string; url?: string }[]).map((att, ai) => {
-                              // Prefer storage_path (Supabase Storage) over legacy Drive url
-                              const hasStorage = att.storage_path && att.storage_path !== 'undefined'
-                              const downloadHref = hasStorage
-                                ? `/api/correspondence/download?path=${encodeURIComponent(att.storage_path!)}&token=${authToken}`
-                                : (att.url ?? null)
-                              const isViewable = /\.(pdf|png|jpg|jpeg|heic|heif|webp)$/i.test(att.name)
-                              return (
-                                <div key={ai} className="inline-flex items-center gap-2 flex-wrap">
-                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-medium text-blue-700">
-                                    📎 {att.name}
-                                    {att.size && <span className="text-blue-400">({(att.size / 1024).toFixed(0)}KB)</span>}
-                                  </span>
-                                  {/* View button — PDF and images only */}
-                                  {isViewable && downloadHref && (
-                                    <a
-                                      href={downloadHref}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-xs text-indigo-600 hover:underline"
-                                    >
-                                      View
-                                    </a>
-                                  )}
-                                  {/* Download button — all types */}
-                                  {downloadHref && (
-                                  <button
-                                    onClick={async () => {
-                                      if (!hasStorage) {
-                                        // Legacy Drive URL — open in new tab (no blob-download support)
-                                        window.open(downloadHref, '_blank')
-                                        return
-                                      }
-                                      try {
-                                        const res = await fetch(downloadHref)
-                                        if (!res.ok) {
-                                          console.error('[download] server error', res.status, await res.text())
-                                          window.open(downloadHref, '_blank')
-                                          return
-                                        }
-                                        const blob = await res.blob()
-                                        const url = URL.createObjectURL(blob)
-                                        const a = document.createElement('a')
-                                        a.href = url
-                                        a.download = att.name
-                                        document.body.appendChild(a)
-                                        a.click()
-                                        document.body.removeChild(a)
-                                        URL.revokeObjectURL(url)
-                                      } catch {
-                                        // Fallback: open in new tab
-                                        window.open(downloadHref, '_blank')
-                                      }
-                                    }}
-                                    className="text-xs text-gray-500 hover:text-gray-700 hover:underline"
-                                  >
-                                    Download
-                                  </button>
-                                  )}
-                                </div>
-                              )
-                            })}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {(item.attachments as { name: string; size?: number; storage_path: string }[]).map((att, ai) => (
+                              <a
+                                key={ai}
+                                href={`/api/correspondence/download?path=${encodeURIComponent(att.storage_path)}&token=${authToken}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                              >
+                                📎 {att.name}
+                                {att.size && <span className="text-blue-400">({(att.size / 1024).toFixed(0)}KB)</span>}
+                              </a>
+                            ))}
                           </div>
                         )}
                         {item.tags && item.tags.length > 0 && (
@@ -4227,42 +3226,13 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
         {/* Save/cancel when editing details */}
         {/* ── MARKETPLACE SETTINGS (Overview tab, owner only) ─────────────────── */}
         {tab === 'details' && !isCollaborator && (
-          <>
-            <MarketplaceSettingsCard
-              patent={patent}
-              authToken={authToken}
-              canWrite={canWrite}
-              onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
-            />
-            {/* 54D — Generated Description card (only when marketplace_description set) */}
-            <GeneratedDescriptionCard
-              patent={patent}
-              authToken={authToken}
-              onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
-            />
-          </>
-        )}
-
-        {/* ── SIGNING REQUESTS (visible to all patent owners and collaborators) ── */}
-        {tab === 'details' && (
-          <>
-            {/* 52E: Inventors nudge — shown when READY_TO_FILE and signing is relevant */}
-            {(patent as Record<string, unknown>).lifecycle_state === 'READY_TO_FILE' && (
-              <div className="mb-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between gap-3">
-                <p className="text-xs text-blue-800 font-medium">Signatures are pending. Ask Pattie to send a reminder.</p>
-                <button
-                  onClick={() => openPattieWith('Please help me send a signing reminder to the inventors with pending signatures.')}
-                  className="flex-shrink-0 text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
-                >
-                  Ask Pattie
-                </button>
-              </div>
-            )}
-            <SigningRequestsPanel
-              patentId={patent.id}
-              applicationNumber={patent.application_number}
-            />
-          </>
+          <MarketplaceSettingsCard
+            patent={patent}
+            authToken={authToken}
+            canWrite={canWrite}
+            onUpdate={(fields) => setPatent(prev => prev ? { ...prev, ...fields } : null)}
+            isAdmin={isAdmin}
+          />
         )}
 
         {tab === 'details' && editing && (
@@ -4282,45 +3252,24 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
       {/* Toast */}
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
 
-      {/* ── ASK PATTIE / INTERVIEW floating buttons ──────────────────────────── */}
-      {patent && authToken && !showPattie && !showArc1Interview && (!isCollaborator || (collabPerms.pattie ?? false)) && (
-        <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
-          {/* Start Interview — shown when patent is empty (free for all, gate is at export) */}
-          {!isCollaborator && canWrite &&
-            !(patent as Record<string,unknown>).abstract_draft &&
-            !(patent as Record<string,unknown>).description &&
-            !(patent as Record<string,unknown>).claims_draft && (
-            <button
-              onClick={() => setShowArc1Interview(true)}
-              className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2.5 rounded-full shadow-lg hover:bg-violet-700 active:scale-95 transition-all text-sm font-semibold"
-              aria-label="Start invention interview"
-            >
-              <span className="text-base">🎤</span>
-              <span>Start Interview</span>
-            </button>
-          )}
-          <button
-            onClick={() => setShowPattie(true)}
-            className="flex items-center gap-2 bg-[#4f46e5] text-white px-4 py-3 rounded-full shadow-lg hover:bg-[#4338ca] active:scale-95 transition-all text-sm font-semibold"
-            aria-label="Open Pattie chat"
-          >
-            <span className="text-base">🦞</span>
-            <span>Ask Pattie</span>
-          </button>
-        </div>
-      )}
-
-      {/* ── ARC 1 INTERVIEW DRAWER ───────────────────────────────────────────── */}
-      {showArc1Interview && patent && authToken && (
-        <PattieInterviewDrawer
-          patentId={patent.id}
-          patentTitle={patent.title}
-          authToken={authToken}
-          onClose={() => setShowArc1Interview(false)}
-          onDraftApplied={() => { loadAll(); setShowArc1Interview(false) }}
-          onSwitchToPolish={() => { setShowArc1Interview(false); setShowPattie(true) }}
-          onTierRequired={(feature) => { setShowArc1Interview(false); setUpgradeFeature(feature) }}
-        />
+      {/* ── ASK PATTIE floating button ───────────────────────────────────────── */}
+      {patent && authToken && !showPattie && (!isCollaborator || (collabPerms.pattie ?? false)) && (
+        <button
+          onClick={() => setShowPattie(true)}
+          className="
+            fixed bottom-6 right-6 z-40
+            flex items-center gap-2
+            bg-[#4f46e5] text-white
+            px-4 py-3 rounded-full shadow-lg
+            hover:bg-[#4338ca] active:scale-95 transition-all
+            text-sm font-semibold
+            sm:rounded-full
+          "
+          aria-label="Open Pattie chat"
+        >
+          <span className="text-base">🦞</span>
+          <span>Ask Pattie</span>
+        </button>
       )}
 
       {/* ── PATTIE CHAT DRAWER ───────────────────────────────────────────────── */}
@@ -4329,11 +3278,10 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
           patentId={patent.id}
           patentTitle={patent.title}
           authToken={authToken}
-          onClose={() => { setShowPattie(false); setPattieInitialPrompt(undefined) }}
+          onClose={() => setShowPattie(false)}
           canEdit={canWrite}
           patentStatus={patent.filing_status ?? patent.status}
-          onTierRequired={(feature) => { setShowPattie(false); setPattieInitialPrompt(undefined); setUpgradeFeature(feature) }}
-          initialPrompt={pattieInitialPrompt}
+          onTierRequired={(feature) => { setShowPattie(false); setUpgradeFeature(feature) }}
         />
       )}
     </div>
@@ -4348,8 +3296,7 @@ function Arc3InterviewModal({ patentId, patentTitle, authToken, onClose }: {
   const [input, setInput] = React.useState('')
   const [streaming, setStreaming] = React.useState(false)
   const [briefSaved, setBriefSaved] = React.useState(false)
-  const bottomRef          = React.useRef<HTMLDivElement>(null)
-  const scrollContainerRef = React.useRef<HTMLDivElement>(null)
+  const bottomRef = React.useRef<HTMLDivElement>(null)
 
   // Kick off interview on mount
   React.useEffect(() => {
@@ -4358,10 +3305,7 @@ function Arc3InterviewModal({ patentId, patentTitle, authToken, onClose }: {
   }, [])
 
   React.useEffect(() => {
-    // Scroll within the chat container only — never escape to window
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
-    }
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streaming])
 
   async function sendMessage(userText?: string) {
@@ -4435,7 +3379,7 @@ function Arc3InterviewModal({ patentId, patentTitle, authToken, onClose }: {
           )}
         </div>
 
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
@@ -4577,106 +3521,6 @@ function LeadsPanel({ patentId, authToken }: { patentId: string; authToken: stri
           </div>
         </div>
       ))}
-    </div>
-  )
-}
-
-// ── 54B: Content Blast Modal Sub-components ───────────────────────────────────
-
-function ContentPieceView({ piece }: { piece: ContentPiece }) {
-  const [copied, setCopied] = React.useState<string | null>(null)
-
-  function copy(key: string, text: string) {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key)
-      setTimeout(() => setCopied(null), 2000)
-    })
-  }
-
-  const isDay7 = piece.type === 'video_script'
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="font-semibold text-gray-900">{piece.title}</h3>
-        <p className="text-xs text-gray-500 mt-0.5">{piece.purpose}</p>
-      </div>
-      {Object.entries(piece.platforms).map(([platform, text]) => (
-        <div key={platform} className="border border-gray-200 rounded-xl overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
-            <span className="text-xs font-semibold text-gray-700 capitalize">{platform.replace('_', ' ')}</span>
-            <div className="flex gap-2">
-              {isDay7 && platform === 'video_script' && (
-                <button
-                  onClick={() => {
-                    const blob = new Blob([text], { type: 'text/plain' })
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = `video-script-${piece.title.replace(/\s+/g, '-').toLowerCase()}.txt`
-                    a.click()
-                    URL.revokeObjectURL(url)
-                  }}
-                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-                >
-                  ↓ Download
-                </button>
-              )}
-              <button
-                onClick={() => copy(platform, text)}
-                className="text-xs text-purple-600 hover:text-purple-800 font-medium"
-              >
-                {copied === platform ? '✓ Copied!' : 'Copy'}
-              </button>
-            </div>
-          </div>
-          <pre className="p-3 text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">{text}</pre>
-        </div>
-      ))}
-      {piece.suggested_visual && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
-          <p className="text-xs font-semibold text-amber-800 mb-0.5">📸 Visual suggestion</p>
-          <p className="text-xs text-amber-700">{piece.suggested_visual}</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function MarketplaceView({ blast }: { blast: ContentBlast }) {
-  const [copiedDesc, setCopiedDesc] = React.useState(false)
-  const [copiedTag, setCopiedTag] = React.useState(false)
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="font-semibold text-gray-900">Marketplace &amp; Tagline</h3>
-        <p className="text-xs text-gray-500 mt-0.5">Use these on your marketplace listing to attract licensees and buyers.</p>
-      </div>
-      <div className="border border-gray-200 rounded-xl overflow-hidden">
-        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
-          <span className="text-xs font-semibold text-gray-700">Marketplace Description</span>
-          <button
-            onClick={() => { navigator.clipboard.writeText(blast.marketplace_description).then(() => { setCopiedDesc(true); setTimeout(() => setCopiedDesc(false), 2000) }) }}
-            className="text-xs text-purple-600 hover:text-purple-800 font-medium"
-          >
-            {copiedDesc ? '✓ Copied!' : 'Copy'}
-          </button>
-        </div>
-        <p className="p-3 text-sm text-gray-700 leading-relaxed">{blast.marketplace_description}</p>
-      </div>
-      <div className="border border-purple-200 rounded-xl overflow-hidden">
-        <div className="flex items-center justify-between px-3 py-2 bg-purple-50 border-b border-purple-200">
-          <span className="text-xs font-semibold text-purple-800">Tagline</span>
-          <button
-            onClick={() => { navigator.clipboard.writeText(blast.tagline).then(() => { setCopiedTag(true); setTimeout(() => setCopiedTag(false), 2000) }) }}
-            className="text-xs text-purple-600 hover:text-purple-800 font-medium"
-          >
-            {copiedTag ? '✓ Copied!' : 'Copy'}
-          </button>
-        </div>
-        <p className="p-4 text-base font-semibold text-purple-900 italic">&ldquo;{blast.tagline}&rdquo;</p>
-      </div>
     </div>
   )
 }

@@ -1,8 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-
-const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co')
-const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key')
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
@@ -47,7 +46,6 @@ export type Patent = {
   // Filing journey (cont.10)
   spec_uploaded?: boolean
   figures_uploaded?: boolean
-  figure_descriptions?: Record<string, string> | null
   cover_sheet_acknowledged?: boolean
   // Spec drafting (cont.11)
   spec_draft?: string | null

@@ -1,5 +1,4 @@
 /**
-
  * lib/pdf-sanitize.ts
  *
  * Sanitize strings for use with pdf-lib StandardFonts (WinAnsiEncoding).

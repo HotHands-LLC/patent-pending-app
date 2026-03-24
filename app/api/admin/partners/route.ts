@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-export const dynamic = 'force-dynamic'
-
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 function getUserClient(token: string) {
   return createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -90,7 +88,7 @@ function buildWelcomeEmail(partnerName: string, referralCode: string, firmName: 
   </div>
 
   <p style="font-size:13px;color:#6b7280">Questions? Reply to this email or write directly to <a href="mailto:support@hotdeck.com" style="color:#4f46e5">support@hotdeck.com</a>.<br>
-  — PatentPending</p>
+  — Chad Bostwick, Hot Hands LLC / PatentPending.app</p>
 
   <p style="font-size:11px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:12px;margin-top:24px">
     PatentPending.app is not a law firm. Referral partnership does not constitute legal practice or create an attorney-client relationship between partners and PatentPending or its users.

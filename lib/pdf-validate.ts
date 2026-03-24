@@ -1,5 +1,4 @@
 /**
-
  * USPTO PDF Compliance Validator
  *
  * USPTO Patent Center accepts: PDF versions 1.4 through 1.7 only.

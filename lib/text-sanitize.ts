@@ -1,5 +1,4 @@
 /**
-
  * lib/text-sanitize.ts
  *
  * Sanitize text for USPTO Patent Center .txt upload (strict ASCII).

@@ -1,25 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { DEEP_RESEARCH_PROMPT_TEMPLATE, parseFindingsFromOutput } from '@/lib/pattie-sop'
 import { waitUntil } from '@vercel/functions'
-import { stripLlmAttribution, researchReportTitle } from '@/lib/ai-utils'
-import { logAiUsage } from '@/lib/ai-budget'
 
 export const maxDuration = 300 // 5 min max — Gemini Pro can take 2-3 min
 import { createClient } from '@supabase/supabase-js'
 import { getUserTier, isTierPro } from '@/lib/subscription'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
 
-export const dynamic = 'force-dynamic'
-
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 function getUserClient(token: string) {
   return createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -133,10 +128,49 @@ async function runDeepResearch(
   const totalChars = claimsInput.length + specInput.length + descInput.length
   console.log(`[deep-research] patent=${patentId} model=gemini-2.5-pro input_chars=${totalChars} (claims=${claimsInput.length} spec=${specInput.length} desc=${descInput.length})`)
 
-  // ── DEEP RESEARCH SOP PROMPT (Pattie Research & Polish SOP v1.0) ────────────
-  // Four-phase: Intake Audit → Finding Classification → Research Output → Improved Claims
-  const prompt = DEEP_RESEARCH_PROMPT_TEMPLATE(title, specInput, descInput, claimsInput)
+  // ── ADVERSARIAL ANALYSIS PROMPT ─────────────────────────────────────────────
+  // Two-phase prompt:
+  // Phase 1: Adversarial analysis — finds every weakness a competitor or examiner would exploit
+  // Phase 2: Improved claims — uses the analysis to write stronger claims
+  // Output: analysis narrative + improved claims, separated by a clear delimiter
+  const prompt = `You are a senior patent prosecution attorney conducting adversarial claim analysis. Your job is not merely to rewrite claims — it is to find every weakness a patent examiner or competitor could exploit, then produce specific stronger claims.
 
+**PHASE 1 — ADVERSARIAL ANALYSIS**
+Analyze the following patent claims against the specification provided. For each independent claim:
+
+1. **SCOPE ANALYSIS**: Does any language unnecessarily narrow the claim? Identify specific phrases that allow a competitor to design around by using a technically equivalent approach.
+
+2. **ADVERSARIAL TEST**: How would a sophisticated competitor build the same invention while avoiding each independent claim? What would they change?
+
+3. **DEPENDENCY RISK**: Does any claim depend on external IP, named third-party systems, named products, or co-pending applications? Flag any dependencies that create prosecution risk.
+
+4. **PRIOR ART PRESSURE**: What categories of prior art are most likely cited against each independent claim? Which claim language is most vulnerable to §102/§103 rejections?
+
+5. **RECOMMENDED FIXES**: For each identified weakness, provide specific alternative language that broadens protection while remaining fully supported by the specification.
+
+**PHASE 2 — IMPROVED CLAIMS**
+Using your adversarial analysis, write complete improved claims. Requirements:
+- Every independent claim must be broadened to its maximum defensible scope
+- Add dependent claims that capture specific preferred embodiments described in the spec
+- Remove any named dependencies on third-party products, brands, or co-pending applications
+- Ensure each claim is supported verbatim by language in the specification
+- Use precise USPTO-compliant language
+- Number claims sequentially
+
+**OUTPUT FORMAT**
+First output your analysis (Phase 1) as a structured summary.
+Then output a clear delimiter: ---IMPROVED CLAIMS---
+Then output the complete improved claims in standard USPTO numbered format (1., 2., 3., etc.).
+No additional text after the claims.
+
+---
+Patent Title: ${title}
+
+Specification:
+${specInput || descInput || '(no specification provided)'}
+
+Current Claims:
+${claimsInput}`
 
   try {
     const res = await fetch(GEMINI_PRO, {
@@ -189,41 +223,6 @@ async function runDeepResearch(
     const cost      = (inputTok * COST_PER_M_INPUT + outputTok * COST_PER_M_OUTPUT) / 1_000_000
     console.log(`[deep-research] ✅ staged patent=${patentId} tokens=${inputTok}+${outputTok} cost=$${cost.toFixed(4)} analysis=${analysisSection.length}chars claims=${claimsSection.length}chars`)
 
-    // Parse structured findings from SOP output for correspondence metadata
-    const parsedFindings = parseFindingsFromOutput(stagedContent)
-    const findingCounts  = { A: 0, B: 0, C: 0, D: 0 }
-    for (const f of parsedFindings) findingCounts[f.class]++
-
-    // Save research report to patent_correspondence — LLM attribution stripped, non-blocking
-    const cleanedContent = stripLlmAttribution(stagedContent)
-    void supabaseService.from('patent_correspondence').insert({
-      patent_id:           patentId,
-      owner_id:            userId,
-      title:               researchReportTitle('deep_research'),
-      type:                'ai_research',
-      content:             cleanedContent,
-      from_party:          'PatentPending AI',
-      correspondence_date: new Date().toISOString().split('T')[0],
-      tags:                ['research_report', 'deep_research', 'ai_generated', 'sop_v1'],
-      attachments: {
-        query_used:     'Deep Research Pass — SOP v1.1 (4-phase: Intake Audit → Finding Classification → Research → Improved Claims)',
-        phases_run:     ['intake_audit_1a_1b_1c_1d', 'finding_classification_2', 'research_output_3', 'improved_claims_4'],
-        sop_version:    '1.1',
-        generated_at:   new Date().toISOString(),
-        feature:        'deep_research',
-        tokens_input:   inputTok,
-        tokens_output:  outputTok,
-        cost_usd:       cost,
-        findings_count: findingCounts,
-        findings:       parsedFindings.map(f => ({
-          class:       f.class,
-          affected:    f.affected,
-          description: f.description,
-          fix:         f.suggestedFix ?? null,
-        })),
-      },
-    }).then(({ error }) => { if (error) console.error('[deep-research] correspondence save failed:', error) })
-
     await supabaseService
       .from('patents')
       .update({
@@ -240,15 +239,6 @@ async function runDeepResearch(
       .eq('patent_id', patentId)
       .order('created_at', { ascending: false })
       .limit(1)
-
-    // Log to ai_token_usage (account-level budget tracking, feature = 'deep_research')
-    await logAiUsage(supabaseService, {
-      userId:     userId,
-      patentId,
-      feature:    'deep_research',
-      tokensUsed: inputTok + outputTok,
-      model:      'gemini-2.5-pro',
-    })
 
     if (userEmail) {
       const appUrl  = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
