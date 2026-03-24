@@ -210,7 +210,7 @@ export async function POST(
 
   // ── Build PatentContext for lifecycle ─────────────────────────────────────
   const patentContext: PatentContext = {
-    patent: patent as Parameters<typeof getBlockingConditions>[0]['patent'],
+    patent: patent as unknown as Parameters<typeof getBlockingConditions>[0]["patent"],
     pendingSigningRequests: pendingSigningCount ?? 0,
   }
 
