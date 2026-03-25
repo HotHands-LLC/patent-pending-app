@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
     { data: usageLogs },
     { data: correspondence },
     { data: clawScores },
+    { data: scoreDeltas },
   ] = await Promise.all([
     serviceClient.from('patents').select('*', { count: 'exact' }),
     serviceClient.from('profiles').select('id, display_name, email, is_admin, created_at, require_2fa, subscription_status'),
@@ -80,6 +81,11 @@ export async function GET(req: NextRequest) {
     serviceClient.from('claw_patents')
       .select('patent_id, composite_score, novelty_score, commercial_score, improvement_day, provisional_ready, spec_draft, claims_draft')
       .not('patent_id', 'is', null),
+    // Score deltas from last 24h
+    serviceClient.from('patent_score_history')
+      .select('patent_id, score_before, score_after, delta, recorded_at')
+      .gte('recorded_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .order('recorded_at', { ascending: false }),
   ])
 
   // ── Aggregate stats ────────────────────────────────────────────────────────
@@ -179,6 +185,13 @@ export async function GET(req: NextRequest) {
     (clawScores ?? []).map((c: ClawScore) => [c.patent_id, c])
   )
 
+  // Build 24h score delta lookup by patent_id (sum all deltas in window)
+  const deltaByPatentId = new Map<string, number>()
+  for (const d of (scoreDeltas ?? []) as Array<{ patent_id: string; delta: number | null }>) {
+    if (!d.patent_id || d.delta == null) continue
+    deltaByPatentId.set(d.patent_id, (deltaByPatentId.get(d.patent_id) ?? 0) + Number(d.delta))
+  }
+
   const patentTable = (patents ?? []).map(p => {
     const claw = p.is_claw_draft ? clawByPatentId.get(p.id) : undefined
     // For Claw patents: derive claims count from claims_draft line count
@@ -211,6 +224,7 @@ export async function GET(req: NextRequest) {
       claw_spec_ok: p.is_claw_draft ? clawSpecOk : null,
       claw_provisional_ready: claw?.provisional_ready ?? null,
       claw_improvement_day: claw?.improvement_day ?? null,
+      score_delta_24h: deltaByPatentId.get(p.id) ?? null,
     }
   })
 

@@ -33,6 +33,7 @@ interface AdminStats {
     claw_spec_ok: boolean | null;
     claw_provisional_ready: boolean | null;
     claw_improvement_day: number | null;
+    score_delta_24h: number | null;
   }>
   user_table: Array<{
     id: string; name: string; email: string; is_admin: boolean;
@@ -817,14 +818,21 @@ export default function AdminPage() {
                               }
                             </td>
                             <td className="px-4 py-3">
-                              {p.is_claw_draft
-                                ? (p.claw_composite_score != null
-                                    ? <span className="font-mono font-semibold text-violet-700">{p.claw_composite_score}</span>
-                                    : '—')
-                                : (p.ip_readiness_score != null
-                                    ? <span className="font-mono text-gray-700">{p.ip_readiness_score}</span>
-                                    : '—')
-                              }
+                              <span className="flex items-center gap-1">
+                                {p.is_claw_draft
+                                  ? (p.claw_composite_score != null
+                                      ? <span className="font-mono font-semibold text-violet-700">{p.claw_composite_score}</span>
+                                      : '—')
+                                  : (p.ip_readiness_score != null
+                                      ? <span className="font-mono text-gray-700">{p.ip_readiness_score}</span>
+                                      : '—')
+                                }
+                                {p.score_delta_24h != null && p.score_delta_24h !== 0 && (
+                                  <span className={`text-[10px] font-semibold ${p.score_delta_24h > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                    {p.score_delta_24h > 0 ? `▲+${p.score_delta_24h.toFixed(1)}` : `▼${p.score_delta_24h.toFixed(1)}`}
+                                  </span>
+                                )}
+                              </span>
                             </td>
                             <td className="px-4 py-3">
                               {days !== null ? (
