@@ -34,6 +34,9 @@ interface AdminStats {
     claw_provisional_ready: boolean | null;
     claw_improvement_day: number | null;
     score_delta_24h: number | null;
+    commercial_tier: number | null;
+    tier_rationale: string | null;
+    tier_classified_at: string | null;
   }>
   user_table: Array<{
     id: string; name: string; email: string; is_admin: boolean;
@@ -833,6 +836,23 @@ export default function AdminPage() {
                                   </span>
                                 )}
                               </span>
+                              {/* Tier badge */}
+                              {p.commercial_tier != null ? (
+                                <span
+                                  className={`mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    p.commercial_tier === 1 ? 'bg-green-100 text-green-700' :
+                                    p.commercial_tier === 2 ? 'bg-amber-100 text-amber-700' :
+                                    'bg-gray-100 text-gray-500'
+                                  }`}
+                                  title={p.tier_rationale ?? ''}
+                                >
+                                  {p.commercial_tier === 1 ? '🟢 T1' : p.commercial_tier === 2 ? '🟡 T2' : '🔴 T3'}
+                                </span>
+                              ) : p.is_claw_draft && p.claw_provisional_ready ? (
+                                <span className="mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-50 text-gray-400" title="Pending tier classification">
+                                  ⏳ tier?
+                                </span>
+                              ) : null}
                             </td>
                             <td className="px-4 py-3">
                               {days !== null ? (

@@ -225,6 +225,9 @@ export async function GET(req: NextRequest) {
       claw_provisional_ready: claw?.provisional_ready ?? null,
       claw_improvement_day: claw?.improvement_day ?? null,
       score_delta_24h: deltaByPatentId.get(p.id) ?? null,
+      commercial_tier: (p as Record<string, unknown>).commercial_tier as number | null ?? null,
+      tier_rationale: (p as Record<string, unknown>).tier_rationale as string | null ?? null,
+      tier_classified_at: (p as Record<string, unknown>).tier_classified_at as string | null ?? null,
     }
   })
 

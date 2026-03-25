@@ -876,8 +876,63 @@ function AdminTab({ patent, authToken, userEmail }: {
         )}
       </div>
 
+      {/* Commercial tier */}
+      <CommercialTierPanel patent={patent} authToken={authToken} />
+
       {/* System correspondence */}
       <SystemCorrespondencePanel patentId={patent.id} authToken={authToken} />
+    </div>
+  )
+}
+
+function CommercialTierPanel({ patent, authToken }: { patent: Patent; authToken: string }) {
+  const tier = (patent as Patent & Record<string, unknown>).commercial_tier as number | null
+  const rationale = (patent as Patent & Record<string, unknown>).tier_rationale as string | null
+  const classifiedAt = (patent as Patent & Record<string, unknown>).tier_classified_at as string | null
+  const [reclassifying, setReclassifying] = useState(false)
+  const [reclassifyMsg, setReclassifyMsg] = useState('')
+
+  async function handleReclassify() {
+    setReclassifying(true); setReclassifyMsg('Running Gemini analysis…')
+    try {
+      const res = await fetch(`/api/patents/${patent.id}/reclassify-tier`, {
+        method: 'POST', headers: { Authorization: `Bearer ${authToken}` }
+      })
+      const d = await res.json()
+      if (!res.ok) { setReclassifyMsg(d.error ?? 'Failed'); return }
+      setReclassifyMsg(`✅ Tier ${d.tier} — ${d.rationale?.slice(0, 80)}…`)
+    } catch { setReclassifyMsg('Network error') }
+    finally { setReclassifying(false) }
+  }
+
+  const TIER_CONFIG: Record<number, { label: string; color: string; desc: string }> = {
+    1: { label: '🟢 Tier 1', color: 'bg-green-100 text-green-800 border-green-200', desc: 'File immediately + list aggressively' },
+    2: { label: '🟡 Tier 2', color: 'bg-amber-100 text-amber-800 border-amber-200', desc: 'File + list passively' },
+    3: { label: '🔴 Tier 3', color: 'bg-gray-100 text-gray-700 border-gray-200', desc: 'Skip filing' },
+  }
+  const cfg = tier ? TIER_CONFIG[tier] : null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-bold text-gray-900 text-sm">Commercial Tier</h2>
+        <button onClick={handleReclassify} disabled={reclassifying}
+          className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-semibold">
+          {reclassifying ? '⏳ Analyzing…' : '✨ Re-classify'}
+        </button>
+      </div>
+      {cfg ? (
+        <div className="space-y-2">
+          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold border ${cfg.color}`}>
+            {cfg.label} — {cfg.desc}
+          </span>
+          {rationale && <p className="text-xs text-gray-600 leading-relaxed mt-2">{rationale}</p>}
+          {classifiedAt && <p className="text-[10px] text-gray-400">Classified: {new Date(classifiedAt).toLocaleString()}</p>}
+        </div>
+      ) : (
+        <p className="text-xs text-gray-400 italic">Not yet classified. Click Re-classify to run Gemini analysis.</p>
+      )}
+      {reclassifyMsg && <p className="text-xs mt-2 text-indigo-700">{reclassifyMsg}</p>}
     </div>
   )
 }
