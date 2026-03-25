@@ -1275,6 +1275,26 @@ export default function PatentDetail() {
 
   useEffect(() => { loadAll() }, [id, router])
 
+  // Auto-advance Claims Approved step for admin users with claims present
+  useEffect(() => {
+    if (
+      isAdmin &&
+      patent &&
+      authToken &&
+      patent.claims_draft &&
+      patent.filing_status === 'draft'
+    ) {
+      fetch(`/api/patents/${patent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ filing_status: 'approved' }),
+      }).then(r => r.ok && r.json()).then(updated => {
+        if (updated) setPatent(prev => prev ? { ...prev, filing_status: 'approved' } : null)
+      }).catch(() => {/* non-critical */})
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, patent?.id, patent?.claims_draft, patent?.filing_status, authToken])
+
   // Handle cover-sheet acknowledgment redirect from cover-sheet page
   useEffect(() => {
     if (searchParams.get('ack') === 'cover-sheet' && patent && authToken && !patent.cover_sheet_acknowledged) {
@@ -1577,6 +1597,33 @@ export default function PatentDetail() {
   const deadlineLabel = isProvisionalFiled ? 'Non-provisional deadline' : 'Provisional filing deadline'
   const days = deadline ? getDaysUntil(deadline) : null
   const claimsScore = patent.claims_score as ClaimsScore | null
+
+  // For human patents without AI scoring, derive a basic score from claims_draft text
+  const effectiveClaimsScore: ClaimsScore | null = (() => {
+    if (claimsScore) return claimsScore
+    if (!patent.claims_draft) return null
+    const lines = patent.claims_draft.split('\n').map((l: string) => l.trim()).filter(Boolean)
+    const numbered = lines.filter((l: string) => /^\d+\./.test(l))
+    if (numbered.length === 0) return null
+    // Heuristic: claims without "claim X" back-reference are independent
+    const depPattern = /claim\s+\d+/i
+    const independent = numbered.filter((l: string) => !depPattern.test(l)).length || 1
+    const dependent = numbered.length - independent
+    const hasAbstract = !!(patent.abstract_draft)
+    const hasSpec = !!((patent as Record<string, unknown>).spec_draft as string | null)
+    const provisionalReady = numbered.length >= 1 && (hasAbstract || hasSpec)
+    return {
+      independent_claims_count: independent,
+      dependent_claims_count: dependent,
+      novelty_score: 7, // default — not AI-scored
+      novelty_rationale: 'Manually entered claims — not AI-evaluated',
+      provisional_ready: provisionalReady,
+      provisional_rationale: provisionalReady ? 'Claims present with supporting documentation' : 'Add abstract or specification to complete',
+      top_strength: `${numbered.length} claim${numbered.length !== 1 ? 's' : ''} (${independent} independent)`,
+      top_gap: null,
+    } as ClaimsScore
+  })()
+
   const revisionContentReady = selectedChips.some(c => c !== 'custom') || customNote.trim().length > 0
 
   // Write access:
@@ -1934,6 +1981,29 @@ export default function PatentDetail() {
                   ) : (
                     <p className="text-sm text-gray-600">{patent.description}</p>
                   )}
+                </div>
+              )}
+
+              {/* Abstract — shown on Overview tab when present */}
+              {patent.abstract_draft && (
+                <div className="bg-blue-50 rounded-xl border border-blue-200 p-5 sm:p-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="font-semibold text-[#1a1f36] flex items-center gap-2">
+                      📝 Abstract
+                      <span className="text-xs font-normal text-blue-600">
+                        {patent.abstract_draft.trim().split(/\s+/).length} words
+                      </span>
+                    </h2>
+                    {canWrite && (
+                      <button
+                        onClick={() => setTab('filing')}
+                        className="text-xs text-indigo-600 hover:underline"
+                      >
+                        Edit in Filing tab →
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-700 leading-relaxed">{patent.abstract_draft}</p>
                 </div>
               )}
             </div>
@@ -2430,7 +2500,7 @@ export default function PatentDetail() {
             ) : (
               <div className="space-y-5">
                 {/* Filing Readiness Score card — FEATURE 1B */}
-                {claimsScore && <ScoreCard score={claimsScore} />}
+                {effectiveClaimsScore && <ScoreCard score={effectiveClaimsScore} />}
 
                 {/* Pro badge — only shown to free users */}
                 {!isPro && <ProBadge patentId={patent.id} />}

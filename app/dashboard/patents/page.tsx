@@ -14,6 +14,24 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
+function getStatusLabel(patent: Patent): string {
+  if ((patent as Record<string, unknown>).is_claw_draft) {
+    const s = patent.status as string
+    if (s === 'provisional' || s === 'provisional_ready') return 'Ready to File'
+    return 'Draft'
+  }
+  return patent.status.replace(/_/g, ' ')
+}
+
+function getStatusColor(patent: Patent): string {
+  if ((patent as Record<string, unknown>).is_claw_draft) {
+    const s = patent.status as string
+    if (s === 'provisional' || s === 'provisional_ready') return 'bg-green-100 text-green-800'
+    return 'bg-gray-100 text-gray-600'
+  }
+  return STATUS_COLORS[patent.status] || 'bg-gray-100 text-gray-800'
+}
+
 export default function PatentsPage() {
   const [patents, setPatents] = useState<Patent[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,8 +105,8 @@ export default function PatentsPage() {
                           <div className="text-xs text-gray-400 mt-0.5">{p.provisional_number || p.application_number || '—'}</div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[p.status] || 'bg-gray-100 text-gray-800'}`}>
-                            {p.status.replace('_', ' ')}
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(p)}`}>
+                            {getStatusLabel(p)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-500">
@@ -129,8 +147,8 @@ export default function PatentsPage() {
                         <div className="font-semibold text-[#1a1f36] text-sm leading-snug">{p.title}</div>
                         <div className="text-xs text-gray-400 mt-0.5">{p.provisional_number || p.application_number || 'No app #'}</div>
                       </div>
-                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[p.status] || 'bg-gray-100 text-gray-800'}`}>
-                        {p.status.replace('_', ' ')}
+                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(p)}`}>
+                            {getStatusLabel(p)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between mt-3">
