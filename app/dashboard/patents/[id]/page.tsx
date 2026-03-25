@@ -42,7 +42,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads'
+type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'admin'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -719,6 +719,199 @@ function MarketplaceSettingsCard({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Admin Tab (58A) — internal lens, admin-only ──────────────────────────────
+const ADMIN_EMAILS = ['support@hotdeck.com', 'agent@hotdeck.com']
+
+function ScoreBar({ label, value, note, invert }: { label: string; value: number | null; note?: string; invert?: boolean }) {
+  const pct = Math.max(0, Math.min(100, value ?? 0))
+  const barColor = invert
+    ? pct <= 40 ? 'bg-green-400' : pct <= 70 ? 'bg-amber-400' : 'bg-red-400'
+    : pct >= 70 ? 'bg-blue-500' : pct >= 40 ? 'bg-amber-400' : 'bg-gray-300'
+  return (
+    <div className="flex items-center gap-3 text-xs">
+      <span className="w-28 text-gray-600 shrink-0">{label}</span>
+      <div className="flex-1 bg-gray-100 rounded-full h-2">
+        <div className={`h-2 rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-12 text-right font-mono font-semibold text-gray-700">{value ?? '—'}/100</span>
+      {note && <span className="text-gray-400 text-[10px] italic">{note}</span>}
+    </div>
+  )
+}
+
+function AdminTab({ patent, authToken, userEmail }: {
+  patent: Patent; authToken: string; userEmail: string
+}) {
+  const [scores, setScores] = useState<{
+    novelty_score: number | null; commercial_score: number | null
+    filing_complexity: number | null; composite_score: number | null; scored_at: string | null
+  } | null>(null)
+  const [obsLogs, setObsLogs]     = useState<Array<{ id: string; step: string; severity: string; description: string; status: string }>>([])
+  const [rescoring, setRescoring] = useState(false)
+  const [rescoreMsg, setRescoreMsg] = useState('')
+
+  useEffect(() => {
+    if (!ADMIN_EMAILS.includes(userEmail)) return
+    fetch(`/api/patents/${patent.id}/admin-scores`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    }).then(r => r.json()).then(d => setScores(d)).catch(() => {})
+    fetch(`/api/patents/${patent.id}/observer-logs`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    }).then(r => r.json()).then(d => setObsLogs(d.logs ?? [])).catch(() => {})
+  }, [patent.id, authToken, userEmail])
+
+  async function handleRescore() {
+    setRescoring(true); setRescoreMsg('Scoring with Gemini 2.5 Pro…')
+    try {
+      const res = await fetch(`/api/patents/${patent.id}/rescore`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      const data = await res.json()
+      if (!res.ok) { setRescoreMsg(data.error ?? 'Rescore failed'); return }
+      setScores({
+        novelty_score: data.novelty_score, commercial_score: data.commercial_score,
+        filing_complexity: data.filing_complexity, composite_score: data.composite_score,
+        scored_at: data.scored_at,
+      })
+      setRescoreMsg(`✅ Scored at ${new Date(data.scored_at).toLocaleTimeString()}`)
+    } catch { setRescoreMsg('Network error') }
+    finally { setRescoring(false) }
+  }
+
+  const specText    = (patent as Patent & { spec_draft?: string | null }).spec_draft ?? ''
+  const claimsText  = patent.claims_draft ?? ''
+  const specWords   = specText.split(/\s+/).filter(Boolean).length
+  const detailMatch = specText.match(/Detailed Description[\s\S]*?(?=Abstract|Brief Description of the Drawing|$)/i)
+  const detailWords = detailMatch ? detailMatch[0].split(/\s+/).filter(Boolean).length : specWords
+  const claimCount  = (claimsText.match(/^\s*\d+\./gm) ?? []).length
+  const hasFigures  = patent.figures_uploaded
+  const hasFigDesc  = !!((patent as Patent & Record<string, unknown>).figure_descriptions)
+  const hasAbstract = !!patent.abstract_draft
+
+  const checks = [
+    { label: 'Title',       ok: !!patent.title?.trim(),   detail: patent.title?.slice(0, 50) },
+    { label: 'Abstract',    ok: hasAbstract,               detail: hasAbstract ? `${(patent.abstract_draft ?? '').split(/\s+/).length} words` : 'missing' },
+    { label: 'Spec',        ok: detailWords >= 600,        detail: `${detailWords} detail words (gate: 600+)` },
+    { label: 'Claims',      ok: claimCount >= 1,           detail: `${claimCount} claims` },
+    { label: 'Figures',     ok: !!hasFigures,              detail: hasFigures ? 'Uploaded' : hasFigDesc ? 'Desc only' : 'Missing' },
+    { label: 'Cover Sheet', ok: !!patent.cover_sheet_acknowledged, detail: patent.cover_sheet_acknowledged ? 'Generated' : 'Not generated' },
+  ]
+
+  const composite = scores?.composite_score
+  const n = scores?.novelty_score; const v = scores?.commercial_score; const c = scores?.filing_complexity
+  const sevColors: Record<string, string> = { P0: 'bg-red-100 text-red-700', P1: 'bg-amber-100 text-amber-700', P2: 'bg-gray-100 text-gray-600' }
+  const statIcons: Record<string, string> = { open: '🔴', fix_dispatched: '🔧', selector_resolved: '✅', resolved: '✅' }
+
+  // ip_readiness_score from patent record
+  const ipScore = (patent as Patent & Record<string, unknown>).ip_readiness_score as number | null
+
+  return (
+    <div className="space-y-5 py-2">
+      {/* Score summary */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="font-bold text-gray-900 text-sm">Patent Score</h2>
+            {ipScore != null && <p className="text-xs text-gray-400 mt-0.5">IP Readiness: <span className="font-semibold text-[#1a1f36]">{ipScore}/100</span></p>}
+          </div>
+          <div className="flex items-center gap-3">
+            {composite != null && (
+              <span className="text-2xl font-black text-[#1a1f36]">{composite}<span className="text-sm text-gray-400">/100</span></span>
+            )}
+            <button onClick={handleRescore} disabled={rescoring}
+              className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-semibold">
+              {rescoring ? '⏳ Scoring…' : '✨ Re-Score'}
+            </button>
+          </div>
+        </div>
+        {scores == null ? (
+          <p className="text-xs text-gray-400 italic">Score available after AI evaluation. Use Re-Score above.</p>
+        ) : (
+          <div className="space-y-2">
+            <ScoreBar label="Novelty" value={n ?? null} />
+            <ScoreBar label="Commercial Value" value={v ?? null} />
+            <ScoreBar label="Complexity" value={c ?? null} invert note="lower = easier to file" />
+            {scores.scored_at && (
+              <p className="text-[10px] text-gray-400">Last scored: {new Date(scores.scored_at).toLocaleString()}</p>
+            )}
+          </div>
+        )}
+        {rescoreMsg && <p className="text-xs mt-2 text-indigo-700">{rescoreMsg}</p>}
+      </div>
+
+      {/* Filing readiness checklist */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 className="font-bold text-gray-900 text-sm mb-3">Filing Readiness</h2>
+        <div className="space-y-1.5">
+          {checks.map(ch => (
+            <div key={ch.label} className="flex items-center gap-2 text-xs">
+              <span className="text-base">{ch.ok ? '✅' : '❌'}</span>
+              <span className="w-24 font-medium text-gray-700">{ch.label}</span>
+              <span className="text-gray-400">{ch.detail}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Observer logs */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 className="font-bold text-gray-900 text-sm mb-3">Observer Logs ({obsLogs.length})</h2>
+        {obsLogs.length === 0 ? (
+          <p className="text-xs text-gray-400 italic">No observer logs for this patent.</p>
+        ) : (
+          <div className="space-y-2">
+            {obsLogs.slice(0, 10).map(log => (
+              <div key={log.id} className="flex items-start gap-2 text-xs">
+                <span className={`px-1.5 py-0.5 rounded font-semibold shrink-0 ${sevColors[log.severity] ?? 'bg-gray-100 text-gray-600'}`}>{log.severity}</span>
+                <span className="text-gray-400 shrink-0">{statIcons[log.status] ?? '⏳'}</span>
+                <span className="text-gray-600"><span className="font-medium text-gray-700">{log.step}:</span> {log.description}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* System correspondence */}
+      <SystemCorrespondencePanel patentId={patent.id} authToken={authToken} />
+    </div>
+  )
+}
+
+function SystemCorrespondencePanel({ patentId, authToken }: { patentId: string; authToken: string }) {
+  const [items, setItems] = useState<Array<{ id: string; type: string; title: string; content: string | null; correspondence_date: string }>>([])
+  useEffect(() => {
+    import('@/lib/supabase').then(({ supabase }) => {
+      supabase
+        .from('patent_correspondence')
+        .select('id, type, title, content, correspondence_date')
+        .eq('patent_id', patentId)
+        .in('type', ['ai_improvement', 'system', 'ai_research', 'improvement'])
+        .order('correspondence_date', { ascending: false })
+        .limit(5)
+        .then(({ data }) => setItems(data ?? []))
+    })
+  }, [patentId, authToken])
+
+  if (items.length === 0) return null
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <h2 className="font-bold text-gray-900 text-sm mb-3">System Correspondence (last 5)</h2>
+      <div className="space-y-2">
+        {items.map(item => (
+          <div key={item.id} className="border border-gray-100 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-gray-700 truncate">{item.title}</span>
+              <span className="text-[10px] text-gray-400 shrink-0 ml-2">{new Date(item.correspondence_date + 'T00:00:00').toLocaleDateString()}</span>
+            </div>
+            {item.content && <p className="text-xs text-gray-500 line-clamp-2">{item.content.slice(0, 200)}</p>}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -1561,12 +1754,13 @@ export default function PatentDetail() {
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
           const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
-          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement'] as Tab[])
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement', 'admin'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
+              if (t === 'admin') return ADMIN_EMAILS.includes(userEmail)  // admin-only
               return canView(t)
             })
           return (
@@ -1612,6 +1806,7 @@ export default function PatentDetail() {
                     )}
                   </span>
                 ) : t === 'enhancement' ? '✨ Enhancement'
+                : t === 'admin' ? '⚙️ Admin'
                 : t === 'details' ? 'Overview'
                 : 'Details'
               }
@@ -3167,6 +3362,11 @@ export default function PatentDetail() {
               )
             })()}
           </div>
+        )}
+
+        {/* ── ADMIN TAB ───────────────────────────────────────────────────────── */}
+        {tab === 'admin' && ADMIN_EMAILS.includes(userEmail) && patent && authToken && (
+          <AdminTab patent={patent} authToken={authToken} userEmail={userEmail} />
         )}
 
         {/* ── ENHANCEMENT TAB ─────────────────────────────────────────────────── */}

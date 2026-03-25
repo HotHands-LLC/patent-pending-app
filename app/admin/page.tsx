@@ -781,11 +781,19 @@ export default function AdminPage() {
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                p.filing_status === 'filed' ? 'bg-green-100 text-green-700' :
-                                p.filing_status === 'approved' ? 'bg-blue-100 text-blue-700' :
-                                'bg-gray-100 text-gray-600'
-                              }`}>{p.filing_status}</span>
+                              {p.is_claw_draft ? (
+                                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                  p.claw_provisional_ready ? 'bg-green-100 text-green-700' : 'bg-violet-100 text-violet-700'
+                                }`}>
+                                  {p.claw_provisional_ready ? 'provisional_ready' : p.filing_status ?? 'draft'}
+                                </span>
+                              ) : (
+                                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                  p.filing_status === 'filed' ? 'bg-green-100 text-green-700' :
+                                  p.filing_status === 'approved' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-gray-100 text-gray-600'
+                                }`}>{p.filing_status}</span>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               {p.is_claw_draft ? (
