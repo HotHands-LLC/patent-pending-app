@@ -253,6 +253,9 @@ export default function ClawQueuePage() {
   const [loading, setLoading] = useState(true)
   const [authToken, setAuthToken] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [autoRunEnabled, setAutoRunEnabled] = useState(true)
+  const [securityGateEnabled, setSecurityGateEnabled] = useState(true)
+  const [savingSettings, setSavingSettings] = useState(false)
 
   // Modal state
   const [showAdd, setShowAdd] = useState(false)
@@ -290,6 +293,15 @@ export default function ClawQueuePage() {
 
       if (!profile?.is_admin) { router.replace('/dashboard'); return }
       fetchQueue(token)
+      // Load queue settings
+      supabase.from('app_settings').select('key, value')
+        .in('key', ['queue_auto_run_enabled', 'queue_security_gate_enabled'])
+        .then(({ data }) => {
+          for (const row of data ?? []) {
+            if (row.key === 'queue_auto_run_enabled') setAutoRunEnabled(row.value !== 'false')
+            if (row.key === 'queue_security_gate_enabled') setSecurityGateEnabled(row.value !== 'false')
+          }
+        })
     })
   }, [router])
 
@@ -355,6 +367,13 @@ export default function ClawQueuePage() {
       } else { const d = await res.json(); showToast(d.error ?? 'Save failed') }
     } catch { showToast('Network error') }
     finally { setSmartSaving(false) }
+  }
+
+  // ── Queue settings ────────────────────────────────────────────────────────
+  async function saveQueueSetting(key: string, value: boolean) {
+    setSavingSettings(true)
+    await supabase.from('app_settings').upsert({ key, value: String(value) }, { onConflict: 'key' })
+    setSavingSettings(false)
   }
 
   // ── PATCH helper ──────────────────────────────────────────────────────────
@@ -732,6 +751,39 @@ export default function ClawQueuePage() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* ── Auto-Runner Settings ────────────────────────────────────────── */}
+        <div className="mt-8 bg-white rounded-xl border border-gray-200 p-5">
+          <h2 className="text-sm font-bold text-[#1a1f36] mb-4 flex items-center gap-2">
+            ⚙️ Auto-Runner Settings
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${autoRunEnabled ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+              {autoRunEnabled ? '🟢 Active' : '⏸ Paused'}
+            </span>
+            {savingSettings && <span className="text-xs text-gray-400">Saving…</span>}
+          </h2>
+          <div className="space-y-4 max-w-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-800">Auto-Run Queue</p>
+                <p className="text-xs text-gray-500">BoClaw checks queue every ~30min and runs items automatically</p>
+              </div>
+              <button onClick={async () => { const next = !autoRunEnabled; setAutoRunEnabled(next); await saveQueueSetting('queue_auto_run_enabled', next) }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${autoRunEnabled ? 'bg-green-500' : 'bg-gray-300'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${autoRunEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-800">Pre-Run Security Gate</p>
+                <p className="text-xs text-gray-500">Check for P0 errors and site health before each queue item</p>
+              </div>
+              <button onClick={async () => { const next = !securityGateEnabled; setSecurityGateEnabled(next); await saveQueueSetting('queue_security_gate_enabled', next) }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${securityGateEnabled ? 'bg-indigo-500' : 'bg-gray-300'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${securityGateEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
