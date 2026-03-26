@@ -1,164 +1,106 @@
 'use client'
-import React, { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Navbar from '@/components/Navbar'
 import { supabase } from '@/lib/supabase'
 
-interface BlogPost {
-  id: string
-  slug: string
-  title: string
-  summary: string
-  tags: string[]
-  status: 'draft' | 'published'
-  created_by: string
-  created_at: string
-  published_at: string | null
-}
+interface Post { id: string; slug: string; title: string; status: string; published_at: string | null; word_count: number | null; category: string | null; created_at: string }
 
 export default function AdminBlogPage() {
   const router = useRouter()
-  const [posts, setPosts] = useState<BlogPost[]>([])
+  const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [authToken, setAuthToken] = useState('')
+  const [toast, setToast] = useState<string | null>(null)
 
-  const fetchPosts = useCallback(async () => {
-    setLoading(true)
-    const { data } = await supabase
-      .from('blog_posts')
-      .select('id, slug, title, summary, tags, status, created_by, created_at, published_at')
-      .order('created_at', { ascending: false })
-    setPosts(data ?? [])
-    setLoading(false)
-  }, [])
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
-  useEffect(() => { fetchPosts() }, [fetchPosts])
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) { router.push('/login'); return }
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        const token = session?.access_token ?? ''
+        setAuthToken(token)
+        fetch('/api/admin/blog', { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.json()).then(d => { setPosts(d.posts ?? []); setLoading(false) })
+      })
+    })
+  }, [router])
 
-  const togglePublish = async (post: BlogPost) => {
-    const newStatus = post.status === 'published' ? 'draft' : 'published'
-    const update: Record<string, unknown> = { status: newStatus }
-    if (newStatus === 'published' && !post.published_at) {
-      update.published_at = new Date().toISOString()
-    }
-    await supabase.from('blog_posts').update(update).eq('id', post.id)
-    fetchPosts()
+  async function setStatus(id: string, status: string) {
+    const res = await fetch('/api/admin/blog', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ id, status }),
+    })
+    if (res.ok) { setPosts(prev => prev.map(p => p.id === id ? { ...p, status } : p)); showToast(`✅ ${status}`) }
   }
 
-  const deletePost = async (id: string) => {
-    await supabase.from('blog_posts').delete().eq('id', id)
-    setDeleteConfirm(null)
-    fetchPosts()
-  }
+  const STATUS_COLORS: Record<string, string> = { draft: 'bg-gray-100 text-gray-600', published: 'bg-green-100 text-green-700', archived: 'bg-red-50 text-red-500' }
 
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  if (loading) return <div className="min-h-screen bg-gray-50"><Navbar /><div className="flex items-center justify-center h-64 text-gray-400">Loading…</div></div>
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Blog Posts</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage SEO blog content for patentpending.app</p>
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
+              <Link href="/admin" className="hover:text-[#1a1f36]">Admin</Link><span>/</span>
+              <span className="text-[#1a1f36]">Blog</span>
+            </div>
+            <h1 className="text-2xl font-bold text-[#1a1f36]">📝 Blog Management</h1>
+          </div>
+          <Link href="/blog" target="_blank" className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm hover:bg-gray-50">
+            View Blog →
+          </Link>
         </div>
-        <Link
-          href="/admin/blog/new"
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          + New Post
-        </Link>
-      </div>
 
-      {loading ? (
-        <div className="text-center py-12 text-gray-400">Loading...</div>
-      ) : posts.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">No posts yet. <Link href="/admin/blog/new" className="text-blue-600">Create one →</Link></div>
-      ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Title</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell">Tags</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600 hidden md:table-cell">Created</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
+            <thead className="border-b border-gray-100 bg-gray-50">
+              <tr className="text-xs text-gray-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left">Title</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Words</th>
+                <th className="px-4 py-3 text-left">Published</th>
+                <th className="px-4 py-3 text-left">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {posts.map((post) => (
-                <tr key={post.id} className="hover:bg-gray-50 transition-colors">
+            <tbody className="divide-y divide-gray-50">
+              {posts.map(p => (
+                <tr key={p.id} className="hover:bg-gray-50/50">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900 truncate max-w-xs">{post.title}</div>
-                    {post.created_by === 'claw' && (
-                      <span className="inline-flex items-center text-xs text-purple-600 mt-0.5">🦞 Generated by Claw</span>
-                    )}
+                    <div className="font-medium text-[#1a1f36] max-w-xs truncate">{p.title}</div>
+                    <div className="text-xs text-gray-400 font-mono">/blog/{p.slug}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                      post.status === 'published'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-yellow-100 text-yellow-700'
-                    }`}>
-                      {post.status}
-                    </span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLORS[p.status] ?? 'bg-gray-100 text-gray-600'}`}>{p.status}</span>
                   </td>
-                  <td className="px-4 py-3 hidden md:table-cell">
-                    <div className="flex flex-wrap gap-1">
-                      {post.tags?.slice(0, 3).map((tag) => (
-                        <span key={tag} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">{tag}</span>
-                      ))}
-                      {post.tags?.length > 3 && <span className="text-xs text-gray-400">+{post.tags.length - 3}</span>}
-                    </div>
+                  <td className="px-4 py-3 text-xs text-gray-500">{p.word_count?.toLocaleString() ?? '—'}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500">
+                    {p.published_at ? new Date(p.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                   </td>
-                  <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{formatDate(post.created_at)}</td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => router.push(`/admin/blog/${post.id}/edit`)}
-                        className="text-blue-600 hover:text-blue-700 text-xs font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => togglePublish(post)}
-                        className={`text-xs font-medium px-2 py-1 rounded transition-colors ${
-                          post.status === 'published'
-                            ? 'text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50'
-                            : 'text-green-600 hover:text-green-700 hover:bg-green-50'
-                        }`}
-                      >
-                        {post.status === 'published' ? 'Unpublish' : 'Publish'}
-                      </button>
-                      {deleteConfirm === post.id ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => deletePost(post.id)}
-                            className="text-xs font-medium px-2 py-1 rounded bg-red-100 text-red-700 hover:bg-red-200"
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm(null)}
-                            className="text-xs text-gray-500 hover:text-gray-700"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteConfirm(post.id)}
-                          className="text-red-600 hover:text-red-700 text-xs font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      )}
+                    <div className="flex gap-2">
+                      {p.status === 'draft' && <button onClick={() => setStatus(p.id, 'published')} className="text-xs px-2.5 py-1 bg-green-600 text-white rounded hover:bg-green-700">Publish</button>}
+                      {p.status === 'published' && <button onClick={() => setStatus(p.id, 'draft')} className="text-xs px-2.5 py-1 border border-gray-200 text-gray-600 rounded hover:bg-gray-50">Unpublish</button>}
+                      {p.status !== 'archived' && <button onClick={() => setStatus(p.id, 'archived')} className="text-xs text-gray-300 hover:text-red-400 px-1.5">✕</button>}
+                      <a href={`/blog/${p.slug}`} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:underline px-1">Preview</a>
                     </div>
                   </td>
                 </tr>
               ))}
+              {posts.length === 0 && (
+                <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">No posts yet. The blog writer cron publishes automatically Tue + Fri at 6AM CT.</td></tr>
+              )}
             </tbody>
           </table>
         </div>
-      )}
+      </div>
+      {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#1a1f36] text-white px-4 py-2.5 rounded-lg text-sm font-semibold shadow-lg z-50">{toast}</div>}
     </div>
   )
 }

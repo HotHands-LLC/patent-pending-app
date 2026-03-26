@@ -27,6 +27,7 @@ const CRON_IDS: Record<string, string> = {
   'ux-audit-nightly':       '2cb14617-5c9c-443f-8123-2b36deeb66b5',
   'pattie-monitor-nightly': '86c8cb71-8dc7-4d3d-a1be-a09faba2df76',
   'daily-briefing':         'c0ffee01-d41b-4b16-9a3c-bb8e1f2d3a4e',
+  'claw-blog-writer':       '228bd93f-31a2-4ef3-83cd-0817715ae674',
 }
 
 /** POST /api/admin/crons/trigger — manually trigger a cron */

@@ -1,119 +1,98 @@
-import { createClient } from '@supabase/supabase-js'
-import Link from 'next/link'
 import type { Metadata } from 'next'
+import Link from 'next/link'
+import { createClient } from '@supabase/supabase-js'
 import { notFound } from 'next/navigation'
-import BlogPostClient from './BlogPostClient'
 
-const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
-)
+interface Props { params: Promise<{ slug: string }> }
 
-interface Props {
-  params: Promise<{ slug: string }>
+function getSvc() {
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.SUPABASE_SERVICE_ROLE_KEY ?? '')
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
-  const { data: post } = await supabaseService
-    .from('blog_posts')
-    .select('title, summary, seo_title, seo_description, slug')
-    .eq('slug', slug)
-    .eq('status', 'published')
-    .single()
-
-  if (!post) return { title: 'Post Not Found' }
-
-  const title = post.seo_title || post.title
-  const description = post.seo_description || post.summary
-  const url = `https://patentpending.app/blog/${post.slug}`
-
+  const { data } = await getSvc().from('blog_posts').select('title, seo_title, seo_description, excerpt, published_at').eq('slug', slug).eq('status', 'published').single()
+  if (!data) return { title: 'Not found' }
   return {
-    title,
-    description,
-    openGraph: {
-      title,
-      description,
-      url,
-      type: 'article',
-    },
-    twitter: {
-      card: 'summary',
-      title,
-      description,
-    },
+    title: data.seo_title ?? `${data.title} | patentpending.app`,
+    description: data.seo_description ?? data.excerpt ?? '',
+    openGraph: { title: data.seo_title ?? data.title, description: data.seo_description ?? data.excerpt ?? '', type: 'article', publishedTime: data.published_at ?? undefined },
   }
-}
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric'
-  })
 }
 
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params
-  const { data: post } = await supabaseService
-    .from('blog_posts')
-    .select('*')
-    .eq('slug', slug)
-    .eq('status', 'published')
-    .single()
-
+  const { data: post } = await getSvc().from('blog_posts').select('*').eq('slug', slug).eq('status', 'published').single()
   if (!post) notFound()
+
+  const { data: related } = await getSvc().from('blog_posts')
+    .select('slug, title, published_at, read_time_minutes').eq('status', 'published')
+    .eq('category', post.category).neq('slug', slug).order('published_at', { ascending: false }).limit(3)
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-[#1a1f36] text-white">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="font-bold text-lg">⚖️ PatentPending</Link>
-        </div>
-      </div>
+      <nav className="border-b border-gray-200 bg-white px-6 py-4 flex items-center gap-4">
+        <Link href="/" className="text-lg font-bold text-[#1a1f36]">⚖️ PatentPending</Link>
+        <Link href="/blog" className="text-sm text-gray-500 hover:text-indigo-600">← Blog</Link>
+      </nav>
 
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
-        {/* Back link */}
-        <Link href="/blog" className="inline-flex items-center text-sm text-blue-600 hover:text-blue-700 mb-8">
-          ← Back to Blog
-        </Link>
-
-        {/* Post header */}
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4 leading-tight">{post.title}</h1>
-          <div className="flex flex-wrap items-center gap-3">
-            {post.published_at && (
-              <span className="text-sm text-gray-500">{formatDate(post.published_at)}</span>
-            )}
-            {post.tags?.map((tag: string) => (
-              <span key={tag} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                {tag}
-              </span>
-            ))}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12 grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Main content */}
+        <article className="lg:col-span-2">
+          <div className="mb-6">
+            <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-medium capitalize mr-2">
+              {post.category?.replace(/-/g, ' ')}
+            </span>
+            {post.read_time_minutes && <span className="text-xs text-gray-400">{post.read_time_minutes} min read</span>}
           </div>
-        </header>
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#1a1f36] mb-3 leading-tight">{post.title}</h1>
+          <p className="text-sm text-gray-400 mb-8">
+            {post.published_at ? new Date(post.published_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : ''}
+            {post.word_count ? ` · ${post.word_count.toLocaleString()} words` : ''}
+          </p>
 
-        {/* Post body — rendered client-side for react-markdown */}
-        <div className="bg-white rounded-xl border border-gray-200 p-8">
-          <BlogPostClient bodyMd={post.body_md} />
-        </div>
+          {post.body_html ? (
+            <div className="prose prose-sm sm:prose prose-headings:text-[#1a1f36] prose-a:text-indigo-600 max-w-none"
+              dangerouslySetInnerHTML={{ __html: post.body_html }} />
+          ) : (
+            <div className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed">{post.body_md}</div>
+          )}
 
-        {/* CTA */}
-        <div className="mt-10 bg-blue-50 border border-blue-200 rounded-xl p-6 text-center">
-          <p className="text-gray-700 mb-3">Want to file your own patent?</p>
-          <Link
-            href="/"
-            className="inline-flex items-center px-5 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Try patentpending.app →
-          </Link>
-        </div>
-      </div>
+          {/* Schema.org Article */}
+          <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
+            '@context': 'https://schema.org', '@type': 'Article',
+            headline: post.title, datePublished: post.published_at,
+            publisher: { '@type': 'Organization', name: 'patentpending.app', url: 'https://patentpending.app' },
+          }) }} />
+        </article>
 
-      {/* Footer */}
-      <div className="border-t border-gray-200 mt-16">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 text-center text-xs text-gray-400">
-          © {new Date().getFullYear()} PatentPending · <Link href="/" className="hover:text-gray-600">Home</Link> · <Link href="/blog" className="hover:text-gray-600">Blog</Link>
-        </div>
+        {/* Sidebar */}
+        <aside className="space-y-6">
+          <div className="bg-indigo-600 rounded-xl p-5 text-white">
+            <p className="font-bold text-sm mb-2">Filing your own patent?</p>
+            <p className="text-xs text-indigo-200 mb-4 leading-relaxed">patentpending.app handles the hard part — claims drafting, spec generation, filing checklist — for a fraction of attorney fees.</p>
+            <Link href="/signup" className="block text-center px-4 py-2.5 bg-white text-indigo-700 rounded-lg text-sm font-bold hover:bg-indigo-50 transition-colors">
+              Start for Free →
+            </Link>
+          </div>
+
+          {(related ?? []).length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="font-bold text-sm text-[#1a1f36] mb-3">Related Posts</h3>
+              <div className="space-y-3">
+                {(related ?? []).map(r => (
+                  <Link key={r.slug} href={`/blog/${r.slug}`} className="block hover:text-indigo-600">
+                    <p className="text-sm font-medium text-[#1a1f36] hover:text-indigo-600 leading-snug">{r.title}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {r.published_at ? new Date(r.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                      {r.read_time_minutes ? ` · ${r.read_time_minutes} min` : ''}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
       </div>
     </div>
   )
