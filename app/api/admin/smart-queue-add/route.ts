@@ -12,10 +12,23 @@ function getUserClient(token: string) {
     { global: { headers: { Authorization: `Bearer ${token}` } } })
 }
 
-/**
- * POST /api/admin/smart-queue-add
- * Analyze raw text/prompt with Claude and return structured queue item.
- */
+/** Safely extract text from Gemini or Claude response */
+function extractLLMText(data: unknown): string {
+  if (!data || typeof data !== 'object') return ''
+  const d = data as Record<string, unknown>
+  // Gemini shape
+  const candidates = d.candidates as Array<Record<string, unknown>> | undefined
+  if (candidates?.[0]) {
+    const content = candidates[0].content as Record<string, unknown> | undefined
+    const parts = content?.parts as Array<Record<string, unknown>> | undefined
+    if (parts?.[0]?.text) return String(parts[0].text)
+  }
+  // Claude shape
+  const content = d.content as Array<Record<string, unknown>> | undefined
+  if (content?.[0]?.text) return String(content[0].text)
+  return ''
+}
+
 export async function POST(req: NextRequest) {
   const token = req.headers.get('authorization')?.slice(7) ?? null
   if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -30,19 +43,39 @@ export async function POST(req: NextRequest) {
 
   const founderCtx = await getPattieContext('pp.app').catch(() => '')
 
-  const prompt = `You are analyzing a prompt or task that Chad wants to add to the PatentClaw build queue.
+  // If input is already a well-formed prompt (has ## headers), preserve it entirely as prompt_body
+  // and only ask Gemini for metadata (label, priority, reasoning)
+  const isWellFormedPrompt = input.includes('## ') || input.includes('# ')
+  
+  const prompt = isWellFormedPrompt
+    ? `Analyze this queue prompt and return ONLY a JSON object with metadata. Do NOT rewrite the prompt_body — use the input exactly as-is.
+
+Current queue: ${queue_context || 'empty'}
+
+Return this JSON:
+{
+  "label": "short title max 60 chars",
+  "priority": 5,
+  "urgency": "p1",
+  "reasoning": "one sentence",
+  "prompt_body": ${JSON.stringify(input.slice(0, 6000))}
+}
+
+INPUT:
+${input.slice(0, 1000)}`
+    : `You are analyzing a task for the PatentClaw build queue.
 ${founderCtx ? `\n${founderCtx}\n` : ''}
 Current queue: ${queue_context || 'empty'}
 
-Analyze the following input and return a JSON object:
-- label: Short descriptive title (max 60 chars, format like "XX — Description")
-- priority: Suggested priority integer. P0=critical/crash, P1=important feature, P2=enhancement, P3=nice-to-have. Don't duplicate existing priorities shown above.
+Return a JSON object:
+- label: Short title (max 60 chars, format "XX — Description")
+- priority: integer (P0=critical, P1=important, P2=enhancement, P3=nice-to-have)
 - urgency: "p0" | "p1" | "p2" | "p3"
-- reasoning: One sentence explaining your priority recommendation
-- prompt_body: The cleaned, formatted prompt body ready to send to Claw. If the input is already a well-formed prompt with headers, return it as-is. If it's a rough idea or plain English, expand it into a proper Claw prompt with ## Context, ## What to Build, and ## Acceptance Criteria sections.
+- reasoning: One sentence
+- prompt_body: Cleaned prompt with ## Context, ## What to Build, ## Acceptance Criteria
 
 INPUT:
-${input.slice(0, 8000)}`
+${input.slice(0, 6000)}`
 
   const geminiKey = process.env.GEMINI_API_KEY
   if (!geminiKey) return NextResponse.json({ error: 'GEMINI_API_KEY not set' }, { status: 500 })
@@ -54,7 +87,8 @@ ${input.slice(0, 8000)}`
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 4096, temperature: 0.2, responseMimeType: 'application/json' },
+        generationConfig: { maxOutputTokens: 8192, temperature: 0.2 },
+        // Note: NOT using responseMimeType to avoid JSON truncation on large prompts
       }),
     }
   )
@@ -65,16 +99,39 @@ ${input.slice(0, 8000)}`
   }
 
   const data = await res.json()
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  const raw = extractLLMText(data)
 
-  // Parse JSON from response
+  // Guard: ensure we got something
+  if (!raw || raw.trim().length < 10) {
+    return NextResponse.json({
+      error: 'Analysis returned empty response — check Gemini API and response parsing',
+      raw_response: JSON.stringify(data).slice(0, 300),
+    }, { status: 500 })
+  }
+
+  // Parse JSON from response (strip markdown fences if present)
   try {
     const cleaned = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim()
     const start = cleaned.indexOf('{')
     const end = cleaned.lastIndexOf('}')
-    const parsed = JSON.parse(cleaned.slice(start, end + 1))
+    if (start === -1) throw new Error('No JSON found in response')
+    const parsed = JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>
+    
+    // Guard: ensure prompt_body is populated
+    if (!parsed.prompt_body || String(parsed.prompt_body).trim().length < 5) {
+      // Fallback: use the input directly as prompt_body
+      parsed.prompt_body = input
+    }
+    
     return NextResponse.json(parsed)
   } catch {
-    return NextResponse.json({ error: 'Failed to parse Claude response', raw: raw.slice(0, 300) }, { status: 500 })
+    // Fallback: return structured response with raw input as body
+    return NextResponse.json({
+      label: input.split('\n')[0].slice(0, 60).replace(/^#+\s*/, ''),
+      priority: 5,
+      urgency: 'p1',
+      reasoning: 'Auto-extracted — Gemini parse failed, using input as-is',
+      prompt_body: input,
+    })
   }
 }
