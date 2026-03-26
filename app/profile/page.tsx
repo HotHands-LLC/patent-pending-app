@@ -524,6 +524,11 @@ export default function ProfilePage() {
         </section>
       </div>
 
+      {/* ── Section D2: Entity Status ─────────────────────────────────────────── */}
+      <div className="max-w-3xl mx-auto px-4 pb-4">
+        <EntityStatusSection profile={profile} authToken={authToken ?? ''} onUpdate={p => setProfile(p)} />
+      </div>
+
       {/* ── Section E: Patent Professional / Attorney Mode ──────────────────── */}
       <div className="max-w-3xl mx-auto px-4 pb-4">
         <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -709,5 +714,63 @@ function AttorneySetupForm({ authToken, onComplete }: { authToken: string; onCom
         </button>
       </div>
     </form>
+  )
+}
+
+// ── EntityStatusSection ────────────────────────────────────────────────────────
+function EntityStatusSection({ profile, authToken, onUpdate }: {
+  profile: Profile; authToken: string; onUpdate: (p: Profile) => void
+}) {
+  const entityStatus = (profile as unknown as Record<string,string>).entity_status ?? "small"
+  const [selected, setSelected] = React.useState(entityStatus)
+  const [saving, setSaving] = React.useState(false)
+  const [saved, setSaved] = React.useState(false)
+
+  const OPTIONS = [
+    { id: 'micro', label: 'Micro Entity', desc: 'Income < ~$239K, ≤ 4 prior NPs, no large-entity obligation', fee: '$320 basic filing' },
+    { id: 'small', label: 'Small Entity', desc: 'Individual inventor or small business < 500 employees', fee: '$720 basic filing' },
+    { id: 'large', label: 'Large Entity', desc: 'Corporation > 500 employees', fee: '$1,440 basic filing' },
+  ]
+
+  async function save() {
+    setSaving(true)
+    await fetch('/api/users/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ entity_status: selected }),
+    }).catch(() => {})
+    setSaving(false); setSaved(true)
+    setTimeout(() => setSaved(false), 2500)
+    onUpdate({ ...profile, entity_status: selected } as unknown as Profile)
+  }
+
+  return (
+    <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+        <h2 className="text-sm font-bold text-[#1a1f36] uppercase tracking-wider">USPTO Entity Status</h2>
+        <p className="text-xs text-gray-500 mt-0.5">Affects filing fees on all patents. Hot Hands IP LLC = Small Entity.</p>
+      </div>
+      <div className="px-6 py-5 space-y-3">
+        {OPTIONS.map(opt => (
+          <label key={opt.id} className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${selected === opt.id ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'}`}>
+            <input type="radio" name="entity_status" value={opt.id} checked={selected === opt.id} onChange={() => setSelected(opt.id)} className="mt-0.5 accent-indigo-600" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-[#1a1f36]">{opt.label}</p>
+              <p className="text-xs text-gray-500">{opt.desc}</p>
+            </div>
+            <span className="text-xs font-mono text-gray-400 shrink-0 mt-0.5">{opt.fee}</span>
+          </label>
+        ))}
+        <div className="flex items-center gap-3 pt-1">
+          <button onClick={save} disabled={saving || selected === entityStatus}
+            className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-50">
+            {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Entity Status'}
+          </button>
+          {selected === 'micro' && (
+            <p className="text-xs text-amber-600">⚠️ Micro Entity is risky if you have LLC/commercial obligations. Confirm with a patent attorney before filing.</p>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }

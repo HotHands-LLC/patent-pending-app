@@ -103,7 +103,7 @@ export default function PatentsPage() {
                     return (
                       <tr key={p.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4">
-                          <div className="font-medium text-[#1a1f36] text-sm">{p.title}</div>
+                          <div className="font-medium text-[#1a1f36] text-sm">{(p as Record<string,unknown>).display_name as string ?? p.title}</div>
                           <div className="text-xs text-gray-400 mt-0.5">{p.provisional_number || p.application_number || '—'}</div>
                         </td>
                         <td className="px-6 py-4">
@@ -146,7 +146,7 @@ export default function PatentsPage() {
                     className="block bg-white rounded-xl border border-gray-200 p-4 hover:border-[#1a1f36]/30 transition-colors">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-[#1a1f36] text-sm leading-snug">{p.title}</div>
+                        <div className="font-semibold text-[#1a1f36] text-sm leading-snug">{(p as Record<string,unknown>).display_name as string ?? p.title}</div>
                         <div className="text-xs text-gray-400 mt-0.5">{p.provisional_number || p.application_number || 'No app #'}</div>
                       </div>
                       <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(p)}`}>
