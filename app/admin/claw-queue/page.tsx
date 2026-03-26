@@ -261,6 +261,8 @@ export default function ClawQueuePage() {
   const [autoRunEnabled, setAutoRunEnabled] = useState(true)
   const [securityGateEnabled, setSecurityGateEnabled] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
+  const [nextCheckSecs, setNextCheckSecs] = useState(1800) // 30 min default
+  const countdownRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Modal state
   const [showAdd, setShowAdd] = useState(false)
@@ -343,6 +345,16 @@ export default function ClawQueuePage() {
     }
     return () => { if (elapsedRef.current) clearInterval(elapsedRef.current) }
   }, [items])
+
+  // Next auto-run countdown (counts down from 1800s, resets when page loads)
+  useEffect(() => {
+    if (!autoRunEnabled) { setNextCheckSecs(0); return }
+    setNextCheckSecs(1800)
+    countdownRef.current = setInterval(() => {
+      setNextCheckSecs(s => s <= 1 ? 1800 : s - 1)
+    }, 1000)
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current) }
+  }, [autoRunEnabled])
 
   // Poll activity every 10s when there's an in-progress item
   useEffect(() => {
@@ -1141,6 +1153,17 @@ export default function ClawQueuePage() {
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${securityGateEnabled ? 'bg-indigo-500' : 'bg-gray-300'}`}>
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${securityGateEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
+            </div>
+            {/* Status + countdown */}
+            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+              <span className={`font-semibold ${autoRunEnabled ? 'text-green-600' : 'text-amber-600'}`}>
+                {autoRunEnabled ? '🟢 Running' : '⏸ Paused'}
+              </span>
+              {autoRunEnabled && nextCheckSecs > 0 && (
+                <span className="text-gray-400">
+                  next check in {Math.floor(nextCheckSecs / 60)}m {nextCheckSecs % 60}s
+                </span>
+              )}
             </div>
           </div>
         </div>
