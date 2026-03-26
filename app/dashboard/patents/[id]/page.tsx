@@ -2137,19 +2137,41 @@ export default function PatentDetail() {
           )}
         </div>
 
-        {/* Deadline Alert — suppressed for granted patents (no prosecution deadline) */}
-        {!isGranted && days !== null && days <= 48 && (
-          <div className={`mb-5 p-4 rounded-xl border flex items-start gap-3 ${days <= 30 ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200'}`}>
-            <span className="text-xl flex-shrink-0">{days <= 30 ? '🚨' : '⚠️'}</span>
-            <div>
-              <div className={`font-semibold text-sm ${days <= 30 ? 'text-red-800' : 'text-yellow-800'}`}>
-                {days <= 0 ? 'DEADLINE OVERDUE' : `${deadlineLabel} in ${days} days`}
+        {/* Deadline Alert — escalating urgency system */}
+        {!isGranted && days !== null && days <= 60 && (
+          (() => {
+            const tier = days <= 0 ? 'overdue' : days < 7 ? 'critical' : days < 14 ? 'urgent' : days < 30 ? 'warning' : 'notice'
+            const styles: Record<string, { bg: string; border: string; text: string; sub: string; icon: string; pulse: boolean }> = {
+              overdue:  { bg: 'bg-red-600',    border: 'border-red-700',  text: 'text-white',          sub: 'text-red-100',   icon: '⛔',  pulse: true },
+              critical: { bg: 'bg-red-50',     border: 'border-red-400',  text: 'text-red-900',        sub: 'text-red-600',   icon: '🚨',  pulse: true },
+              urgent:   { bg: 'bg-orange-50',  border: 'border-orange-400',text: 'text-orange-900',    sub: 'text-orange-700',icon: '🔴',  pulse: false },
+              warning:  { bg: 'bg-yellow-50',  border: 'border-yellow-400',text: 'text-yellow-900',    sub: 'text-yellow-700',icon: '⚠️',  pulse: false },
+              notice:   { bg: 'bg-blue-50',    border: 'border-blue-200', text: 'text-blue-900',       sub: 'text-blue-600',  icon: 'ℹ️',  pulse: false },
+            }
+            const s = styles[tier]
+            const msg = days <= 0 ? `⛔ DEADLINE OVERDUE — file immediately or patent rights are lost`
+              : days < 7 ? `🚨 ${days} DAY${days !== 1 ? 'S' : ''} — FILE NOW OR LOSE YOUR PATENT`
+              : days < 14 ? `🔴 ${days} days — urgent action required`
+              : days < 30 ? `⚠️ ${days} days to file ${deadlineLabel.toLowerCase()}`
+              : `ℹ️ ${deadlineLabel} in ${days} days`
+            return (
+              <div className={`mb-5 p-4 rounded-xl border ${s.bg} ${s.border} flex items-start gap-3 ${s.pulse ? 'animate-pulse' : ''}`}>
+                <span className="text-xl flex-shrink-0">{s.icon}</span>
+                <div className="flex-1">
+                  <div className={`font-bold text-sm ${s.text}`}>{msg}</div>
+                  <div className={`text-xs mt-0.5 ${s.sub}`}>
+                    Due: {new Date(deadline! + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </div>
+                </div>
+                {days > 0 && days < 30 && (
+                  <button onClick={() => setTab('filing')}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-semibold shrink-0 ${tier === 'critical' ? 'bg-red-700 text-white hover:bg-red-800' : 'bg-white/80 text-gray-900 hover:bg-white border border-current'}`}>
+                    Filing Checklist →
+                  </button>
+                )}
               </div>
-              <div className={`text-xs mt-0.5 ${days <= 30 ? 'text-red-600' : 'text-yellow-600'}`}>
-                Due: {new Date(deadline! + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-              </div>
-            </div>
-          </div>
+            )
+          })()
         )}
 
         {/* 🔒 Locked banner — everyone sees this when is_locked=true */}
