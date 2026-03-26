@@ -141,10 +141,28 @@ async function recordSession(
           last_activity_at: new Date().toISOString(),
         })
     }
+    // Log demo_events entry
+    const msgCount = existing ? (existing.message_count ?? 0) + 1 : 1
+    const eventType = msgCount === 1 ? 'demo_start' : 'demo_message'
+    await supabaseService.from('demo_events').insert({
+      session_id: sessionId,
+      event_type: eventType,
+      intent_category: intent,
+      message_count: msgCount,
+    })
   } catch (err) {
     // Analytics failure is non-fatal — never block the response
     console.warn('[pattie/demo] session log failed (non-fatal):', err)
   }
+}
+
+/** Log a specific demo event (gate_shown, gate_signup_click, rate_limit_hit) */
+async function logDemoEvent(sessionId: string, eventType: string, metadata?: Record<string, unknown>) {
+  try {
+    await supabaseService.from('demo_events').insert({
+      session_id: sessionId, event_type: eventType, metadata: metadata ?? null,
+    })
+  } catch { /* non-blocking */ }
 }
 
 // ── System prompt ─────────────────────────────────────────────────────────────
