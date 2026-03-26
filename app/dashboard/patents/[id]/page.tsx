@@ -324,6 +324,82 @@ function AbstractField({
   )
 }
 
+// ── ScoreCard Share Section ───────────────────────────────────────────────────
+function ScoreCardShareSection({
+  patent, authToken, canWrite, onUpdate,
+}: {
+  patent: Patent; authToken: string; canWrite: boolean
+  onUpdate: (fields: Partial<Record<string, unknown>>) => void
+}) {
+  const enabled = !!((patent as Patent & Record<string,unknown>).score_card_enabled)
+  const slug = (patent as Patent & Record<string,unknown>).public_slug as string | null
+  const [toggling, setToggling] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  function makeSlug(title: string) {
+    return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
+  }
+
+  async function toggle() {
+    if (!canWrite) return
+    setToggling(true)
+    const newEnabled = !enabled
+    const newSlug = (!enabled && !slug) ? makeSlug(patent.title) : slug
+    const res = await fetch(`/api/patents/${patent.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ score_card_enabled: newEnabled, public_slug: newSlug }),
+    })
+    if (res.ok) onUpdate({ score_card_enabled: newEnabled, public_slug: newSlug })
+    setToggling(false)
+  }
+
+  const shareUrl = slug ? `https://patentpending.app/p/${slug}` : null
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mt-4">
+      <div className={`px-5 py-3 border-b border-gray-100 flex items-center justify-between ${enabled ? 'bg-indigo-50' : 'bg-gray-50'}`}>
+        <div className="flex items-center gap-2">
+          <span>🌐</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Share PatentScore™</span>
+          {enabled && <span className="text-xs text-indigo-600 font-semibold">✅ Public</span>}
+        </div>
+        {canWrite && (
+          <button onClick={toggle} disabled={toggling}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${enabled ? 'bg-indigo-500' : 'bg-gray-200'} disabled:opacity-50`}>
+            <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+          </button>
+        )}
+      </div>
+      <div className="px-5 py-4">
+        {enabled && shareUrl ? (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500">Your public score card is live:</p>
+            <div className="flex items-center gap-2">
+              <a href={shareUrl} target="_blank" rel="noopener noreferrer"
+                className="text-xs font-mono text-indigo-600 hover:underline truncate flex-1">{shareUrl}</a>
+              <button onClick={async () => {
+                await navigator.clipboard.writeText(shareUrl)
+                setCopied(true); setTimeout(() => setCopied(false), 2000)
+              }} className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 shrink-0">
+                {copied ? '✓' : '📋 Copy'}
+              </button>
+              <a href={shareUrl} target="_blank" rel="noopener noreferrer"
+                className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shrink-0 font-semibold">
+                Preview →
+              </a>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400">
+            Enable to get a public shareable URL for your patent's score. No claims or spec are shown — just the score.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Marketplace Settings Card ─────────────────────────────────────────────────
 function MarketplaceSettingsCard({
   patent,
@@ -3738,6 +3814,12 @@ export default function PatentDetail() {
         )}
 
         {/* Save/cancel when editing details */}
+        {/* ── SCORECARD SHARE (Overview tab, owner only) ───────────────────────── */}
+        {tab === 'details' && !isCollaborator && (
+          <ScoreCardShareSection patent={patent} authToken={authToken} canWrite={canWrite}
+            onUpdate={fields => setPatent(prev => prev ? { ...prev, ...fields } : null)} />
+        )}
+
         {/* ── MARKETPLACE SETTINGS (Overview tab, owner only) ─────────────────── */}
         {tab === 'details' && !isCollaborator && (
           <MarketplaceSettingsCard

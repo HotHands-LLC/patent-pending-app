@@ -39,6 +39,8 @@ const ALLOWED_UPDATE_FIELDS = [
   'youtube_embed_url',       // text — YouTube embed for deal page video
   'ip_readiness_score',      // integer 0-100 — computed readiness
   'is_locked',               // patent lock — read-only for everyone when true
+  'score_card_enabled',      // public PatentScore share toggle
+  'public_slug',             // public URL slug for score card
   'entity_status',           // micro | small | large — persisted from cover sheet
   'claims_draft',            // allow Pattie suggest_field_update to PATCH this
   'background',              // spec section
