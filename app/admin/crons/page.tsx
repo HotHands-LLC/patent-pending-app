@@ -16,6 +16,7 @@ const CRONS = [
   { name: 'pattie-monitor-nightly', label: 'Pattie Monitor',             schedule: 'Daily 10AM CT',    agent: 'monitor-claw' },
   { name: 'daily-briefing',         label: 'Daily Briefing',             schedule: 'Daily 8AM CT',     agent: 'monitor-claw' },
   { name: 'claw-blog-writer',       label: 'SEO Blog Writer',            schedule: 'Tue + Fri 6AM CT', agent: 'monitor-claw' },
+  { name: 'claw-community-radar',   label: 'Community Radar',            schedule: 'Every 4 hours',    agent: 'monitor-claw' },
 ]
 
 // ── Types ─────────────────────────────────────────────────────────────────────

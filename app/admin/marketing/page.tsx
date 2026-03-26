@@ -99,6 +99,13 @@ export default function MarketingPage() {
   const [postingId, setPostingId] = useState<string | null>(null)
   const [rewritingId, setRewritingId] = useState<string | null>(null)
   const [hashtagLoadingId, setHashtagLoadingId] = useState<string | null>(null)
+  const [radarLeads, setRadarLeads] = useState<Array<{
+    id: string; source: string; post_url: string; post_title: string; post_body: string | null;
+    author: string | null; score: number; reason: string | null; reply_angle: string | null;
+    urgency: string | null; draft_reply: string | null; status: string; found_at: string
+  }>>([])
+  const [radarFilter, setRadarFilter] = useState<'all'|'high'|'medium'|'replied'|'dismissed'>('all')
+  const [generatingReply, setGeneratingReplyFor] = useState<string | null>(null)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -114,6 +121,11 @@ export default function MarketingPage() {
       setIdeas(d.ideas ?? [])
       // Check event-driven suggestions
       fetchEventSuggestions(token)
+      // Load radar leads
+      supabase.from('community_radar_leads')
+        .select('id,source,post_url,post_title,post_body,author,score,reason,reply_angle,urgency,draft_reply,status,found_at')
+        .order('score', { ascending: false }).order('found_at', { ascending: false }).limit(50)
+        .then(({ data }) => { if (data) setRadarLeads(data) })
       // Load connected platforms
       fetch(`/api/marketing/connections?brand=${encodeURIComponent(brand)}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -581,6 +593,117 @@ export default function MarketingPage() {
             <Link href="/admin" className="text-indigo-600 hover:underline">View in Mission Control →</Link>
           </p>
         </div>
+      </div>
+
+      {/* ── Community Radar ─────────────────────────────────────────────────── */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-bold text-[#1a1f36]">📡 Community Radar</h2>
+          <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg text-xs">
+            {(['all','high','medium','replied','dismissed'] as const).map(f => (
+              <button key={f} onClick={() => setRadarFilter(f)}
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors ${radarFilter===f?'bg-white text-[#1a1f36] shadow-sm':'text-gray-500'}`}>
+                {f==='high'?'🔴 High (80+)':f==='medium'?'🟡 Medium':f==='replied'?'✅ Replied':f==='dismissed'?'🚫 Dismissed':'All'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-2.5 mb-4 flex items-center gap-4 text-xs text-gray-500">
+          <span>Last scan: {radarLeads[0] ? new Date(radarLeads[0].found_at).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}) : '—'}</span>
+          <span>·</span>
+          <span>{radarLeads.filter(l=>l.status==='new').length} new</span>
+          <span>·</span>
+          <span>{radarLeads.filter(l=>l.score>=80).length} high-value</span>
+          <span>·</span>
+          <span>{radarLeads.filter(l=>l.status==='replied').length} replied</span>
+        </div>
+
+        {radarLeads.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+            <p className="text-sm text-gray-400">No radar leads yet. The Community Radar cron runs every 4 hours.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {radarLeads
+              .filter(l => {
+                if (radarFilter==='high') return l.score>=80 && l.status!=='dismissed'
+                if (radarFilter==='medium') return l.score>=60 && l.score<80 && l.status!=='dismissed'
+                if (radarFilter==='replied') return l.status==='replied'
+                if (radarFilter==='dismissed') return l.status==='dismissed'
+                return l.status!=='dismissed'
+              })
+              .map(lead => (
+                <div key={lead.id} className={`bg-white rounded-xl border p-4 ${lead.score>=80?'border-red-100':'border-gray-200'}`}>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${lead.source==='reddit'?'bg-orange-100 text-orange-700':'bg-amber-100 text-amber-700'}`}>
+                          {lead.source==='reddit'?'🔴 Reddit':'⚡ HN'}
+                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${lead.score>=80?'bg-red-100 text-red-700':'bg-yellow-100 text-yellow-700'}`}>
+                          {lead.score}/100
+                        </span>
+                        {lead.urgency && <span className="text-xs text-gray-400 capitalize">{lead.urgency}</span>}
+                        {lead.status==='replied' && <span className="text-xs text-green-600 font-semibold">✅ Replied</span>}
+                      </div>
+                      <a href={lead.post_url} target="_blank" rel="noopener noreferrer"
+                        className="text-sm font-semibold text-[#1a1f36] hover:text-indigo-600 line-clamp-2">{lead.post_title}</a>
+                      {lead.reason && <p className="text-xs text-gray-500 mt-1">{lead.reason}</p>}
+                      {lead.reply_angle && <p className="text-xs text-indigo-600 mt-0.5 italic">💡 {lead.reply_angle}</p>}
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      {lead.status==='new' && (
+                        <button onClick={async () => {
+                          await supabase.from('community_radar_leads').update({status:'replied',replied_at:new Date().toISOString()}).eq('id',lead.id)
+                          setRadarLeads(prev=>prev.map(l=>l.id===lead.id?{...l,status:'replied'}:l))
+                          showToast('✅ Marked replied')
+                        }} className="text-xs px-2.5 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 whitespace-nowrap">✅ Replied</button>
+                      )}
+                      <button onClick={async () => {
+                        await supabase.from('community_radar_leads').update({status:'dismissed'}).eq('id',lead.id)
+                        setRadarLeads(prev=>prev.map(l=>l.id===lead.id?{...l,status:'dismissed'}:l))
+                      }} className="text-xs text-gray-300 hover:text-red-400 px-1.5 text-center">🚫</button>
+                    </div>
+                  </div>
+
+                  {/* Draft reply */}
+                  {lead.draft_reply ? (
+                    <div className="mt-3 bg-gray-50 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-semibold text-gray-500">Draft Reply</span>
+                        <button onClick={() => navigator.clipboard.writeText(lead.draft_reply ?? '').then(()=>showToast('📋 Copied!'))}
+                          className="text-xs text-indigo-600 hover:underline">📋 Copy</button>
+                      </div>
+                      <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{lead.draft_reply}</p>
+                    </div>
+                  ) : lead.score>=60 && (
+                    <button onClick={async () => {
+                      setGeneratingReplyFor(lead.id)
+                      try {
+                        const res = await fetch('/api/admin/marketing/radar-reply', {
+                          method:'POST',
+                          headers:{'Content-Type':'application/json', Authorization: `Bearer ${authToken}`},
+                          body: JSON.stringify({lead_id: lead.id, post_title: lead.post_title, post_body: lead.post_body, reply_angle: lead.reply_angle}),
+                        })
+                        const d = await res.json()
+                        if (res.ok && d.reply) {
+                          setRadarLeads(prev=>prev.map(l=>l.id===lead.id?{...l,draft_reply:d.reply}:l))
+                          showToast('✨ Reply drafted')
+                        }
+                      } catch { showToast('Failed') }
+                      finally { setGeneratingReplyFor(null) }
+                    }} disabled={generatingReply===lead.id}
+                      className="mt-2 text-xs px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-100 disabled:opacity-50">
+                      {generatingReply===lead.id?'⏳ Drafting…':'✨ Generate Reply'}
+                    </button>
+                  )}
+                </div>
+              ))
+            }
+          </div>
+        )}
       </div>
 
       {/* Toast */}
