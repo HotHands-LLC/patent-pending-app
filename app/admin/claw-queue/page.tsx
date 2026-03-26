@@ -759,8 +759,9 @@ export default function ClawQueuePage() {
           <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-5 space-y-4">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm font-bold text-amber-900">⚡ Smart Add — Drop your prompt here</p>
-                <p className="text-xs text-amber-700 mt-0.5">Paste text, describe what you need, or upload a .md file. Pattie will handle the rest.</p>
+                <p className="text-sm font-bold text-amber-900">⚡ Smart Add — Drop your prompts here</p>
+                <p className="text-xs text-amber-700 mt-0.5">Paste text · Drop files · Select multiple .md files · Pattie handles the rest</p>
+                <p className="text-[10px] text-amber-500 mt-0.5">Supports: .md .txt .pdf .png .jpg .zip</p>
                 {queued.length > 0 && (
                   <p className="text-xs text-amber-600 mt-1 font-mono">
                     Current queue: {queued.map(q => `${q.priority} — ${q.prompt_label.slice(0, 30)}`).join(' · ')}
@@ -773,9 +774,29 @@ export default function ClawQueuePage() {
             <textarea
               value={smartInput}
               onChange={e => setSmartInput(e.target.value)}
-              placeholder="Paste a prompt, describe a feature idea, or drop a .md file..."
+              placeholder="Paste a prompt, describe a feature idea, or drop .md files here..."
               rows={6}
               className="w-full border border-amber-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y"
+              onDragOver={e => e.preventDefault()}
+              onDrop={async e => {
+                e.preventDefault()
+                const files = Array.from(e.dataTransfer.files)
+                if (!files.length) return
+                const SUPPORTED = ['.md','.txt','.pdf','.png','.jpg','.jpeg','.zip']
+                const valid = files.filter(f => SUPPORTED.some(ext => f.name.toLowerCase().endsWith(ext)))
+                if (valid.length === 1 && valid[0].name.endsWith('.zip')) {
+                  setZipFiles([]); setZipBatch([])
+                  await handleZipUpload(valid[0])
+                } else if (valid.length === 1) {
+                  setSmartInput(await valid[0].text())
+                } else if (valid.length > 1) {
+                  const loaded: Array<{name: string; content: string; selected: boolean}> = []
+                  for (const f of valid) {
+                    try { loaded.push({ name: f.name, content: await f.text(), selected: true }) } catch {}
+                  }
+                  setZipFiles(loaded); setZipBatch([])
+                }
+              }}
             />
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 px-3 py-2 border border-amber-200 rounded-lg text-xs text-amber-700 bg-white hover:bg-amber-50 cursor-pointer">
