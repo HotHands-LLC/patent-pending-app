@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       brand: brand ?? 'pp.app', platform, post_type: 'post',
       post_url: postResult.url ?? null, marketing_idea_id: idea_id,
       posted_at: new Date().toISOString(),
-    }).then(() => {}).catch(() => {})
+    })
   }
   await svc.from('platform_credentials').update({
     last_post_at: new Date().toISOString(),
