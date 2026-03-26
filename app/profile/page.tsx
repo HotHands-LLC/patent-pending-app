@@ -551,6 +551,11 @@ export default function ProfilePage() {
         </section>
       </div>
 
+      {/* ── Section F: Invite & Earn ──────────────────────────────────────────── */}
+      <div className="max-w-3xl mx-auto px-4 pb-8">
+        <ReferralSection authToken={authToken ?? ''} />
+      </div>
+
       {/* Contact modals */}
       {(editingContact || showAddContact) && (
         <ContactModal
@@ -560,6 +565,62 @@ export default function ProfilePage() {
         />
       )}
     </div>
+  )
+}
+
+// ── ReferralSection — Invite & Earn ──────────────────────────────────────────
+function ReferralSection({ authToken }: { authToken: string }) {
+  const [code, setCode] = React.useState<string | null>(null)
+  const [url, setUrl] = React.useState<string | null>(null)
+  const [stats, setStats] = React.useState({ signed_up: 0, activated: 0, rewarded: 0 })
+  const [copied, setCopied] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!authToken) return
+    fetch('/api/referral', { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => r.json()).then(d => { setCode(d.code); setUrl(d.url); setStats(d.stats ?? {}) }).catch(() => {})
+  }, [authToken])
+
+  return (
+    <section className="bg-white rounded-2xl border border-indigo-200 overflow-hidden">
+      <div className="px-6 py-4 border-b border-indigo-100 bg-indigo-50">
+        <h2 className="text-sm font-bold text-[#1a1f36] uppercase tracking-wider">🎁 Invite Inventors, Earn Free Pro</h2>
+      </div>
+      <div className="px-6 py-5">
+        <p className="text-sm text-gray-600 mb-4">
+          Share your invite link. For each friend who files a patent:
+          <span className="font-semibold text-indigo-700"> you both get 30 days free Pro.</span>
+        </p>
+        {url && (
+          <div className="flex items-center gap-2 mb-4">
+            <input readOnly value={url} className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono bg-gray-50 text-gray-700" />
+            <button onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-xs font-semibold hover:bg-gray-50">
+              {copied ? '✓ Copied' : '📋 Copy'}
+            </button>
+          </div>
+        )}
+        <div className="flex gap-4 text-sm text-gray-600 mb-4">
+          <span><strong>{stats.signed_up}</strong> signed up</span>
+          <span><strong>{stats.activated}</strong> filed a patent</span>
+          <span className="text-green-600 font-semibold"><strong>{stats.rewarded}</strong> reward{stats.rewarded !== 1 ? 's' : ''} earned</span>
+        </div>
+        {url && (
+          <div className="flex gap-3">
+            <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`}
+              target="_blank" rel="noopener noreferrer"
+              className="px-3 py-2 bg-[#0077b5] text-white text-xs font-semibold rounded-lg hover:opacity-90">
+              💼 LinkedIn
+            </a>
+            <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`Filing my own patent without a $10K lawyer — check out patentpending.app ${url}`)}`}
+              target="_blank" rel="noopener noreferrer"
+              className="px-3 py-2 bg-black text-white text-xs font-semibold rounded-lg hover:opacity-90">
+              𝕏 Post
+            </a>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
