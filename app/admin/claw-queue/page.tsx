@@ -272,6 +272,15 @@ export default function ClawQueuePage() {
   const [smartPriority, setSmartPriority] = useState(5)
   const [smartBody, setSmartBody] = useState('')
   const [smartSaving, setSmartSaving] = useState(false)
+  // ZIP batch state
+  const [zipFiles, setZipFiles] = useState<Array<{name: string; content: string; selected: boolean}>>([])
+  const [zipAnalyzing, setZipAnalyzing] = useState(false)
+  const [zipProgress, setZipProgress] = useState(0)
+  const [zipBatch, setZipBatch] = useState<Array<{
+    name: string; label: string; priority: number; prompt_body: string; reasoning: string;
+    expanded: boolean; saving: boolean; saved: boolean
+  }>>([])
+  const [zipSavingAll, setZipSavingAll] = useState(false)
 
   // Expand state
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -369,7 +378,97 @@ export default function ClawQueuePage() {
     finally { setSmartSaving(false) }
   }
 
-  // ── Queue settings ────────────────────────────────────────────────────────
+  // ── ZIP upload handler ────────────────────────────────────────────────────
+  async function handleZipUpload(file: File) {
+    const JSZip = (await import('jszip')).default
+    const zip = await JSZip.loadAsync(file)
+    const SUPPORTED = ['.md', '.txt', '.pdf', '.png', '.jpg', '.jpeg']
+    const entries: Array<{name: string; content: string; selected: boolean}> = []
+    for (const [name, zipEntry] of Object.entries(zip.files)) {
+      if (zipEntry.dir) continue
+      const basename = name.split('/').pop() ?? name
+      if (basename.startsWith('.')) continue // skip .DS_Store etc
+      const ext = basename.slice(basename.lastIndexOf('.')).toLowerCase()
+      if (!SUPPORTED.includes(ext)) continue
+      const content = await zipEntry.async('string')
+      entries.push({ name: basename, content, selected: true })
+    }
+    setZipFiles(entries)
+    setZipBatch([])
+    setZipProgress(0)
+  }
+
+  async function analyzeZipBatch() {
+    if (!authToken || zipFiles.length === 0) return
+    const selected = zipFiles.filter(f => f.selected)
+    if (selected.length === 0) return
+    setZipAnalyzing(true)
+    setZipProgress(0)
+    const queueRef = queued.map(q => `${q.priority} — ${q.prompt_label}`).join(', ')
+    const maxPri = Math.max(0, ...queued.map(q => q.priority))
+    const results: typeof zipBatch = []
+    for (let i = 0; i < selected.length; i++) {
+      setZipProgress(i + 1)
+      const f = selected[i]
+      try {
+        const res = await fetch('/api/admin/smart-queue-add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({
+            input: f.content,
+            queue_context: queueRef + (results.length > 0 ? ` + batch so far: ${results.map(r => r.priority + ' — ' + r.label).join(', ')}` : ''),
+            min_priority: maxPri + i + 1,
+          }),
+        })
+        const d = await res.json()
+        results.push({
+          name: f.name,
+          label: d.label ?? f.name,
+          priority: d.priority ?? (maxPri + i + 1),
+          prompt_body: d.prompt_body ?? f.content,
+          reasoning: d.reasoning ?? '',
+          expanded: false,
+          saving: false,
+          saved: false,
+        })
+      } catch {
+        results.push({ name: f.name, label: f.name, priority: maxPri + i + 1, prompt_body: f.content, reasoning: 'Analysis failed — using raw content', expanded: false, saving: false, saved: false })
+      }
+      await new Promise(r => setTimeout(r, 500)) // small delay between calls
+    }
+    setZipBatch(results)
+    setZipAnalyzing(false)
+  }
+
+  async function saveZipItem(idx: number) {
+    if (!authToken) return
+    const item = zipBatch[idx]
+    setZipBatch(prev => prev.map((b, i) => i === idx ? { ...b, saving: true } : b))
+    try {
+      const res = await fetch('/api/admin/claw-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ prompt_label: item.label, prompt_body: item.prompt_body, priority: item.priority }),
+      })
+      if (res.ok) {
+        setZipBatch(prev => prev.map((b, i) => i === idx ? { ...b, saving: false, saved: true } : b))
+        fetchQueue(authToken)
+      }
+    } catch { setZipBatch(prev => prev.map((b, i) => i === idx ? { ...b, saving: false } : b)) }
+  }
+
+  async function saveAllZip() {
+    if (!authToken) return
+    setZipSavingAll(true)
+    for (let i = 0; i < zipBatch.length; i++) {
+      if (!zipBatch[i].saved) await saveZipItem(i)
+    }
+    setZipSavingAll(false)
+    showToast(`✅ Added ${zipBatch.length} items to queue`)
+    fetchQueue(authToken)
+  }
+
+  // ── ZIP handling ──────────────────────────────────────────────────────────
   async function saveQueueSetting(key: string, value: boolean) {
     setSavingSettings(true)
     await supabase.from('app_settings').upsert({ key, value: String(value) }, { onConflict: 'key' })
@@ -625,12 +724,17 @@ export default function ClawQueuePage() {
             />
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 px-3 py-2 border border-amber-200 rounded-lg text-xs text-amber-700 bg-white hover:bg-amber-50 cursor-pointer">
-                📎 Upload .md / .txt
-                <input type="file" accept=".md,.txt,.pdf" className="hidden" onChange={async e => {
+                📎 Upload file / .zip
+                <input type="file" accept=".md,.txt,.pdf,.zip" className="hidden" onChange={async e => {
                   const file = e.target.files?.[0]
                   if (!file) return
-                  const text = await file.text()
-                  setSmartInput(text)
+                  if (file.name.endsWith('.zip')) {
+                    setZipFiles([]); setZipBatch([])
+                    await handleZipUpload(file)
+                  } else {
+                    const text = await file.text()
+                    setSmartInput(text)
+                  }
                 }} />
               </label>
               <button
@@ -641,6 +745,141 @@ export default function ClawQueuePage() {
                 {smartAnalyzing ? '⏳ Analyzing…' : 'Analyze with Pattie →'}
               </button>
             </div>
+
+            {/* ZIP file list preview */}
+            {zipFiles.length > 0 && zipBatch.length === 0 && (
+              <div className="bg-white rounded-xl border border-amber-200 p-4 space-y-3">
+                <p className="text-sm font-semibold text-amber-900">📦 Found {zipFiles.length} file{zipFiles.length !== 1 ? 's' : ''} in zip:</p>
+                <div className="space-y-1.5">
+                  {zipFiles.map((f, i) => (
+                    <label key={i} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                      <input type="checkbox" checked={f.selected}
+                        onChange={e => setZipFiles(prev => prev.map((z, j) => j === i ? { ...z, selected: e.target.checked } : z))}
+                        className="rounded" />
+                      <span>{f.selected ? '✅' : '⬜'} {f.name}</span>
+                      <span className="text-gray-400">({f.content.length.toLocaleString()} chars)</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={analyzeZipBatch} disabled={zipAnalyzing || !zipFiles.some(f => f.selected)}
+                    className="px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 disabled:opacity-40 transition-colors">
+                    {zipAnalyzing
+                      ? `⏳ Analyzing ${zipProgress}/${zipFiles.filter(f => f.selected).length}…`
+                      : `Analyze All with Pattie → (${zipFiles.filter(f => f.selected).length} files)`}
+                  </button>
+                  <button onClick={() => setZipFiles([])} className="text-xs text-gray-400 hover:text-gray-600">Clear</button>
+                </div>
+              </div>
+            )}
+
+            {/* ZIP batch results */}
+            {zipBatch.length > 0 && (
+              <div className="bg-white rounded-xl border border-amber-200 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-amber-900">📋 {zipBatch.length} items ready to add</p>
+                  <button onClick={saveAllZip} disabled={zipSavingAll || zipBatch.every(b => b.saved)}
+                    className="px-4 py-2 bg-[#1a1f36] text-white text-sm font-semibold rounded-lg hover:bg-[#2d3561] disabled:opacity-50 transition-colors">
+                    {zipSavingAll ? 'Adding…' : zipBatch.every(b => b.saved) ? '✅ All Added' : 'Add All to Queue'}
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {zipBatch.map((item, i) => (
+                    <div key={i} className={`border rounded-lg overflow-hidden ${item.saved ? 'border-green-200 bg-green-50' : 'border-gray-200'}`}>
+                      <div className="flex items-center gap-2 px-3 py-2 bg-gray-50">
+                        <span className="text-[10px] text-gray-400 font-mono flex-shrink-0">{item.name}</span>
+                        <input value={item.label} onChange={e => setZipBatch(prev => prev.map((b, j) => j === i ? { ...b, label: e.target.value } : b))}
+                          className="flex-1 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none min-w-0" />
+                        <input type="number" value={item.priority} onChange={e => setZipBatch(prev => prev.map((b, j) => j === i ? { ...b, priority: parseInt(e.target.value) || item.priority } : b))}
+                          className="w-14 text-xs border border-gray-200 rounded px-2 py-1 text-center focus:outline-none" />
+                        {item.saved ? <span className="text-xs text-green-600 font-semibold flex-shrink-0">✅</span> : (
+                          <button onClick={() => saveZipItem(i)} disabled={item.saving}
+                            className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 flex-shrink-0">
+                            {item.saving ? '…' : 'Add'}
+                          </button>
+                        )}
+                        <button onClick={() => setZipBatch(prev => prev.map((b, j) => j === i ? { ...b, expanded: !b.expanded } : b))}
+                          className="text-[10px] text-gray-400 hover:text-gray-600 flex-shrink-0">
+                          {item.expanded ? '▲' : '▼'}
+                        </button>
+                      </div>
+                      {item.expanded && (
+                        <textarea value={item.prompt_body}
+                          onChange={e => setZipBatch(prev => prev.map((b, j) => j === i ? { ...b, prompt_body: e.target.value } : b))}
+                          rows={6} className="w-full px-3 py-2 text-xs font-mono border-t border-gray-100 focus:outline-none resize-y" />
+                      )}
+                      {item.reasoning && !item.expanded && (
+                        <p className="px-3 py-1 text-[10px] text-amber-600 italic border-t border-gray-50">Pattie: {item.reasoning}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => { setZipFiles([]); setZipBatch([]) }}
+                  className="text-xs text-gray-400 hover:text-gray-600">Clear batch</button>
+              </div>
+            )}
+
+            {/* ZIP file list preview */}
+            {zipFiles.length > 0 && zipBatch.length === 0 && (
+              <div className="bg-white rounded-xl border border-amber-200 p-4">
+                <p className="text-xs font-bold text-amber-900 mb-2">Found {zipFiles.length} file{zipFiles.length !== 1 ? 's' : ''} in ZIP:</p>
+                <div className="space-y-1 mb-3">
+                  {zipFiles.map((f, i) => (
+                    <label key={i} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-amber-50 px-2 py-1 rounded">
+                      <input type="checkbox" checked={f.selected}
+                        onChange={e => setZipFiles(prev => prev.map((x, j) => j === i ? { ...x, selected: e.target.checked } : x))}
+                        className="accent-amber-600" />
+                      <span className={f.selected ? 'text-gray-800' : 'text-gray-400 line-through'}>{f.name}</span>
+                    </label>
+                  ))}
+                  {zipFiles.length === 0 && <p className="text-xs text-gray-400">No supported files found in ZIP.</p>}
+                </div>
+                <button onClick={analyzeZipBatch} disabled={zipAnalyzing || zipFiles.filter(f => f.selected).length === 0}
+                  className="px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 disabled:opacity-40">
+                  {zipAnalyzing ? `⏳ Analyzing ${zipProgress} of ${zipFiles.filter(f=>f.selected).length}…` : `Analyze All with Pattie → (${zipFiles.filter(f=>f.selected).length} files)`}
+                </button>
+              </div>
+            )}
+
+            {/* ZIP batch results */}
+            {zipBatch.length > 0 && (
+              <div className="bg-white rounded-xl border border-amber-200 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-amber-900">{zipBatch.length} items ready to queue</p>
+                  <button onClick={saveAllZip} disabled={zipSavingAll}
+                    className="px-4 py-2 bg-[#1a1f36] text-white text-xs font-semibold rounded-lg hover:bg-[#2d3561] disabled:opacity-50">
+                    {zipSavingAll ? 'Adding…' : '✅ Add All to Queue'}
+                  </button>
+                </div>
+                {zipBatch.map((item, idx) => (
+                  <div key={idx} className={`border rounded-lg p-3 ${item.saved ? 'border-green-200 bg-green-50' : 'border-gray-200'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <input value={item.label} onChange={e => setZipBatch(prev => prev.map((b,i)=> i===idx?{...b,label:e.target.value}:b))}
+                        className="flex-1 border border-gray-200 rounded px-2 py-1 text-xs" />
+                      <input type="number" min={1} value={item.priority}
+                        onChange={e => setZipBatch(prev => prev.map((b,i)=> i===idx?{...b,priority:parseInt(e.target.value)||1}:b))}
+                        className="w-16 border border-gray-200 rounded px-2 py-1 text-xs text-center" />
+                      {!item.saved && (
+                        <button onClick={() => saveZipItem(idx)} disabled={item.saving}
+                          className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">
+                          {item.saving ? '…' : 'Add'}
+                        </button>
+                      )}
+                      {item.saved && <span className="text-xs text-green-600 font-semibold">✅</span>}
+                    </div>
+                    <button onClick={() => setZipBatch(prev => prev.map((b,i)=> i===idx?{...b,expanded:!b.expanded}:b))}
+                      className="text-[10px] text-indigo-500 hover:underline">
+                      {item.expanded ? '▲ collapse' : '▼ view prompt'}
+                    </button>
+                    {item.expanded && (
+                      <textarea value={item.prompt_body}
+                        onChange={e => setZipBatch(prev => prev.map((b,i)=> i===idx?{...b,prompt_body:e.target.value}:b))}
+                        rows={6} className="w-full mt-1 border border-gray-200 rounded text-xs font-mono px-2 py-1 resize-y" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Pre-filled form after analysis */}
             {smartResult && (
