@@ -107,7 +107,9 @@ export default function FeatureCatalogPage() {
                         {f.category}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs">{onPpApp ? '✅' : '—'}</td>
+                    <td className="px-4 py-3 text-xs">
+                      {onPpApp ? (f.certified ? '✅ 🏛️' : '✅') : '—'}
+                    </td>
                     <td className="px-4 py-3 text-xs">
                       {onBrand ? <span className="text-green-600 font-semibold">✅ Deployed</span> : '—'}
                     </td>
