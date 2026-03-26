@@ -1363,6 +1363,8 @@ export default function PatentDetail() {
   const [upgradeFeature, setUpgradeFeature] = useState<string | null>(null)
   const [figureUrls, setFigureUrls] = useState<Array<{ number: number; label: string; filename: string; url: string; path?: string }>>([])
   const [figuresLoaded, setFiguresLoaded] = useState(false)
+  const [clawFigures, setClawFigures] = useState<Array<{ id: string; figure_number: number; title: string | null; description: string | null; svg_data: string | null; source: string }>>([])
+
   const [figureDescriptions, setFigureDescriptions] = useState<Record<string, string>>({})
   const [figureDescDraft, setFigureDescDraft] = useState<Record<string, string>>({})
   const [figurePattieLoading, setFigurePattieLoading] = useState<Record<string, boolean>>({})
@@ -1532,6 +1534,10 @@ export default function PatentDetail() {
     } else {
       setFiguresLoaded(true)
     }
+    // Load Claw-generated SVG figures
+    supabase.from('patent_figures').select('id, figure_number, title, description, svg_data, source')
+      .eq('patent_id', id).order('figure_number')
+      .then(({ data }) => { if (data?.length) setClawFigures(data) })
   }
 
   useEffect(() => { loadAll() }, [id, router])
@@ -3503,6 +3509,29 @@ export default function PatentDetail() {
                       </button>
                     </div>
                   )}
+                  {/* Claw-generated SVG figures */}
+                  {clawFigures.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="text-sm font-semibold text-[#1a1f36] mb-3 flex items-center gap-2">
+                        Figures ({clawFigures.length})
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold">🤖 AI Generated</span>
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {clawFigures.map(fig => (
+                          <div key={fig.id} className="border border-violet-100 rounded-xl overflow-hidden bg-white">
+                            {fig.svg_data && (
+                              <div className="bg-white p-2" dangerouslySetInnerHTML={{ __html: fig.svg_data }} />
+                            )}
+                            <div className="px-3 py-2 bg-violet-50 border-t border-violet-100">
+                              <p className="text-xs font-semibold text-violet-800">FIG. {fig.figure_number} — {fig.title}</p>
+                              {fig.description && <p className="text-[10px] text-violet-600 mt-0.5 leading-relaxed">{fig.description}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Generated figures gallery — with description fields + Pattie analysis */}
                   {patent.figures_uploaded && figureUrls.length > 0 && (
                     <div className="mb-4">
