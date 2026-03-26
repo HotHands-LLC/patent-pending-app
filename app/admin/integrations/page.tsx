@@ -9,6 +9,7 @@ interface Integration { service: string; is_active: boolean; connected_at: strin
 
 const INTEGRATIONS = [
   { id: 'qbo', name: 'QuickBooks Online', icon: '📊', desc: 'Sync Stripe payments to QBO automatically as income transactions', available: true },
+  { id: 'reddit', name: 'Reddit', icon: '🔴', desc: 'Post to r/patents, r/inventors — OAuth via Reddit API', available: true },
   { id: 'shopify', name: 'Shopify', icon: '🛒', desc: 'Sync orders and revenue from Shopify stores', available: false },
   { id: 'xero', name: 'Xero', icon: '💼', desc: 'Alternative to QBO for UK/AU users', available: false },
 ]
