@@ -255,6 +255,9 @@ export default function ClawQueuePage() {
   const [loading, setLoading] = useState(true)
   const [authToken, setAuthToken] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [elapsed, setElapsed] = useState(0) // seconds since in-progress item started
+  const [showAllComplete2, setShowAllComplete2] = useState(false)
+  const elapsedRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
   const [autoRunEnabled, setAutoRunEnabled] = useState(true)
   const [securityGateEnabled, setSecurityGateEnabled] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -286,7 +289,6 @@ export default function ClawQueuePage() {
 
   // Expand state
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [showAllComplete, setShowAllComplete] = useState(false)
   const [showSkipped, setShowSkipped] = useState(false)
 
   // ── Auth check ─────────────────────────────────────────────────────────────
@@ -325,6 +327,22 @@ export default function ClawQueuePage() {
       .limit(30)
     if (data) setActivityLog(data)
   }, [])
+
+  // Elapsed timer for in-progress item (counts up every second)
+  useEffect(() => {
+    const activeItem = items.find(i => i.status === 'in_progress')
+    if (activeItem?.started_at) {
+      const updateElapsed = () => {
+        setElapsed(Math.floor((Date.now() - new Date(activeItem.started_at!).getTime()) / 1000))
+      }
+      updateElapsed()
+      elapsedRef.current = setInterval(updateElapsed, 1000)
+    } else {
+      if (elapsedRef.current) { clearInterval(elapsedRef.current); elapsedRef.current = null }
+      setElapsed(0)
+    }
+    return () => { if (elapsedRef.current) clearInterval(elapsedRef.current) }
+  }, [items])
 
   // Poll activity every 10s when there's an in-progress item
   useEffect(() => {
@@ -944,6 +962,49 @@ export default function ClawQueuePage() {
         )}
 
         <div className="mt-6 space-y-6">
+          {/* ── All Complete Celebration ─────────────────────────────────── */}
+          {queued.length === 0 && inProgress.length === 0 && complete.length > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center">
+              <div className="text-3xl mb-2">✅</div>
+              <p className="font-bold text-green-800 text-lg mb-1">All jobs complete!</p>
+              <p className="text-sm text-green-600">{complete.length} prompt{complete.length !== 1 ? 's' : ''} shipped · Queue cleared</p>
+            </div>
+          )}
+
+          {/* ── In Progress — ALWAYS FIRST ───────────────────────────────── */}
+          {inProgress.map(item => {
+            const startMs = item.started_at ? new Date(item.started_at).getTime() : Date.now()
+            const elapsedSec = Math.max(0, elapsed)
+            const elapsedMin = Math.floor(elapsedSec / 60)
+            const elapsedSecRem = elapsedSec % 60
+            const estTotalSec = 20 * 60 // 20 min estimate
+            const pct = Math.min(99, Math.round((elapsedSec / estTotalSec) * 100))
+            const remSec = Math.max(0, estTotalSec - elapsedSec)
+            const remMin = Math.floor(remSec / 60)
+            return (
+              <section key={item.id}>
+                <h2 className="text-sm font-bold text-blue-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse inline-block" />
+                  In Progress
+                </h2>
+                <div className="border-2 border-blue-300 rounded-xl p-4 bg-blue-50/50 mb-2">
+                  <p className="font-semibold text-[#1a1f36] mb-1">{item.prompt_label}</p>
+                  <p className="text-xs text-gray-400 mb-3">started {elapsedMin}m {elapsedSecRem}s ago</p>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="flex-1 h-2 bg-blue-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-500 rounded-full transition-all duration-1000" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-xs font-semibold text-blue-700 shrink-0">{pct}%</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-400">
+                    <span>Elapsed: {elapsedMin}m {elapsedSecRem}s</span>
+                    <span>Est. remaining: ~{remMin}m</span>
+                  </div>
+                </div>
+              </section>
+            )
+          })}
+
           {/* ── Queued ──────────────────────────────────────────────────── */}
           {queued.length > 0 && (
             <section>
@@ -954,31 +1015,21 @@ export default function ClawQueuePage() {
             </section>
           )}
 
-          {/* ── In Progress ─────────────────────────────────────────────── */}
-          {inProgress.length > 0 && (
-            <section>
-              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">
-                🔄 In Progress ({inProgress.length})
-              </h2>
-              {inProgress.map(item => renderRow(item, false))}
-            </section>
-          )}
-
-          {/* ── Complete ─────────────────────────────────────────────────── */}
+          {/* ── Complete (collapsed when > 5) ───────────────────────────── */}
           {complete.length > 0 && (
             <section>
-              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">
-                ✅ Complete ({complete.length})
-              </h2>
-              {(showAllComplete ? complete : complete.slice(0, 3)).map(item => renderRow(item, false))}
-              {complete.length > 3 && (
-                <button
-                  onClick={() => setShowAllComplete(v => !v)}
-                  className="text-sm text-indigo-600 hover:text-indigo-800 mt-1"
-                >
-                  {showAllComplete ? 'Show less' : `Show all (${complete.length})`}
-                </button>
-              )}
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+                  ✅ Complete ({complete.length})
+                </h2>
+                {complete.length > 3 && (
+                  <button onClick={() => setShowAllComplete2(v => !v)}
+                    className="text-xs text-indigo-600 hover:underline">
+                    {showAllComplete2 ? 'Show less' : `Show all (${complete.length})`}
+                  </button>
+                )}
+              </div>
+              {(showAllComplete2 ? complete : complete.slice(0, 3)).map(item => renderRow(item, false))}
             </section>
           )}
 
