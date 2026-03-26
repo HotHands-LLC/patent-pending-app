@@ -258,6 +258,17 @@ export default function ClawQueuePage() {
   const [showAdd, setShowAdd] = useState(false)
   const [editItem, setEditItem] = useState<QueueItem | null>(null)
   const [doneItem, setDoneItem] = useState<QueueItem | null>(null)
+  // Smart Add state
+  const [showSmartAdd, setShowSmartAdd] = useState(false)
+  const [smartInput, setSmartInput] = useState('')
+  const [smartAnalyzing, setSmartAnalyzing] = useState(false)
+  const [smartResult, setSmartResult] = useState<{
+    label: string; priority: number; prompt_body: string; reasoning: string
+  } | null>(null)
+  const [smartLabel, setSmartLabel] = useState('')
+  const [smartPriority, setSmartPriority] = useState(5)
+  const [smartBody, setSmartBody] = useState('')
+  const [smartSaving, setSmartSaving] = useState(false)
 
   // Expand state
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -305,6 +316,45 @@ export default function ClawQueuePage() {
   const showToast = (msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
+  }
+
+  // ── Smart Add: Analyze with Pattie ─────────────────────────────────────────
+  async function analyzeWithPattie() {
+    if (!smartInput.trim() || !authToken) return
+    setSmartAnalyzing(true)
+    setSmartResult(null)
+    try {
+      const queueRef = queued.map(q => `${q.priority} — ${q.prompt_label}`).join(', ')
+      const res = await fetch('/api/admin/smart-queue-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ input: smartInput, queue_context: queueRef }),
+      })
+      const d = await res.json()
+      if (!res.ok) { showToast(d.error ?? 'Analysis failed'); return }
+      setSmartResult(d)
+      setSmartLabel(d.label ?? '')
+      setSmartPriority(d.priority ?? 5)
+      setSmartBody(d.prompt_body ?? smartInput)
+    } catch { showToast('Network error') }
+    finally { setSmartAnalyzing(false) }
+  }
+
+  async function saveSmartQueue() {
+    if (!authToken || !smartBody.trim() || !smartLabel.trim()) return
+    setSmartSaving(true)
+    try {
+      const res = await fetch('/api/admin/claw-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ prompt_label: smartLabel, prompt_body: smartBody, priority: smartPriority }),
+      })
+      if (res.ok) {
+        setShowSmartAdd(false); setSmartInput(''); setSmartResult(null)
+        fetchQueue(authToken); showToast('✅ Added to queue')
+      } else { const d = await res.json(); showToast(d.error ?? 'Save failed') }
+    } catch { showToast('Network error') }
+    finally { setSmartSaving(false) }
   }
 
   // ── PATCH helper ──────────────────────────────────────────────────────────
@@ -515,13 +565,100 @@ export default function ClawQueuePage() {
               {firstQueued ? ` · Next: ${firstQueued.prompt_label}` : ''}
             </p>
           </div>
-          <button
-            onClick={() => { setEditItem(null); setShowAdd(true) }}
-            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            <span className="text-base leading-none">+</span> Add Prompt
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setShowSmartAdd(s => !s); setSmartResult(null); setSmartInput('') }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 text-white text-sm font-medium rounded-lg hover:bg-amber-600 transition-colors"
+            >
+              ⚡ Smart Add
+            </button>
+            <button
+              onClick={() => { setEditItem(null); setShowAdd(true) }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              <span className="text-base leading-none">+</span> Add Prompt
+            </button>
+          </div>
         </div>
+
+        {/* ── Smart Add Panel ──────────────────────────────────────────────── */}
+        {showSmartAdd && (
+          <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-5 space-y-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-bold text-amber-900">⚡ Smart Add — Drop your prompt here</p>
+                <p className="text-xs text-amber-700 mt-0.5">Paste text, describe what you need, or upload a .md file. Pattie will handle the rest.</p>
+                {queued.length > 0 && (
+                  <p className="text-xs text-amber-600 mt-1 font-mono">
+                    Current queue: {queued.map(q => `${q.priority} — ${q.prompt_label.slice(0, 30)}`).join(' · ')}
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setShowSmartAdd(false)} className="text-amber-400 hover:text-amber-700 text-lg ml-4">×</button>
+            </div>
+
+            <textarea
+              value={smartInput}
+              onChange={e => setSmartInput(e.target.value)}
+              placeholder="Paste a prompt, describe a feature idea, or drop a .md file..."
+              rows={6}
+              className="w-full border border-amber-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y"
+            />
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 px-3 py-2 border border-amber-200 rounded-lg text-xs text-amber-700 bg-white hover:bg-amber-50 cursor-pointer">
+                📎 Upload .md / .txt
+                <input type="file" accept=".md,.txt,.pdf" className="hidden" onChange={async e => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  const text = await file.text()
+                  setSmartInput(text)
+                }} />
+              </label>
+              <button
+                onClick={analyzeWithPattie}
+                disabled={!smartInput.trim() || smartAnalyzing}
+                className="px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 disabled:opacity-40 transition-colors"
+              >
+                {smartAnalyzing ? '⏳ Analyzing…' : 'Analyze with Pattie →'}
+              </button>
+            </div>
+
+            {/* Pre-filled form after analysis */}
+            {smartResult && (
+              <div className="bg-white rounded-xl border border-amber-200 p-4 space-y-3">
+                <p className="text-xs text-amber-700 italic">Pattie: {smartResult.reasoning}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Label</label>
+                    <input value={smartLabel} onChange={e => setSmartLabel(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Priority</label>
+                    <input type="number" min={1} max={99} value={smartPriority}
+                      onChange={e => setSmartPriority(parseInt(e.target.value) || 5)}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Prompt Body</label>
+                  <textarea value={smartBody} onChange={e => setSmartBody(e.target.value)} rows={10}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y" />
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={saveSmartQueue} disabled={smartSaving || !smartBody.trim() || !smartLabel.trim()}
+                    className="px-5 py-2 bg-[#1a1f36] text-white text-sm font-semibold rounded-lg hover:bg-[#2d3561] disabled:opacity-50">
+                    {smartSaving ? 'Saving…' : 'Save to Queue'}
+                  </button>
+                  <button onClick={() => { setShowSmartAdd(false); setSmartResult(null) }}
+                    className="px-5 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-6 space-y-6">
           {/* ── Queued ──────────────────────────────────────────────────── */}
