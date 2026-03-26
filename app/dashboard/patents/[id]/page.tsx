@@ -1129,6 +1129,7 @@ export default function PatentDetail() {
   const [showArc3Modal, setShowArc3Modal] = useState(false)
   const [showArc3Interview, setShowArc3Interview] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
+  const [pattieInitialMessage, setPattieInitialMessage] = useState<string | undefined>(undefined)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -1301,6 +1302,20 @@ export default function PatentDetail() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, patent?.id, patent?.claims_draft, patent?.filing_status, authToken])
+
+  // Handle ?pattie= URL param — auto-open Pattie with initial context (not shown as visible message)
+  useEffect(() => {
+    const pattiePrefill = searchParams.get('pattie')
+    if (pattiePrefill && patent && authToken && !showPattie) {
+      setPattieInitialMessage(decodeURIComponent(pattiePrefill))
+      setShowPattie(true)
+      // Clean the URL so refreshing doesn't re-trigger
+      const url = new URL(window.location.href)
+      url.searchParams.delete('pattie')
+      window.history.replaceState({}, '', url.toString())
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patent?.id, authToken])
 
   // Handle cover-sheet acknowledgment redirect from cover-sheet page
   useEffect(() => {
@@ -3781,6 +3796,7 @@ export default function PatentDetail() {
           canEdit={canWrite}
           patentStatus={patent.filing_status ?? patent.status}
           onTierRequired={(feature) => { setShowPattie(false); setUpgradeFeature(feature) }}
+          initialMessage={pattieInitialMessage}
         />
       )}
     </div>

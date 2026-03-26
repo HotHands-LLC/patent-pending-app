@@ -139,9 +139,18 @@ export default function CorrespondenceForm({ patents, preselectedPatentId, owner
             onChange={e => setForm({ ...form, type: e.target.value })}
             className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a1f36] min-h-[44px] bg-white"
           >
-            {Object.entries(CORRESPONDENCE_TYPE_LABELS).map(([val, label]) => (
-              <option key={val} value={val}>{label}</option>
-            ))}
+            {Object.entries(CORRESPONDENCE_TYPE_LABELS).map(([val, label]) => {
+              // Gray out USPTO Response for provisional patents
+              const selectedPatent = patents.find(p => p.id === form.patent_id)
+              const isProvisional = selectedPatent?.status === 'provisional' || selectedPatent?.status === 'research_import'
+              const isUsptoType = val === 'uspto_action' || val === 'uspto_response' || val === 'office_action'
+              const blocked = isProvisional && isUsptoType
+              return (
+                <option key={val} value={val} disabled={blocked} title={blocked ? 'Not applicable to provisional applications' : undefined}>
+                  {label}{blocked ? ' (provisional only — N/A)' : ''}
+                </option>
+              )
+            })}
           </select>
         </div>
 

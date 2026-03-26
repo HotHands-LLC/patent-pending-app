@@ -38,6 +38,7 @@ interface PattieChatDrawerProps {
   patentStatus?: string
   onTierRequired?: (feature: string) => void
   onFieldApplied?: (fieldName: string, value: string) => void  // callback when suggestion applied
+  initialMessage?: string  // context-only; sent to API but NOT shown as a visible message
 }
 
 const STARTER_CHIPS_DEFAULT = [
@@ -196,6 +197,7 @@ export default function PattieChatDrawer({
   canEdit = false,
   patentStatus,
   onFieldApplied,
+  initialMessage,
 }: PattieChatDrawerProps) {
   void canEdit
   const isGrantedPatent = patentStatus === 'granted'
@@ -217,6 +219,52 @@ export default function PattieChatDrawer({
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streaming])
   useEffect(() => { inputRef.current?.focus() }, [])
 
+  // If opened with an initialMessage (e.g. from ?pattie= URL param), auto-send it as
+  // hidden context — Pattie gets the full message but only her RESPONSE is shown (not the prompt).
+  useEffect(() => {
+    if (initialMessage && messages.length === 0 && authToken && !streaming) {
+      const hiddenMsg = initialMessage.trim()
+      if (!hiddenMsg) return
+      // Send to API with the hidden message but don't add it to visible messages array
+      const apiMessages = [{ role: 'user', content: hiddenMsg }]
+      setStreaming(true)
+      setMessages([{ role: 'assistant', content: '' }])
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+      fetch(`/api/patents/${patentId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ patentId, messages: apiMessages }),
+        signal: ctrl.signal,
+      }).then(async res => {
+        if (!res.ok || !res.body) { setStreaming(false); setMessages([]); return }
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let text = ''
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const chunk = decoder.decode(value)
+          for (const line of chunk.split('\n')) {
+            if (!line.startsWith('data: ')) continue
+            const data = line.slice(6).trim()
+            if (data === '[DONE]') break
+            try {
+              const p = JSON.parse(data)
+              if (p.text) {
+                text += p.text
+                setMessages([{ role: 'assistant', content: text }])
+              }
+            } catch { /* partial */ }
+          }
+        }
+        setStreaming(false)
+      }).catch(() => { setStreaming(false); setMessages([]) })
+    }
+  // Only run on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessage])
+
   // ── Apply suggestion via PATCH ─────────────────────────────────────────────
   const applySuggestion = useCallback(async (msgIdx: number, overrideValue?: string) => {
     const msg = messages[msgIdx]
@@ -236,6 +284,30 @@ export default function PattieChatDrawer({
       })
       if (!res.ok) throw new Error('Update failed')
       onFieldApplied?.(msg.suggestion.field_name, value)
+
+      // ── Auto-journal: write a 🤖 Pattie Update entry (non-blocking) ────────
+      const fieldLabel = msg.suggestion.field_name
+        .replace(/_draft$/, '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c: string) => c.toUpperCase())
+      const preview = (msg.suggestion.proposed_value ?? '').slice(0, 150).replace(/\n/g, ' ')
+      const suffix = preview.length >= 150 ? '\u2026' : ''
+      const summary = preview
+        ? `Pattie applied an update to ${fieldLabel}: "${preview}${suffix}"`
+        : `Applied Pattie suggestion to ${fieldLabel}.`
+      fetch('/api/correspondence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          patent_id: patentId,
+          type: 'pattie_session',
+          title: `Pattie updated ${fieldLabel}`,
+          content: summary,
+          correspondence_date: new Date().toISOString().split('T')[0],
+          from_party: 'Pattie (PatentPending.app)',
+          tags: ['pattie', 'auto-journal'],
+        }),
+      }).catch(() => {/* non-blocking — ignore errors */})
     } catch {
       // Revert on failure
       setMessages(prev => prev.map((m, i) =>

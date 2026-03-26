@@ -55,11 +55,21 @@ export async function POST(req: NextRequest) {
   if (patent_id && typeof patent_id === 'string') {
     const { data: patent } = await supabaseService
       .from('patents')
-      .select('id, owner_id')
+      .select('id, owner_id, status')
       .eq('id', patent_id)
       .single()
 
     if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
+
+    // ── USPTO Action guard: provisional applications cannot receive office actions ──
+    const USPTO_ACTION_TYPES = ['uspto_action', 'uspto_response', 'office_action']
+    const isProvisional = patent.status === 'provisional' || patent.status === 'research_import'
+    if (USPTO_ACTION_TYPES.includes(type as string) && isProvisional) {
+      return NextResponse.json({
+        error: 'USPTO Office Actions cannot be recorded on provisional applications. Convert to non-provisional first.',
+        code: 'PROVISIONAL_RESTRICTION',
+      }, { status: 400 })
+    }
 
     if (patent.owner_id !== user.id) {
       // Check collaborator access
