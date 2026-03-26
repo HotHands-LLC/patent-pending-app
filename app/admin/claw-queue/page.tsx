@@ -18,6 +18,8 @@ interface QueueItem {
   completed_at: string | null
   claw_summary: string | null
   created_by: string | null
+  completion_integrity: 'clean' | 'partial' | 'failed' | 'unknown' | null
+  duration_seconds: number | null
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -614,8 +616,14 @@ export default function ClawQueuePage() {
           </span>
 
           {/* Label */}
-          <span className="font-semibold text-gray-900 text-sm flex-1 min-w-0">
-            {STATUS_ICONS[item.status]} {item.prompt_label}
+          <span className="font-semibold text-gray-900 text-sm flex-1 min-w-0 flex items-center gap-1.5">
+            {item.status === 'complete' && item.completion_integrity === 'partial' ? '⚠️' :
+             item.status === 'complete' && item.completion_integrity === 'failed' ? '❌' :
+             item.status === 'complete' ? '✅' :
+             STATUS_ICONS[item.status]} {item.prompt_label}
+            {item.duration_seconds != null && item.status === 'complete' && (
+              <span className="text-[10px] text-gray-400 font-normal">{Math.round(item.duration_seconds/60)}m</span>
+            )}
           </span>
 
           {/* Timestamps */}
