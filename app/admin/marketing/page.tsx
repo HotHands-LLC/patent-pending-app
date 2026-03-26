@@ -475,12 +475,30 @@ export default function MarketingPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Pattie Ideas */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="font-bold text-[#1a1f36] text-sm">🤖 Pattie Ideas</h2>
-              <button onClick={generateIdeas} disabled={generatingIdeas}
-                className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50">
-                {generatingIdeas ? '⏳ Generating…' : '✨ Generate Ideas'}
-              </button>
+              <div className="flex gap-2">
+                {selectedBrand === 'pp.app' && (
+                  <button onClick={async () => {
+                    if (!authToken) return
+                    const btn = document.activeElement as HTMLButtonElement
+                    if (btn) btn.disabled = true
+                    const res = await fetch('/api/admin/marketing/generate-founder-pack', {
+                      method: 'POST', headers: { Authorization: `Bearer ${authToken}` }
+                    })
+                    if (btn) btn.disabled = false
+                    if (res.ok) { showToast('🚀 Founder Pack generated! Check Content Cards.'); fetchIdeas(authToken, selectedBrand) }
+                    else showToast('Pack generation failed')
+                  }}
+                  className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700">
+                    🚀 Founder Pack
+                  </button>
+                )}
+                <button onClick={generateIdeas} disabled={generatingIdeas}
+                  className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50">
+                  {generatingIdeas ? '⏳ Generating…' : '✨ Generate Ideas'}
+                </button>
+              </div>
             </div>
             {pattieIdeas.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">No ideas yet — click Generate Ideas to get 5 from Pattie.</p>
