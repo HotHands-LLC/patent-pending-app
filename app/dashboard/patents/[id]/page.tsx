@@ -24,6 +24,7 @@ import AdminInvestmentGate from '@/components/AdminInvestmentGate'
 import FilingGuide from '@/components/FilingGuide'
 import EnhancementTab from '@/components/EnhancementTab'
 import PattieChatDrawer from '@/components/PattieChatDrawer'
+import PatentActivityTimeline from '@/components/PatentActivityTimeline'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1434,6 +1435,7 @@ export default function PatentDetail() {
   const [customNote, setCustomNote] = useState('')
   const [claimsMsg, setClaimsMsg] = useState('')
   const [showCorrespondenceForm, setShowCorrespondenceForm] = useState(false)
+  const [corrSubTab, setCorrSubTab] = useState<'journal' | 'activity'>('journal')
   const [expandedCorr, setExpandedCorr] = useState<string | null>(null)
   const [ownerId, setOwnerId] = useState('')
   const [authToken, setAuthToken] = useState('')
@@ -3972,6 +3974,22 @@ export default function PatentDetail() {
         {/* ── CORRESPONDENCE TAB ──────────────────────────────────────────────── */}
         {tab === 'correspondence' && (
           <div>
+            {/* Sub-tab: Journal | Activity */}
+            <div className="flex items-center gap-1 mb-4 bg-gray-100 p-1 rounded-xl w-fit">
+              {(['journal','activity'] as const).map(t => (
+                <button key={t} onClick={() => setCorrSubTab(t)}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors capitalize ${corrSubTab === t ? 'bg-white text-[#1a1f36] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                  {t === 'journal' ? '📋 Journal' : '📡 Activity'}
+                </button>
+              ))}
+            </div>
+            {corrSubTab === 'activity' && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+                <h2 className="font-bold text-[#1a1f36] text-sm mb-4">Activity Timeline</h2>
+                <PatentActivityTimeline patentId={patent.id} authToken={authToken} />
+              </div>
+            )}
+            {corrSubTab !== 'activity' && <div>
             {showCorrespondenceForm && (
               <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
                 <div className="bg-white w-full sm:max-w-2xl sm:rounded-xl rounded-t-xl max-h-[90vh] overflow-y-auto">
@@ -4119,6 +4137,8 @@ export default function PatentDetail() {
                 ))}
               </div>
             )}
+          </div>
+          }
           </div>
         )}
 
