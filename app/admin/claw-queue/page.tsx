@@ -258,6 +258,7 @@ export default function ClawQueuePage() {
   const [elapsed, setElapsed] = useState(0) // seconds since in-progress item started
   const [showAllComplete2, setShowAllComplete2] = useState(false)
   const elapsedRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+  const [eta, setEta] = useState<{ canSleep: boolean; canSleepReason: string; estimatedAllComplete: string | null; confidence: string; totalMinutes: number } | null>(null)
   const [autoRunEnabled, setAutoRunEnabled] = useState(true)
   const [securityGateEnabled, setSecurityGateEnabled] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -379,6 +380,10 @@ export default function ClawQueuePage() {
       if (!res.ok) { setLoading(false); return }
       const data = await res.json()
       setItems(data)
+      // Fetch ETA in parallel
+      fetch('/api/admin/queue-eta', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setEta(d) }).catch(() => {})
     } finally {
       setLoading(false)
     }
@@ -753,6 +758,22 @@ export default function ClawQueuePage() {
             </button>
           </div>
         </div>
+
+        {/* ── ETA / Can I Sleep? ───────────────────────────────────────────── */}
+        {eta && (eta.totalMinutes > 0 || items.some(i => i.status === 'in_progress')) && (
+          <div className={`mb-4 px-4 py-3 rounded-xl border flex items-center justify-between gap-4 ${eta.canSleep ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+            <div className="flex items-center gap-2">
+              <span className="text-lg">{eta.canSleep ? '🟢' : '🟡'}</span>
+              <span className={`text-sm font-semibold ${eta.canSleep ? 'text-green-800' : 'text-amber-800'}`}>{eta.canSleepReason}</span>
+            </div>
+            {eta.totalMinutes > 0 && (
+              <div className="text-xs text-gray-500 shrink-0">
+                {eta.totalMinutes < 60 ? `~${eta.totalMinutes}m total` : `~${Math.floor(eta.totalMinutes/60)}h ${eta.totalMinutes%60}m total`}
+                <span className="ml-2 text-gray-400">({eta.confidence} confidence)</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Smart Add Panel ──────────────────────────────────────────────── */}
         {showSmartAdd && (
