@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   if (!user || !ADMIN_EMAILS.includes(user.email ?? '')) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
   const { lead_id, post_title, post_body, reply_angle } = await req.json()
-  const key = process.env.ANTHROPIC_API_KEY
+  const key = process.env.GEMINI_API_KEY
   if (!key) return NextResponse.json({ error: 'No API key' }, { status: 500 })
 
   const prompt = `Write a helpful reply for this post about patents. Be genuinely useful. Mention patentpending.app naturally only if it directly helps. Tone: knowledgeable friend, not salesperson. Under 200 words.
@@ -26,13 +26,13 @@ Post: ${post_title}
 ${post_body ? `Details: ${post_body.slice(0, 300)}` : ''}
 ${reply_angle ? `Context: ${reply_angle}` : ''}`
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 512, temperature: 0.7 } }),
   })
   const d = await res.json()
-  const reply = d?.content?.[0]?.text?.trim() ?? ''
+  const reply = d?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
   if (!reply) return NextResponse.json({ error: 'No response' }, { status: 500 })
 
   if (lead_id) {

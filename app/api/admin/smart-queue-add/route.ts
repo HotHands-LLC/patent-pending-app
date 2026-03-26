@@ -44,30 +44,28 @@ Analyze the following input and return a JSON object:
 INPUT:
 ${input.slice(0, 8000)}`
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
-  if (!anthropicKey) return NextResponse.json({ error: 'ANTHROPIC_API_KEY not set' }, { status: 500 })
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (!geminiKey) return NextResponse.json({ error: 'GEMINI_API_KEY not set' }, { status: 500 })
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': anthropicKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  })
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 4096, temperature: 0.2, responseMimeType: 'application/json' },
+      }),
+    }
+  )
 
   if (!res.ok) {
     const err = await res.text()
-    return NextResponse.json({ error: `Claude error: ${err.slice(0, 200)}` }, { status: 500 })
+    return NextResponse.json({ error: `Gemini error: ${err.slice(0, 200)}` }, { status: 500 })
   }
 
   const data = await res.json()
-  const raw = data?.content?.[0]?.text ?? ''
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
 
   // Parse JSON from response
   try {

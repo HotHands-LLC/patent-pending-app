@@ -30,14 +30,15 @@ Return hashtags in three groups:
 
 Return as a single space-separated string of hashtags (all starting with #), no other text.`
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
-  if (!anthropicKey) return NextResponse.json({ error: 'No API key' }, { status: 500 })
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (!geminiKey) return NextResponse.json({ error: 'No API key' }, { status: 500 })
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 512,
-      messages: [{ role: 'user', content: prompt }] }),
+    headers: { 'Content-Type': 'application/json',  'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({  // max_tokens: 512,
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 2048, temperature: 0.5 } }),
   })
   const d = await res.json()
   const hashtags = d?.content?.[0]?.text?.trim() ?? ''
