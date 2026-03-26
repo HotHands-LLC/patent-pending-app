@@ -8,6 +8,7 @@ interface PulseData {
   next_cron: { label: string; minutes_until: number; currently_running: boolean; running_name: string | null }
   errors: { p0_count: number; p1_count: number; p2_count: number }
   patents: { active_count: number; provisional_ready: number; filed: number }
+  health_check?: { status: string; minutes_ago: number | null; has_errors?: boolean }
 }
 
 function fmt(mins: number) {
@@ -65,6 +66,8 @@ export default function AdminPulseBar() {
   const errLabel = hasP0 ? `🔴 ${errors.p0_count} P0 error${errors.p0_count > 1 ? 's' : ''}`
     : errors.p1_count > 0 ? `⚠️ ${errors.p1_count} warning${errors.p1_count > 1 ? 's' : ''}`
     : '✅ No errors'
+  const hc = data?.health_check
+  const healthDot = !hc || hc.status === 'unknown' ? '' : hc.status === 'error' ? ' 🔴' : hc.status === 'stale' ? ' 🟡' : ' 🟢'
 
   return (
     <div className={`w-full flex items-center text-xs font-medium border-b ${hasP0 ? 'bg-red-50 border-red-200' : 'bg-[#0f172a] border-[#1e293b]'}`}
@@ -83,7 +86,7 @@ export default function AdminPulseBar() {
       {/* Errors */}
       <button onClick={() => router.push('/admin')}
         className={`flex items-center gap-1.5 px-4 h-full border-r ${hasP0 ? 'bg-red-600 text-white hover:bg-red-700' : 'border-white/10 text-white/60 hover:bg-white/10'} transition-colors`}>
-        <span>{errLabel}</span>
+        <span>{errLabel}{healthDot}</span>
       </button>
       {/* Patents */}
       <button onClick={() => router.push('/admin')}

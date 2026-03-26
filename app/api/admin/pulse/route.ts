@@ -106,5 +106,18 @@ export async function GET(req: NextRequest) {
     },
     errors: { p0_count: p0, p1_count: p1, p2_count: p2 },
     patents: { active_count: patents.length, provisional_ready: provisionalReady, filed },
+    health_check: await (async () => {
+      try {
+        const { data } = await svc.from('health_check_log')
+          .select('checked_at, has_errors').order('checked_at', { ascending: false }).limit(1).single()
+        if (!data) return { status: 'unknown', minutes_ago: null }
+        const minsAgo = Math.floor((Date.now() - new Date(data.checked_at).getTime()) / 60000)
+        return {
+          status: data.has_errors ? 'error' : minsAgo > 35 ? 'stale' : 'ok',
+          minutes_ago: minsAgo,
+          has_errors: data.has_errors,
+        }
+      } catch { return { status: 'unknown', minutes_ago: null } }
+    })(),
   })
 }
