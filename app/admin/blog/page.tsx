@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import { supabase } from '@/lib/supabase'
+import { AdminPageStatus, type StatusItem } from '@/components/AdminPageStatus'
 
 interface Post { id: string; slug: string; title: string; status: string; published_at: string | null; word_count: number | null; category: string | null; created_at: string }
 
@@ -57,6 +58,11 @@ export default function AdminBlogPage() {
             View Blog →
           </Link>
         </div>
+        <AdminPageStatus items={[
+          { value: posts.filter(p => p.status === 'published').length, label: 'published', status: 'ok' },
+          { value: posts.filter(p => p.status === 'draft').length, label: 'drafts', status: 'info' },
+          { label: 'Next auto-post: Tue/Fri 6AM', status: 'info' },
+        ]} />
 
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
