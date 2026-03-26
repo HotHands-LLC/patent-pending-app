@@ -799,6 +799,68 @@ function MarketplaceSettingsCard({
   )
 }
 
+// ── NonProvisionalJourney ─────────────────────────────────────────────────────
+function NonProvisionalJourney({ patent, authToken, canWrite, showToast, onUpdate }: {
+  patent: Patent; authToken: string; canWrite: boolean
+  showToast: (m: string) => void; onUpdate: (f: Partial<Record<string,unknown>>) => void
+}) {
+  const npSteps = (patent as Patent & Record<string,unknown>).np_filing_steps as Record<string,boolean> ?? {}
+  const provNum = patent.provisional_number ?? '—'
+  const deadline = patent.provisional_deadline ? new Date(patent.provisional_deadline + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
+  const daysLeft = patent.provisional_deadline ? Math.ceil((new Date(patent.provisional_deadline + 'T00:00:00').getTime() - Date.now()) / 86400000) : null
+
+  async function confirmStep(key: string) {
+    if (!canWrite) return
+    const newSteps = { ...npSteps, [key]: true }
+    const res = await fetch(`/api/patents/${patent.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` }, body: JSON.stringify({ np_filing_steps: newSteps }) })
+    if (res.ok) { onUpdate({ np_filing_steps: newSteps }); showToast('✅ Step confirmed') }
+  }
+
+  const steps = [
+    { id: 'provisional_filed', label: 'Provisional Filed', done: true, auto: true, detail: `#${provNum} filed with USPTO` },
+    { id: 'claims', label: 'Claims', done: true, auto: true, detail: 'Included with provisional' },
+    { id: 'figures', label: 'Figures', done: !!patent.figures_uploaded, auto: true, detail: 'Upload figures if not already added' },
+    { id: 'spec_confirmed', label: 'Specification Review', done: !!npSteps.spec_confirmed, detail: 'Confirm your spec is complete for non-provisional filing' },
+    { id: 'ids_confirmed', label: 'IDS — Prior Art Review', done: !!npSteps.ids_confirmed, detail: 'Review IDS candidates in the IDS tab' },
+    { id: 'ads_generated', label: 'Cover Sheet (ADS)', done: !!npSteps.ads_generated, detail: 'Generate Non-Provisional Application Data Sheet' },
+    { id: 'filed_at_uspto', label: 'File at USPTO', done: !!npSteps.filed_at_uspto, detail: '~$320 micro entity fee at patentcenter.uspto.gov' },
+  ]
+  const completed = steps.filter(s => s.done).length
+
+  return (
+    <div className="space-y-4">
+      <div className={`p-4 rounded-xl border ${daysLeft != null && daysLeft <= 30 ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-bold text-sm text-amber-900">🟡 Non-Provisional Filing Mode</p>
+            <p className="text-xs text-amber-700 mt-0.5">Provisional <strong>#{provNum}</strong> already filed. {deadline && `File non-provisional by ${deadline}${daysLeft != null ? ` (${daysLeft} days)` : ''}.`}</p>
+          </div>
+          <a href="https://patentcenter.uspto.gov" target="_blank" rel="noopener noreferrer" onClick={() => confirmStep('filed_at_uspto')}
+            className="shrink-0 px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700">File at USPTO →</a>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <div className="flex-1 h-1.5 bg-amber-200 rounded-full"><div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.round(completed/steps.length*100)}%` }} /></div>
+          <span className="text-xs font-semibold text-amber-700">{completed}/{steps.length}</span>
+        </div>
+      </div>
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-50">
+        {steps.map((s, i) => (
+          <div key={s.id} className={`px-4 py-3 flex items-center gap-3 ${s.done ? 'opacity-60' : ''}`}>
+            <span className={`text-lg shrink-0 ${s.done ? 'text-green-500' : 'text-gray-300'}`}>{s.done ? '✅' : String(i+1)}</span>
+            <div className="flex-1">
+              <p className={`text-sm font-semibold ${s.done ? 'line-through text-gray-400' : 'text-[#1a1f36]'}`}>{s.label}</p>
+              {!s.done && <p className="text-xs text-gray-400">{s.detail}</p>}
+            </div>
+            {!s.done && !s.auto && canWrite && (
+              <button onClick={() => confirmStep(s.id)} className="shrink-0 text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold">✅ Confirm</button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── IDS Tab ───────────────────────────────────────────────────────────────────
 function IDSTab({ patentId, patent, authToken, isAdmin, showToast }: {
   patentId: string; patent: Patent; authToken: string; isAdmin: boolean
@@ -3137,7 +3199,11 @@ export default function PatentDetail() {
         )}
 
         {/* ── FILING TAB ──────────────────────────────────────────────────────── */}
-        {tab === 'filing' && (
+        {tab === 'filing' && (patent as Record<string,unknown>).lifecycle_state === 'PROVISIONAL_ACTIVE' && (
+          <NonProvisionalJourney patent={patent} authToken={authToken} canWrite={canWrite} showToast={showToast}
+            onUpdate={fields => setPatent(prev => prev ? { ...prev, ...fields } : null)} />
+        )}
+        {tab === 'filing' && (patent as Record<string,unknown>).lifecycle_state !== 'PROVISIONAL_ACTIVE' && (
           <div className="space-y-5">
             {/* 9-step progress tracker */}
             <FilingProgressTracker patent={patent} patentId={patent.id} />
