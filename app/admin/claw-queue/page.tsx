@@ -396,6 +396,31 @@ export default function ClawQueuePage() {
     if (authToken) fetchQueue(authToken)
   }, [authToken, fetchQueue])
 
+  // ── Live 5-second poll for queue state (silent — no loading spinner) ───────
+  const liveRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+  useEffect(() => {
+    if (!authToken) return
+    liveRef.current = setInterval(async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const res = await fetch('/api/admin/claw-queue/list', {
+          headers: { Authorization: `Bearer ${authToken}` }
+        })
+        if (!res.ok) return
+        const d = await res.json()
+        // Silently merge new state (no loading flash)
+        const merged: typeof items = [
+          ...(d.active ? [d.active] : []),
+          ...(d.queued ?? []),
+          ...(d.complete ?? []),
+          ...(d.skipped ?? []),
+        ]
+        if (merged.length > 0) setItems(merged)
+      } catch { /* non-blocking */ }
+    }, 5000)
+    return () => { if (liveRef.current) clearInterval(liveRef.current) }
+  }, [authToken])
+
   // ── Toast helper ───────────────────────────────────────────────────────────
   const showToast = (msg: string) => {
     setToast(msg)
