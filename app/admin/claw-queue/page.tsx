@@ -779,17 +779,34 @@ export default function ClawQueuePage() {
             />
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 px-3 py-2 border border-amber-200 rounded-lg text-xs text-amber-700 bg-white hover:bg-amber-50 cursor-pointer">
-                📎 Upload file / .zip
-                <input type="file" accept=".md,.txt,.pdf,.zip" className="hidden" onChange={async e => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  if (file.name.endsWith('.zip')) {
+                📎 Upload files / .zip
+                <input type="file" accept=".md,.txt,.pdf,.zip" multiple className="hidden" onChange={async e => {
+                  const files = Array.from(e.target.files ?? [])
+                  if (!files.length) return
+                  // Single zip → ZIP flow
+                  if (files.length === 1 && files[0].name.endsWith('.zip')) {
                     setZipFiles([]); setZipBatch([])
-                    await handleZipUpload(file)
-                  } else {
-                    const text = await file.text()
-                    setSmartInput(text)
+                    await handleZipUpload(files[0])
+                    return
                   }
+                  // Single non-zip → paste into textarea
+                  if (files.length === 1) {
+                    const text = await files[0].text()
+                    setSmartInput(text)
+                    return
+                  }
+                  // Multiple files → batch mode (same as zip flow)
+                  setZipFiles([]); setZipBatch([])
+                  const loaded: Array<{name: string; content: string; selected: boolean}> = []
+                  for (const f of files) {
+                    if (f.name.endsWith('.zip')) { await handleZipUpload(f); return }
+                    try {
+                      const content = await f.text()
+                      loaded.push({ name: f.name, content, selected: true })
+                    } catch { /* skip binary */ }
+                  }
+                  setZipFiles(loaded)
+                  e.target.value = '' // reset so same files can be reselected
                 }} />
               </label>
               <button
