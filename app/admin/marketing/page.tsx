@@ -95,6 +95,8 @@ export default function MarketingPage() {
   const autoSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [calendarView, setCalendarView] = useState(false)
   const [eventSuggestions, setEventSuggestions] = useState<Array<{title: string; channel: string; reason: string}>>([])
+  const [connectedPlatforms, setConnectedPlatforms] = useState<Set<string>>(new Set())
+  const [postingId, setPostingId] = useState<string | null>(null)
   const [rewritingId, setRewritingId] = useState<string | null>(null)
   const [hashtagLoadingId, setHashtagLoadingId] = useState<string | null>(null)
 
@@ -112,6 +114,13 @@ export default function MarketingPage() {
       setIdeas(d.ideas ?? [])
       // Check event-driven suggestions
       fetchEventSuggestions(token)
+      // Load connected platforms
+      fetch(`/api/marketing/connections?brand=${encodeURIComponent(brand)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).then(r => r.json()).then(d => {
+        const active = new Set((d.connections ?? []).filter((c: {is_active:boolean}) => c.is_active).map((c: {platform:string}) => c.platform))
+        setConnectedPlatforms(active as Set<string>)
+      }).catch(() => {})
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -320,6 +329,27 @@ export default function MarketingPage() {
       } else showToast(d.error ?? 'Rewrite failed')
     } catch { showToast('Network error') }
     finally { setRewritingId(null) }
+  }
+
+  // ── Post Now ──────────────────────────────────────────────────────────────
+  async function postNow(idea: Idea) {
+    if (!authToken || postingId) return
+    const platformId = idea.channel.toLowerCase().replace(/\s+/g, '_')
+    if (!confirm(`Post this to ${idea.channel}?\n\n${(idea.body ?? '').slice(0, 200)}`)) return
+    setPostingId(idea.id)
+    try {
+      const res = await fetch('/api/marketing/post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ platform: platformId, content: idea.body, brand: selectedBrand, idea_id: idea.id }),
+      })
+      const d = await res.json()
+      if (res.ok) {
+        setIdeas(prev => prev.map(i => i.id === idea.id ? { ...i, status: 'posted', posted_at: new Date().toISOString() } : i))
+        showToast(`🚀 Posted to ${idea.channel}!`)
+      } else { showToast(d.error ?? 'Post failed') }
+    } catch { showToast('Network error') }
+    finally { setPostingId(null) }
   }
 
   // ── Hashtag assistant ─────────────────────────────────────────────────────
@@ -531,6 +561,8 @@ export default function MarketingPage() {
                   onDelete={() => deleteIdea(idea.id)}
                   onToneRewrite={tone => rewriteWithTone(idea, tone)}
                   onGetHashtags={() => getHashtags(idea)}
+                  onPostNow={() => postNow(idea)}
+                  isConnected={connectedPlatforms.has(idea.channel.toLowerCase().replace(/\s+/g,'_'))}
                   copiedId={copiedId}
                   ownId={idea.id}
                   rewriting={rewritingId === idea.id}
@@ -658,7 +690,7 @@ function CalendarGrid({ ideas }: { ideas: Idea[] }) {
 }
 
 // ── ContentCard ───────────────────────────────────────────────────────────────
-function ContentCard({ idea, onBodyEdit, onSubjectEdit, onCopy, onDownload, onMarkPosted, onDelete, onToneRewrite, onGetHashtags, copiedId, ownId, rewriting, hashtagLoading }: {
+function ContentCard({ idea, onBodyEdit, onSubjectEdit, onCopy, onDownload, onMarkPosted, onDelete, onToneRewrite, onGetHashtags, onPostNow, copiedId, ownId, rewriting, hashtagLoading, isConnected }: {
   idea: Idea
   onBodyEdit: (v: string) => void
   onSubjectEdit: (v: string) => void
@@ -668,10 +700,12 @@ function ContentCard({ idea, onBodyEdit, onSubjectEdit, onCopy, onDownload, onMa
   onDelete: () => void
   onToneRewrite: (tone: string) => void
   onGetHashtags: () => void
+  onPostNow?: () => void
   copiedId: string | null
   ownId: string
   rewriting?: boolean
   hashtagLoading?: boolean
+  isConnected?: boolean
 }) {
   const isAtty = idea.channel === 'Attorney Outreach'
   const isSocial = idea.channel === 'TikTok' || idea.channel === 'Instagram'
@@ -694,6 +728,11 @@ function ContentCard({ idea, onBodyEdit, onSubjectEdit, onCopy, onDownload, onMa
           <span className="text-xs text-gray-400">{STATUS_LABELS[idea.status]}</span>
         </div>
         <div className="flex items-center gap-1.5">
+          {!isPosted && isConnected && onPostNow && (
+            <button onClick={onPostNow} className="text-xs px-2.5 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-semibold">
+              🚀 Post Now
+            </button>
+          )}
           {!isPosted && (
             <button onClick={onMarkPosted} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100">
               📤 Mark Posted

@@ -547,6 +547,12 @@ export default function AdminPage() {
             >
               <span className="mr-2">📣</span>Marketing
             </Link>
+            <Link
+              href="/admin/marketing/connections"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50 pl-6"
+            >
+              <span className="mr-2">🔌</span>Connections
+            </Link>
           </div>
         </nav>
 
