@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import PattieThinking from '@/components/PattieThinking'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
@@ -496,7 +497,7 @@ export default function MarketingPage() {
                 )}
                 <button onClick={generateIdeas} disabled={generatingIdeas}
                   className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50">
-                  {generatingIdeas ? '⏳ Generating…' : '✨ Generate Ideas'}
+                  {generatingIdeas ? <PattieThinking variant="dot" stages={['Researching your channels…','Thinking about your patents…','Ranking by impact…']} /> : '✨ Generate Ideas'}
                 </button>
               </div>
             </div>
@@ -926,7 +927,7 @@ function ContentCard({ idea, onBodyEdit, onSubjectEdit, onCopy, onDownload, onMa
                     {t.label}
                   </button>
                 ))}
-                {rewriting && <span className="text-xs text-indigo-500 animate-pulse ml-1">✨ Rewriting…</span>}
+                {rewriting && <PattieThinking variant="inline" stage="Rewriting in selected tone…" />}
               </div>
             )}
             <textarea value={idea.body ?? ''} onChange={e => onBodyEdit(e.target.value)} rows={5}

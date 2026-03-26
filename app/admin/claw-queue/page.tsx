@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useCallback } from 'react'
+import PattieThinking from '@/components/PattieThinking'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -856,7 +857,7 @@ export default function ClawQueuePage() {
                 disabled={!smartInput.trim() || smartAnalyzing}
                 className="px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg hover:bg-amber-700 disabled:opacity-40 transition-colors"
               >
-                {smartAnalyzing ? '⏳ Analyzing…' : 'Analyze with Pattie →'}
+                {smartAnalyzing ? <PattieThinking variant="dot" stage="Reading your prompt…" /> : 'Analyze with Pattie →'}
               </button>
             </div>
 
