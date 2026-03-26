@@ -177,6 +177,9 @@ export default function AdminPage() {
   const [intakeSaving, setIntakeSaving] = useState(false)
   const [intakeSaved, setIntakeSaved] = useState(false)
   const [intakeInput, setIntakeInput] = useState<number>(0)
+  const [pattieCtx, setPattieCtx] = useState<string>('')
+  const [pattieCtxSaving, setPattieCtxSaving] = useState(false)
+  const [pattieCtxSaved, setPattieCtxSaved] = useState(false)
   React.useEffect(() => {
     if (!authToken) return
     supabase.from('app_settings').select('value').eq('key', 'claw_nightly_new_patent_limit').single()
@@ -184,12 +187,30 @@ export default function AdminPage() {
         const v = data ? parseInt(data.value, 10) : 0
         setIntakeLimit(v); setIntakeInput(v)
       })
+    // Load Pattie context
+    fetch('/api/admin/pattie-context', { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.context_json) setPattieCtx(JSON.stringify(d.context_json, null, 2)) })
+      .catch(() => {})
   }, [authToken])
   async function saveIntakeLimit() {
     setIntakeSaving(true); setIntakeSaved(false)
     await supabase.from('app_settings').upsert({ key: 'claw_nightly_new_patent_limit', value: String(intakeInput) })
     setIntakeLimit(intakeInput); setIntakeSaving(false); setIntakeSaved(true)
     setTimeout(() => setIntakeSaved(false), 3000)
+  }
+  async function savePattieCtx() {
+    try {
+      JSON.parse(pattieCtx) // validate
+    } catch { alert('Invalid JSON — fix syntax before saving'); return }
+    setPattieCtxSaving(true)
+    await fetch('/api/admin/pattie-context', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ context_json: JSON.parse(pattieCtx) }),
+    })
+    setPattieCtxSaving(false); setPattieCtxSaved(true)
+    setTimeout(() => setPattieCtxSaved(false), 3000)
   }
   function toggleSort(col: 'score' | 'deadline' | 'updated') {
     setPatentSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: col === 'updated' ? 'desc' : col === 'score' ? 'desc' : 'asc' })
@@ -695,6 +716,30 @@ export default function AdminPage() {
                     <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded-full">⏸ Paused</span>
                   )}
                 </div>
+              </div>
+
+              {/* ── Pattie Context Editor ────────────────────────────── */}
+              <div className="mb-4 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-semibold text-indigo-900">🤖 Pattie Founder Context</p>
+                    <p className="text-xs text-indigo-600 mt-0.5">Injected into every Pattie call. Edit JSON and save.</p>
+                  </div>
+                  <button
+                    onClick={savePattieCtx}
+                    disabled={pattieCtxSaving}
+                    className="px-3 py-1.5 bg-indigo-700 text-white text-sm font-semibold rounded-lg hover:bg-indigo-800 disabled:opacity-50 shrink-0"
+                  >
+                    {pattieCtxSaving ? 'Saving…' : pattieCtxSaved ? 'Saved ✓' : 'Save'}
+                  </button>
+                </div>
+                <textarea
+                  value={pattieCtx}
+                  onChange={e => setPattieCtx(e.target.value)}
+                  rows={8}
+                  className="w-full font-mono text-xs border border-indigo-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
+                  placeholder="Loading…"
+                />
               </div>
 
               {(() => {

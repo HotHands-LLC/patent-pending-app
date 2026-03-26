@@ -20,6 +20,7 @@ import {
   type RetrievalContext,
   BLOCKING_TO_TOPIC as _BLOCKING_TO_TOPIC,
 } from '@/lib/pattie-knowledge-retrieval'
+import { getPattieContext } from '@/lib/pattie-context'
 
 export const maxDuration = 60
 
@@ -326,7 +327,11 @@ ${nonprovDeadline ? `Non-provisional deadline: ${new Date(nonprovDeadline).toLoc
 ---
 ` : ''
 
+  // Fetch persistent founder context (non-blocking)
+  const founderContext = await getPattieContext('pp.app', patentId).catch(() => '')
+
   const systemPrompt = `You are Pattie, the helpful assistant built into PatentPending — an app that helps inventors file and manage their own patents.
+${founderContext ? `\n${founderContext}\n` : ''}
 
 You are currently helping with the patent: "${patent.title}"
 ${founderStoryBlock}

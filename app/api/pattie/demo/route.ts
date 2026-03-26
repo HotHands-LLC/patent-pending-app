@@ -9,6 +9,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createHash } from 'crypto'
+import { getPattieContext } from '@/lib/pattie-context'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -416,7 +417,7 @@ export async function POST(req: NextRequest) {
             model: 'claude-sonnet-4-6',
             max_tokens: 1024,
             stream: true,
-            system: DEMO_SYSTEM_PROMPT,
+            system: DEMO_SYSTEM_PROMPT + '\n\n' + (await getPattieContext('pp.app').catch(() => '')),
             messages,
           }),
         })
