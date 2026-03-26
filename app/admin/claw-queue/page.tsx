@@ -250,6 +250,8 @@ function MarkDoneModal({ item, onClose, onSaved, authToken }: DoneModalProps) {
 export default function ClawQueuePage() {
   const router = useRouter()
   const [items, setItems] = useState<QueueItem[]>([])
+  const [activityLog, setActivityLog] = useState<Array<{id: string; message: string; level: string; created_at: string; prompt_label: string | null}>>([])
+  const activityRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
   const [loading, setLoading] = useState(true)
   const [authToken, setAuthToken] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -313,6 +315,29 @@ export default function ClawQueuePage() {
         })
     })
   }, [router])
+
+  // ── Activity log polling ───────────────────────────────────────────────────
+  const fetchActivity = useCallback(async () => {
+    const { data } = await supabase
+      .from('claw_activity_log')
+      .select('id, message, level, created_at, prompt_label')
+      .order('created_at', { ascending: false })
+      .limit(30)
+    if (data) setActivityLog(data)
+  }, [])
+
+  // Poll activity every 10s when there's an in-progress item
+  useEffect(() => {
+    const hasInProgress = items.some(i => i.status === 'in_progress')
+    if (hasInProgress) {
+      fetchActivity()
+      activityRef.current = setInterval(fetchActivity, 10000)
+    } else {
+      if (activityRef.current) { clearInterval(activityRef.current); activityRef.current = null }
+      fetchActivity() // one final fetch
+    }
+    return () => { if (activityRef.current) clearInterval(activityRef.current) }
+  }, [items, fetchActivity])
 
   // ── Fetch queue ────────────────────────────────────────────────────────────
   const fetchQueue = useCallback(async (token: string) => {
@@ -988,6 +1013,50 @@ export default function ClawQueuePage() {
               >
                 + Add your first prompt
               </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Live Activity Feed ───────────────────────────────────────────── */}
+        <div className="mt-6 bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
+              📡 Live Activity
+              {items.some(i => i.status === 'in_progress') && (
+                <span className="ml-2 inline-flex items-center gap-1 text-green-600">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
+                  Live
+                </span>
+              )}
+            </span>
+            <button onClick={fetchActivity} className="text-xs text-gray-400 hover:text-gray-600">↻</button>
+          </div>
+          {activityLog.length === 0 ? (
+            <div className="px-5 py-6 text-center text-xs text-gray-400">
+              No activity yet. Activity appears here when queue items run.
+            </div>
+          ) : (
+            <div className="max-h-64 overflow-y-auto">
+              {activityLog.map(entry => {
+                const colors: Record<string, string> = {
+                  info: 'text-gray-600', success: 'text-green-700',
+                  warning: 'text-amber-700', error: 'text-red-700',
+                }
+                const icons: Record<string, string> = {
+                  info: '•', success: '✅', warning: '⚠️', error: '❌',
+                }
+                return (
+                  <div key={entry.id} className="px-4 py-2 border-b border-gray-50 last:border-0 flex items-start gap-2">
+                    <span className="text-xs mt-0.5 shrink-0">{icons[entry.level] ?? '•'}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className={`text-xs ${colors[entry.level] ?? 'text-gray-600'}`}>{entry.message}</span>
+                      <span className="text-[10px] text-gray-300 ml-2">
+                        {new Date(entry.created_at).toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
