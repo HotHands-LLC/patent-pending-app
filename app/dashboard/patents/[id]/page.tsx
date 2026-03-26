@@ -1151,7 +1151,23 @@ function AdminTab({ patent, authToken, userEmail, onRescore }: {
           </div>
         </div>
         {scores == null ? (
-          <p className="text-xs text-gray-400 italic">Score available after AI evaluation. Use Re-Score above.</p>
+          // For human-filed patents: show Filing Readiness checklist instead of broken N/V/C
+          <div className="space-y-1.5">
+            <p className="text-xs text-gray-500 mb-2 italic">
+              Novelty/Commercial scores are generated for AI-drafted patents.
+              For manually filed patents, use the Filing Readiness checklist:
+            </p>
+            {checks.map(ch => (
+              <div key={ch.label} className="flex items-center gap-2 text-xs">
+                <span>{ch.ok ? '✅' : '❌'}</span>
+                <span className="w-24 font-medium text-gray-700">{ch.label}</span>
+                <span className="text-gray-400">{ch.detail}</span>
+              </div>
+            ))}
+            {ipScore != null && (
+              <p className="text-xs text-indigo-600 font-semibold mt-2">IP Readiness: {ipScore}/100</p>
+            )}
+          </div>
         ) : (
           <div className="space-y-2">
             <ScoreBar label="Novelty" value={n ?? null} />
