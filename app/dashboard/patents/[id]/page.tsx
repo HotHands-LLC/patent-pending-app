@@ -1114,6 +1114,8 @@ export default function PatentDetail() {
   const [figureDescDraft, setFigureDescDraft] = useState<Record<string, string>>({})
   const [figurePattieLoading, setFigurePattieLoading] = useState<Record<string, boolean>>({})
   const [figurePattieResult, setFigurePattieResult] = useState<Record<string, string>>({})
+  const [figurePattieInputOpen, setFigurePattieInputOpen] = useState<Record<string, boolean>>({})
+  const [figurePattieInputText, setFigurePattieInputText] = useState<Record<string, string>>({})
   const [userEmail, setUserEmail] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollStartRef = useRef<number | null>(null)
@@ -3296,32 +3298,15 @@ export default function PatentDetail() {
                                     >
                                       Save
                                     </button>
-                                    {/* Pattie analyze button */}
+                                    {/* Pattie analyze button — two-step: input gate then analysis */}
                                     {isPro ? (
                                       <button
-                                        onClick={async () => {
-                                          if (!fig.path) { showToast('Figure path unavailable'); return }
-                                          setFigurePattieLoading(prev => ({ ...prev, [fig.filename]: true }))
-                                          setFigurePattieResult(prev => { const n = { ...prev }; delete n[fig.filename]; return n })
-                                          try {
-                                            const res = await fetch('/api/pattie/analyze-figure', {
-                                              method: 'POST',
-                                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-                                              body: JSON.stringify({
-                                                patentId: patent.id,
-                                                filename: fig.filename,
-                                                figureNumber: fig.number,
-                                                storagePath: fig.path,
-                                              }),
-                                            })
-                                            const d = await res.json()
-                                            if (res.ok && d.description) {
-                                              setFigurePattieResult(prev => ({ ...prev, [fig.filename]: d.description }))
-                                            } else {
-                                              showToast(d.error ?? 'Pattie could not analyze this figure')
-                                            }
-                                          } catch { showToast('Analysis failed') }
-                                          finally { setFigurePattieLoading(prev => ({ ...prev, [fig.filename]: false })) }
+                                        onClick={() => {
+                                          if (pattieLoading) return
+                                          // Open input gate, pre-populate with existing description
+                                          const existing = figureDescDraft[fig.filename] ?? figureDescriptions[fig.filename] ?? ''
+                                          setFigurePattieInputText(prev => ({ ...prev, [fig.filename]: existing }))
+                                          setFigurePattieInputOpen(prev => ({ ...prev, [fig.filename]: true }))
                                         }}
                                         disabled={pattieLoading}
                                         className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-100 disabled:opacity-50 transition-colors"
@@ -3343,6 +3328,62 @@ export default function PatentDetail() {
                                   </div>
                                 </div>
                               </div>
+                              {/* Pattie input gate — shown after clicking Ask Pattie, before analysis fires */}
+                              {figurePattieInputOpen[fig.filename] && !pattieLoading && (
+                                <div className="border-t border-indigo-100 bg-indigo-50/60 px-3 py-3">
+                                  <p className="text-xs font-semibold text-indigo-700 mb-1.5">Describe what this figure shows</p>
+                                  <textarea
+                                    value={figurePattieInputText[fig.filename] ?? ''}
+                                    onChange={e => setFigurePattieInputText(prev => ({ ...prev, [fig.filename]: e.target.value }))}
+                                    placeholder="e.g. Cross-section view of the sensor array showing layers A, B, and C"
+                                    rows={2}
+                                    autoFocus
+                                    className="w-full text-xs border border-indigo-200 rounded-lg px-2.5 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white text-gray-700 placeholder-gray-300 mb-2"
+                                  />
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      disabled={!(figurePattieInputText[fig.filename] ?? '').trim()}
+                                      onClick={async () => {
+                                        if (!fig.path) { showToast('Figure path unavailable'); return }
+                                        const userContext = (figurePattieInputText[fig.filename] ?? '').trim()
+                                        setFigurePattieInputOpen(prev => ({ ...prev, [fig.filename]: false }))
+                                        setFigurePattieLoading(prev => ({ ...prev, [fig.filename]: true }))
+                                        setFigurePattieResult(prev => { const n = { ...prev }; delete n[fig.filename]; return n })
+                                        try {
+                                          const res = await fetch('/api/pattie/analyze-figure', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                                            body: JSON.stringify({
+                                              patentId: patent.id,
+                                              filename: fig.filename,
+                                              figureNumber: fig.number,
+                                              storagePath: fig.path,
+                                              userContext,
+                                            }),
+                                          })
+                                          const d = await res.json()
+                                          if (res.ok && d.description) {
+                                            setFigurePattieResult(prev => ({ ...prev, [fig.filename]: d.description }))
+                                          } else {
+                                            showToast(d.error ?? 'Pattie could not analyze this figure')
+                                          }
+                                        } catch { showToast('Analysis failed') }
+                                        finally { setFigurePattieLoading(prev => ({ ...prev, [fig.filename]: false })) }
+                                      }}
+                                      className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                      Analyze with Pattie →
+                                    </button>
+                                    <button
+                                      onClick={() => setFigurePattieInputOpen(prev => ({ ...prev, [fig.filename]: false }))}
+                                      className="text-xs text-indigo-500 hover:text-indigo-700"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
                               {/* Pattie suggestion block */}
                               {pattieResult && (
                                 <div className="border-t border-indigo-100 bg-indigo-50 px-3 py-2.5">
