@@ -38,12 +38,12 @@ export function computeStepStatus(patent: Patent): boolean[] {
     !!(isAnyFiled || patent.payment_confirmed_at || hasClaimsDraft),
     // 3 Claims Generated
     !!(isAnyFiled || patent.claims_status === 'complete' || hasClaimsDraft),
-    // 4 Claims Approved — a filed patent has approved claims by definition
-    !!(isAnyFiled || patent.filing_status === 'approved'),
-    // 5 Specification Uploaded — filed = spec was uploaded
-    !!(isAnyFiled || patent.spec_uploaded),
-    // 6 Drawings Uploaded — filed = drawings were submitted (or optional prov)
-    !!(isAnyFiled || patent.figures_uploaded),
+    // 4 Claims Approved — a filed patent has approved claims by definition; Claw patents auto-approve if claims exist
+    !!(isAnyFiled || patent.filing_status === 'approved' || (hasClaimsDraft && (patent as Record<string,unknown>).is_claw_draft)),
+    // 5 Specification Uploaded — filed = spec was uploaded OR spec_draft has content (Claw-generated)
+    !!(isAnyFiled || patent.spec_uploaded || (((patent as Record<string,unknown>).spec_draft as string | null)?.length ?? 0) > 100),
+    // 6 Drawings Uploaded — filed = drawings were submitted; Claw patents with generated figures count
+    !!(isAnyFiled || patent.figures_uploaded || (patent as Record<string,unknown>).is_claw_draft),
     // 7 Cover Sheet Acknowledged
     !!(isAnyFiled || patent.cover_sheet_acknowledged),
     // 8 Filed with USPTO — true when provisional_filed_at is set
