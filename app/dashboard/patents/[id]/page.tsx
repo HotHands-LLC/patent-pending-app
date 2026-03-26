@@ -6,6 +6,7 @@ import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import CorrespondenceForm from '@/components/CorrespondenceForm'
 import FilingProgressTracker, { computeStepStatus, currentStep } from '@/components/FilingProgressTracker'
+import FilingTimeline from '@/components/FilingTimeline'
 import DocumentUploadZone from '@/components/DocumentUploadZone'
 import {
   supabase, Patent, PatentDeadline, PatentCorrespondence,
@@ -2267,6 +2268,8 @@ export default function PatentDetail() {
         {tab === 'details' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+              {/* Filing Journey Timeline */}
+              <FilingTimeline patent={patent} />
               <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
                 <h2 className="font-semibold text-[#1a1f36] mb-4">Patent Details</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
