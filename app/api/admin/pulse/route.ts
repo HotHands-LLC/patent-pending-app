@@ -119,5 +119,18 @@ export async function GET(req: NextRequest) {
         }
       } catch { return { status: 'unknown', minutes_ago: null } }
     })(),
+    llm_status: await (async () => {
+      try {
+        const { data } = await svc.from('llm_budget_config').select('provider,is_blocked,blocked_until,monthly_limit_usd,current_month_spend_usd')
+        return (data ?? []).map((p: Record<string, unknown>) => ({
+          provider: p.provider,
+          is_blocked: p.is_blocked,
+          blocked_until: p.blocked_until,
+          pct_used: p.monthly_limit_usd && p.current_month_spend_usd
+            ? Math.round((Number(p.current_month_spend_usd) / Number(p.monthly_limit_usd)) * 100)
+            : null,
+        }))
+      } catch { return [] }
+    })(),
   })
 }
