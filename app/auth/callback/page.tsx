@@ -104,6 +104,14 @@ function CallbackHandler() {
       } catch { /* non-fatal — fall through to dashboard */ }
     }
 
+    // Check if new user (no patents yet) → send to welcome
+    try {
+      const { data: { session: s2 } } = await supabase.auth.getSession()
+      if (s2) {
+        const { count } = await supabase.from('patents').select('id', { count: 'exact', head: true }).eq('owner_id', s2.user.id)
+        if ((count ?? 0) === 0) { router.push('/welcome'); return }
+      }
+    } catch { /* non-fatal */ }
     router.push('/dashboard')
   }
 

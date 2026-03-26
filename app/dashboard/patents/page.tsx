@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import { supabase, Patent, getDaysUntil, getUrgencyBadge } from '@/lib/supabase'
 import NewPatentModal from '@/components/NewPatentModal'
+import OnboardingChecklist from '@/components/OnboardingChecklist'
 
 const STATUS_COLORS: Record<string, string> = {
   provisional: 'bg-blue-100 text-blue-800',
@@ -59,6 +60,7 @@ export default function PatentsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
+      <OnboardingChecklist patentCount={patents.length} />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex items-center justify-between mb-6 sm:mb-8">
           <div>

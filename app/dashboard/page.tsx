@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
@@ -97,6 +97,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
+      <OnboardingChecklist authToken={authToken} patents={patents} />
 
       {/* Pro 2FA prompt banner */}
       {show2FABanner && (
@@ -303,6 +304,83 @@ export default function Dashboard() {
           onClose={() => setShowNewModal(false)}
           authToken={authToken}
         />
+      )}
+    </div>
+  )
+}
+
+// ── OnboardingChecklist ───────────────────────────────────────────────────────
+function OnboardingChecklist({ authToken, patents }: { authToken: string; patents: Patent[] }) {
+  const [dismissed, setDismissed] = React.useState(false)
+  const [collapsed, setCollapsed] = React.useState(false)
+  const [intent, setIntent] = React.useState<string | null>(null)
+  const [loaded, setLoaded] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!authToken) return
+    fetch('/api/onboarding', { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => r.json())
+      .then(d => {
+        setIntent(d.intent ?? null)
+        setDismissed(d.onboarding_dismissed ?? false)
+        setLoaded(true)
+      }).catch(() => setLoaded(true))
+  }, [authToken])
+
+  async function dismiss() {
+    setDismissed(true)
+    fetch('/api/onboarding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ onboarding_dismissed: true }),
+    }).catch(() => {})
+  }
+
+  if (!loaded || dismissed) return null
+
+  const hasPatent = patents.length > 0
+  const hasDraft = patents.some(p => p.claims_draft)
+  const hasReviewed = patents.some(p => p.filing_status === 'approved' || p.filing_status === 'provisional_filed')
+
+  const steps = [
+    { label: 'Create your account', done: true },
+    { label: 'Tell Pattie about your goal', done: !!intent },
+    { label: 'Add your first invention', done: hasPatent },
+    { label: 'Review your patent draft', done: hasDraft },
+    { label: 'Check your filing readiness', done: hasReviewed },
+  ]
+
+  const nextStep = steps.find(s => !s.done)
+  const allDone = steps.every(s => s.done)
+
+  if (allDone) return null
+
+  return (
+    <div className="fixed bottom-24 right-6 z-30 w-72 bg-white rounded-2xl shadow-xl border border-indigo-100 overflow-hidden">
+      <div className="px-4 py-3 bg-indigo-600 text-white flex items-center justify-between">
+        <span className="text-sm font-bold">🚀 Getting Started</span>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setCollapsed(c => !c)} className="text-indigo-200 hover:text-white text-xs">{collapsed ? '▲' : '▼'}</button>
+          <button onClick={dismiss} className="text-indigo-200 hover:text-white text-sm leading-none">✕</button>
+        </div>
+      </div>
+      {!collapsed && (
+        <div className="px-4 py-3 space-y-2">
+          {steps.map((step, i) => (
+            <div key={i} className="flex items-center gap-2.5">
+              <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 text-[10px] font-bold ${step.done ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300'}`}>
+                {step.done ? '✓' : ''}
+              </span>
+              <span className={`text-xs ${step.done ? 'text-gray-400 line-through' : 'text-gray-700 font-medium'}`}>{step.label}</span>
+            </div>
+          ))}
+          {nextStep && (
+            <a href={nextStep.label.includes('invention') ? '/dashboard/patents/new' : nextStep.label.includes('Pattie') ? '/welcome' : '/dashboard/patents'}
+              className="block mt-3 w-full text-center py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-colors">
+              Continue →
+            </a>
+          )}
+        </div>
       )}
     </div>
   )
