@@ -50,6 +50,12 @@ export async function POST(req: NextRequest) {
   // Update idea status + record post
   if (idea_id) {
     await svc.from('marketing_ideas').update({ status: 'posted', posted_at: new Date().toISOString() }).eq('id', idea_id)
+    // Log to social_post_log
+    await svc.from('social_post_log').insert({
+      brand: brand ?? 'pp.app', platform, post_type: 'post',
+      post_url: postResult.url ?? null, marketing_idea_id: idea_id,
+      posted_at: new Date().toISOString(),
+    }).then(() => {}).catch(() => {})
   }
   await svc.from('platform_credentials').update({
     last_post_at: new Date().toISOString(),
