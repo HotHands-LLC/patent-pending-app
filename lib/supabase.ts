@@ -136,15 +136,21 @@ export type PatentCorrespondence = {
 }
 
 export const CORRESPONDENCE_TYPE_LABELS: Record<string, string> = {
-  uspto_action: 'USPTO Action',
-  filing: 'Filing',
-  email: 'Email',
-  attorney_note: 'Attorney Note',
-  boclaw_note: 'Pattie Note',
-  deadline_notice: 'Deadline Notice',
-  ai_research: 'AI Research',
-  marketplace_inquiry: 'Marketplace',
-  other: 'Other',
+  uspto_action:       '🏛️ USPTO Response',
+  filing:             '📄 Filing Document',
+  email:              '📧 Email',
+  attorney_note:      '⚖️ Attorney Note',
+  boclaw_note:        '🤖 Pattie Update',
+  pattie_note:        '🤖 Pattie Update',
+  deadline_notice:    '⏰ Deadline Notice',
+  ai_research:        '🔬 Research',
+  ai_improvement:     '✨ Improvement',
+  improvement:        '✨ Improvement',
+  system:             '⚙️ System Event',
+  marketplace_inquiry:'🏪 Marketplace',
+  research_report:    '🔬 Research Report',
+  manual:             '📝 Note',
+  other:              '📌 Update',
 }
 
 export const CORRESPONDENCE_TYPE_COLORS: Record<string, string> = {

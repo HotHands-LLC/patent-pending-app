@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { computeIpReadinessScore } from '@/lib/ip-readiness'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -83,7 +84,7 @@ export async function POST(
   // Fetch patent
   const { data: patent } = await supabase
     .from('patents')
-    .select('id, title, spec_draft, claims_draft, abstract_draft, description, owner_id')
+    .select('id, title, spec_draft, claims_draft, abstract_draft, description, owner_id, provisional_filed_at, filing_status, figures, deal_page_brief, marketplace_tags, asking_price_range')
     .eq('id', patentId)
     .single()
 
@@ -166,11 +167,26 @@ export async function POST(
     })
   }
 
+  // Compute and update ip_readiness_score
+  const ipScore = computeIpReadinessScore({
+    provisional_filed_at: patent.provisional_filed_at as string | null,
+    filing_status:        patent.filing_status as string | null,
+    spec_draft:           patent.spec_draft as string | null,
+    claims_draft:         patent.claims_draft as string | null,
+    abstract_draft:       patent.abstract_draft as string | null,
+    figures:              patent.figures as unknown[] | null,
+    deal_page_brief:      patent.deal_page_brief as string | null,
+    marketplace_tags:     patent.marketplace_tags as string[] | null,
+    asking_price_range:   patent.asking_price_range as string | null,
+  })
+  await supabase.from('patents').update({ ip_readiness_score: ipScore }).eq('id', patentId)
+
   return NextResponse.json({
-    novelty_score:     novelty,
-    commercial_score:  commercial,
-    filing_complexity: complexity,
-    composite_score:   composite,
-    scored_at:         scoredAt,
+    novelty_score:      novelty,
+    commercial_score:   commercial,
+    filing_complexity:  complexity,
+    composite_score:    composite,
+    ip_readiness_score: ipScore,
+    scored_at:          scoredAt,
   })
 }

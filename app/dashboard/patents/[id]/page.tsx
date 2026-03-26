@@ -743,8 +743,9 @@ function ScoreBar({ label, value, note, invert }: { label: string; value: number
   )
 }
 
-function AdminTab({ patent, authToken, userEmail }: {
+function AdminTab({ patent, authToken, userEmail, onRescore }: {
   patent: Patent; authToken: string; userEmail: string
+  onRescore?: (ipScore: number, compositeScore: number) => void
 }) {
   const [scores, setScores] = useState<{
     novelty_score: number | null; commercial_score: number | null
@@ -778,7 +779,11 @@ function AdminTab({ patent, authToken, userEmail }: {
         filing_complexity: data.filing_complexity, composite_score: data.composite_score,
         scored_at: data.scored_at,
       })
-      setRescoreMsg(`✅ Scored at ${new Date(data.scored_at).toLocaleTimeString()}`)
+      // Bubble updated scores to parent component
+      if (data.ip_readiness_score != null) {
+        onRescore?.(data.ip_readiness_score, data.composite_score)
+      }
+      setRescoreMsg(`✅ Composite: ${data.composite_score}/100${data.ip_readiness_score != null ? ` · IP: ${data.ip_readiness_score}/100` : ''} | ${new Date(data.scored_at).toLocaleTimeString()}`)
     } catch { setRescoreMsg('Network error') }
     finally { setRescoring(false) }
   }
@@ -955,7 +960,7 @@ function SystemCorrespondencePanel({ patentId, authToken }: { patentId: string; 
   if (items.length === 0) return null
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <h2 className="font-bold text-gray-900 text-sm mb-3">System Correspondence (last 5)</h2>
+      <h2 className="font-bold text-gray-900 text-sm mb-3">System Journal (last 5)</h2>
       <div className="space-y-2">
         {items.map(item => (
           <div key={item.id} className="border border-gray-100 rounded-lg p-3">
@@ -1876,7 +1881,7 @@ export default function PatentDetail() {
               }`}
             >
               {t === 'correspondence'
-                ? `Correspondence (${correspondence.length + uploadedFiles.length})`
+                ? `Journal (${correspondence.length + uploadedFiles.length})`
                 : t === 'filing'
                 ? (() => {
                     const statuses = computeStepStatus(patent)
@@ -2195,7 +2200,7 @@ export default function PatentDetail() {
                         const researchStatus = (patent as Patent & { marketplace_research_status?: string }).marketplace_research_status
                         const brief = (patent as Patent & { deal_page_brief?: Record<string, string> }).deal_page_brief
                         if (researchStatus === 'complete') {
-                          return <p className="text-xs text-green-600 mt-1">📊 Research plan ready — see Correspondence tab</p>
+                          return <p className="text-xs text-green-600 mt-1">📊 Research plan ready — see Journal tab</p>
                         }
                         if (researchStatus === 'pending') {
                           return <p className="text-xs text-gray-400 mt-1 animate-pulse">⏳ Generating research plan…</p>
@@ -3491,7 +3496,15 @@ export default function PatentDetail() {
 
         {/* ── ADMIN TAB ───────────────────────────────────────────────────────── */}
         {tab === 'admin' && ADMIN_EMAILS.includes(userEmail) && patent && authToken && (
-          <AdminTab patent={patent} authToken={authToken} userEmail={userEmail} />
+          <AdminTab
+            patent={patent}
+            authToken={authToken}
+            userEmail={userEmail}
+            onRescore={(ipScore, compositeScore) => {
+              setPatent(prev => prev ? { ...prev, ip_readiness_score: ipScore } : null)
+              showToast(`✅ Score updated: ${compositeScore}/100 composite · ${ipScore}/100 IP readiness`)
+            }}
+          />
         )}
 
         {/* ── ENHANCEMENT TAB ─────────────────────────────────────────────────── */}
@@ -3511,7 +3524,7 @@ export default function PatentDetail() {
               <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
                 <div className="bg-white w-full sm:max-w-2xl sm:rounded-xl rounded-t-xl max-h-[90vh] overflow-y-auto">
                   <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                    <h2 className="font-semibold text-[#1a1f36]">Add Correspondence</h2>
+                    <h2 className="font-semibold text-[#1a1f36]">Add Journal Entry</h2>
                     <button onClick={() => setShowCorrespondenceForm(false)} className="text-gray-400 hover:text-gray-600 text-xl w-8 h-8 flex items-center justify-center">×</button>
                   </div>
                   <div className="p-5">
@@ -3526,7 +3539,7 @@ export default function PatentDetail() {
 
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm text-gray-500">
-                {uploadedFiles.length + correspondence.length} record{(uploadedFiles.length + correspondence.length) !== 1 ? 's' : ''} for this patent
+                {uploadedFiles.length + correspondence.length} entr{(uploadedFiles.length + correspondence.length) !== 1 ? 'ies' : 'y'} in this journal
               </p>
               {canWrite && (
                 <button onClick={() => setShowCorrespondenceForm(true)}
@@ -3577,7 +3590,7 @@ export default function PatentDetail() {
             {correspondence.length === 0 && uploadedFiles.length === 0 ? (
               <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
                 <div className="text-3xl mb-3">📬</div>
-                <p className="text-gray-400 text-sm mb-4">No correspondence for this patent yet.</p>
+                <p className="text-gray-400 text-sm mb-4">No journal entries yet.</p>
                 {canWrite && (
                   <button onClick={() => setShowCorrespondenceForm(true)}
                     className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold min-h-[44px]">
