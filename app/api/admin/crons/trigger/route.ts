@@ -28,6 +28,7 @@ const CRON_IDS: Record<string, string> = {
   'pattie-monitor-nightly': '86c8cb71-8dc7-4d3d-a1be-a09faba2df76',
   'daily-briefing':         'c0ffee01-d41b-4b16-9a3c-bb8e1f2d3a4e',
   'claw-blog-writer':       '228bd93f-31a2-4ef3-83cd-0817715ae674',
+  'claw-autoresearch':      'a8c97114-7126-4c8d-8399-39f935424be5',
   'claw-community-radar':   '801017ea-30e5-4374-9f7f-20564afdb3b2',
 }
 

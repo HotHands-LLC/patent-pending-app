@@ -42,7 +42,7 @@ const STATUS_COLORS: Record<string, string> = {
   abandoned: 'bg-gray-100 text-gray-800',
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'admin'
+type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'admin' | 'ids'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -793,6 +793,183 @@ function MarketplaceSettingsCard({
               onUpdate={onUpdate}
             />
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── IDS Tab ───────────────────────────────────────────────────────────────────
+function IDSTab({ patentId, patent, authToken, isAdmin, showToast }: {
+  patentId: string; patent: Patent; authToken: string; isAdmin: boolean
+  showToast: (msg: string) => void
+}) {
+  const [candidates, setCandidates] = useState<Array<{
+    id: string; prior_art_number: string; prior_art_title: string | null
+    prior_art_date: string | null; prior_art_inventors: string | null
+    source: string | null; relevance_score: number | null; relevance_reason: string | null
+    ids_status: string
+  }>>([])
+  const [loading, setLoading] = useState(true)
+  const [running, setRunning] = useState(false)
+
+  useEffect(() => {
+    fetch(`/api/patents/${patentId}/ids-candidates`, {
+      headers: { Authorization: `Bearer ${authToken}` }
+    }).then(r => r.json()).then(d => {
+      setCandidates(d.candidates ?? d.ids_candidates ?? [])
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [patentId, authToken])
+
+  async function updateStatus(id: string, status: string) {
+    const res = await fetch(`/api/patents/${patentId}/ids-candidates`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ id, ids_status: status }),
+    })
+    if (res.ok) setCandidates(prev => prev.map(c => c.id === id ? { ...c, ids_status: status } : c))
+  }
+
+  async function runResearch() {
+    setRunning(true)
+    try {
+      const res = await fetch(`/api/patents/${patentId}/ids-candidates/generate-draft`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      if (res.ok) {
+        showToast('🔬 Research started — candidates will appear shortly')
+        setTimeout(() => {
+          fetch(`/api/patents/${patentId}/ids-candidates`, {
+            headers: { Authorization: `Bearer ${authToken}` }
+          }).then(r => r.json()).then(d => setCandidates(d.candidates ?? d.ids_candidates ?? []))
+        }, 5000)
+      } else showToast('Research trigger failed')
+    } catch { showToast('Network error') }
+    finally { setRunning(false) }
+  }
+
+  function downloadIDS() {
+    const added = candidates.filter(c => c.ids_status === 'added')
+    const appNum = (patent as Record<string, unknown>).application_number as string | null
+    const lines = [
+      'INFORMATION DISCLOSURE STATEMENT',
+      `Application Number: ${appNum ?? '[enter app number]'}`,
+      `Applicant: ${patent.inventors?.join(', ') ?? '[inventor name]'}`,
+      `Filing Date: ${patent.filing_date ?? '[filing date]'}`,
+      '',
+      'U.S. PATENT DOCUMENTS',
+      '--------------------',
+      ...added.map(c => `${c.prior_art_number} | ${c.prior_art_date ?? 'N/A'} | ${c.prior_art_inventors ?? 'N/A'} | ${c.prior_art_title ?? ''}`)
+      ,
+      '',
+      'FOREIGN PATENT DOCUMENTS',
+      '--------------------',
+      '(none)',
+      '',
+      'NON-PATENT LITERATURE',
+      '--------------------',
+      '(none)',
+      '',
+      'I hereby certify that all information disclosed herein is believed to be material to the patentability of the above-identified application.',
+    ]
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `IDS-${patent.title.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 40)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const pending = candidates.filter(c => c.ids_status === 'candidate')
+  const added = candidates.filter(c => c.ids_status === 'added')
+  const SCORE_COLOR = (s: number | null) => s != null && s >= 80 ? 'bg-red-100 text-red-700' : s != null && s >= 60 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+
+  if (loading) return <div className="text-gray-400 text-sm py-8 text-center">Loading IDS candidates…</div>
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-[#1a1f36]">Information Disclosure Statement</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Prior art candidates found by autoresearch. Add relevant ones to your IDS before filing.</p>
+        </div>
+        <div className="flex gap-2">
+          {added.length > 0 && (
+            <button onClick={downloadIDS}
+              className="px-3 py-2 border border-gray-200 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-50">
+              ⬇️ Download IDS
+            </button>
+          )}
+          <button onClick={runResearch} disabled={running}
+            className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50">
+            {running ? '⏳ Searching…' : '🔬 Run Research Now'}
+          </button>
+        </div>
+      </div>
+
+      {/* Candidates */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+          <span className="text-xs font-bold uppercase tracking-wider text-gray-500">
+            Candidates ({pending.length}) — sorted by relevance
+          </span>
+        </div>
+        {pending.length === 0 ? (
+          <div className="px-5 py-8 text-center text-xs text-gray-400">
+            No candidates yet. Click "Run Research Now" to search prior art databases.
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {pending.sort((a,b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0)).map(c => (
+              <div key={c.id} className="px-4 py-3 flex items-start gap-3">
+                <span className={`px-2 py-0.5 rounded text-xs font-bold shrink-0 mt-0.5 ${SCORE_COLOR(c.relevance_score)}`}>
+                  {c.relevance_score ?? '—'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <a href={`https://patents.google.com/patent/${c.prior_art_number}`} target="_blank" rel="noopener noreferrer"
+                      className="text-xs font-mono text-indigo-600 hover:underline shrink-0">{c.prior_art_number}</a>
+                    <span className="text-xs text-gray-700 truncate">{c.prior_art_title}</span>
+                  </div>
+                  <p className="text-xs text-gray-400">{c.prior_art_date} · {c.prior_art_inventors}</p>
+                  {c.relevance_reason && <p className="text-xs text-gray-500 mt-0.5 italic">{c.relevance_reason}</p>}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => updateStatus(c.id, 'added')}
+                    className="text-xs px-2.5 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold">
+                    ✅ Add
+                  </button>
+                  <button onClick={() => updateStatus(c.id, 'dismissed')}
+                    className="text-xs px-2 py-1.5 text-gray-300 hover:text-red-400">✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* My IDS List */}
+      {added.length > 0 && (
+        <div className="bg-white rounded-xl border border-green-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-green-100 bg-green-50 flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-green-700">My IDS ({added.length})</span>
+            <button onClick={downloadIDS} className="text-xs text-green-700 hover:underline font-semibold">⬇️ Download IDS</button>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {added.map(c => (
+              <div key={c.id} className="px-4 py-3 flex items-center gap-3">
+                <a href={`https://patents.google.com/patent/${c.prior_art_number}`} target="_blank" rel="noopener noreferrer"
+                  className="text-xs font-mono text-indigo-600 hover:underline shrink-0">{c.prior_art_number}</a>
+                <span className="text-xs text-gray-700 flex-1 truncate">{c.prior_art_title}</span>
+                <span className="text-xs text-gray-400">{c.prior_art_date}</span>
+                <button onClick={() => updateStatus(c.id, 'candidate')}
+                  className="text-xs text-gray-300 hover:text-red-400 px-1.5">Remove</button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -1954,13 +2131,14 @@ export default function PatentDetail() {
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
           const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
-          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement', 'admin'] as Tab[])
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'ids', 'correspondence', 'collaborators', 'leads', 'enhancement', 'admin'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               if (t === 'admin') return ADMIN_EMAILS.includes(userEmail)  // admin-only
+              if (t === 'ids') return !isCollaborator || canView('ids')
               return canView(t)
             })
           return (
@@ -2007,6 +2185,7 @@ export default function PatentDetail() {
                   </span>
                 ) : t === 'enhancement' ? '✨ Enhancement'
                 : t === 'admin' ? '⚙️ Admin'
+                : t === 'ids' ? '🔬 IDS'
                 : t === 'details' ? 'Overview'
                 : 'Details'
               }
@@ -3624,6 +3803,11 @@ export default function PatentDetail() {
               )
             })()}
           </div>
+        )}
+
+        {/* ── IDS TAB ─────────────────────────────────────────────────────────── */}
+        {tab === 'ids' && patent && authToken && (
+          <IDSTab patentId={patent.id} patent={patent} authToken={authToken} isAdmin={isAdmin} showToast={showToast} />
         )}
 
         {/* ── ADMIN TAB ───────────────────────────────────────────────────────── */}
