@@ -11,7 +11,7 @@ interface QueueItem {
   id: string
   prompt_label: string
   prompt_body: string
-  status: 'queued' | 'in_progress' | 'complete' | 'skipped'
+  status: 'queued' | 'in_progress' | 'complete' | 'skipped' | 'stuck'
   priority: number
   created_at: string
   started_at: string | null
@@ -35,6 +35,7 @@ const STATUS_COLORS: Record<string, string> = {
   in_progress: 'bg-blue-50 border-blue-200',
   complete: 'bg-green-50 border-green-200',
   skipped: 'bg-gray-50 border-gray-200',
+  stuck: 'bg-orange-50 border-orange-300',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -635,11 +636,23 @@ export default function ClawQueuePage() {
     else showToast('Failed to skip')
   }, [patchItem, reload])
 
+  const reAddItem = useCallback(async (item: QueueItem) => {
+    if (!authToken) return
+    const res = await fetch('/api/admin/claw-queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ prompt_label: item.prompt_label, prompt_body: item.prompt_body, priority: item.priority }),
+    })
+    if (res.ok) { showToast('Re-added to queue'); reload() }
+    else showToast('Re-add failed')
+  }, [authToken, reload])
+
   // ── Grouped items ──────────────────────────────────────────────────────────
   const queued = items.filter(i => i.status === 'queued')
   const inProgress = items.filter(i => i.status === 'in_progress')
   const complete = items.filter(i => i.status === 'complete')
   const skipped = items.filter(i => i.status === 'skipped')
+  const stuck = items.filter(i => i.status === 'stuck')
 
   const firstQueued = queued[0]
 
@@ -1214,6 +1227,29 @@ export default function ClawQueuePage() {
                   {skipped.map(item => renderRow(item, false))}
                 </div>
               )}
+            </section>
+          )}
+
+          {/* ── Stuck ─────────────────────────────────────────────────────── */}
+          {stuck.length > 0 && (
+            <section>
+              <h2 className="text-sm font-bold text-orange-600 uppercase tracking-wide mb-3">
+                ⚠️ Stuck — Auto-Skipped ({stuck.length})
+              </h2>
+              {stuck.map(item => (
+                <div key={item.id} className="border rounded-lg p-3 mb-2 bg-orange-50 border-orange-300">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-gray-900 text-sm flex-1">⚠️ {item.prompt_label}</span>
+                    <button
+                      onClick={() => reAddItem(item)}
+                      className="text-xs px-2 py-1 rounded bg-orange-100 border border-orange-400 text-orange-700 hover:bg-orange-200 transition-colors font-semibold"
+                    >
+                      Re-add to Queue
+                    </button>
+                  </div>
+                  <div className="text-xs text-orange-600 mt-1">Auto-skipped by watchdog — task had no heartbeat</div>
+                </div>
+              ))}
             </section>
           )}
 

@@ -31,6 +31,10 @@
     {
       "path": "/api/admin/health-check",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/admin/queue/watchdog",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
