@@ -268,6 +268,9 @@ export default function ClawQueuePage() {
   const elapsedRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
   const [eta, setEta] = useState<{ canSleep: boolean; canSleepReason: string; estimatedAllComplete: string | null; confidence: string; totalMinutes: number } | null>(null)
   const [autoRunEnabled, setAutoRunEnabled] = useState(true)
+  const [queueStatus, setQueueStatus] = useState<{status:string;active_label:string|null;elapsed_min:number;queued_count:number}|null>(null)
+  const [startingQueue, setStartingQueue] = useState(false)
+  const [startMsg, setStartMsg] = useState('')
   const [securityGateEnabled, setSecurityGateEnabled] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
   const [nextCheckSecs, setNextCheckSecs] = useState(1800) // 30 min default
@@ -430,6 +433,32 @@ export default function ClawQueuePage() {
   const showToast = (msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
+  }
+
+  // ── Queue Status polling (every 15s) ────────────────────────────────────────
+  useEffect(() => {
+    if (!authToken) return
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/admin/queue/status', { headers: { Authorization: `Bearer ${authToken}` } })
+        if (r.ok) setQueueStatus(await r.json())
+      } catch { /* non-blocking */ }
+    }
+    poll()
+    const iv = setInterval(() => { if (document.visibilityState === 'visible') poll() }, 15000)
+    return () => clearInterval(iv)
+  }, [authToken])
+
+  async function startQueue() {
+    if (!authToken) return
+    setStartingQueue(true); setStartMsg('')
+    try {
+      const r = await fetch('/api/admin/queue/start', { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } })
+      const d = await r.json()
+      setStartMsg(r.ok ? `✅ Queue started — ${d.queued ?? 0} items pending` : `❌ ${d.error ?? 'Failed'}`)
+      if (r.ok) { setAutoRunEnabled(true); fetchQueue(authToken) }
+    } catch { setStartMsg('❌ Network error') }
+    finally { setStartingQueue(false) }
   }
 
   // ── Smart Add: Analyze with Pattie ─────────────────────────────────────────
@@ -782,7 +811,28 @@ export default function ClawQueuePage() {
               {firstQueued ? ` · Next: ${firstQueued.prompt_label}` : ''}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Live status badge */}
+            {queueStatus && (
+              <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                queueStatus.status === 'running' ? 'bg-blue-100 text-blue-700' :
+                queueStatus.status === 'paused' ? 'bg-amber-100 text-amber-700' :
+                queueStatus.status === 'stuck' ? 'bg-red-100 text-red-700' :
+                'bg-gray-100 text-gray-600'
+              }`}>
+                {queueStatus.status === 'running' ? `⏳ Running${queueStatus.queued_count > 0 ? ` · ${queueStatus.queued_count} left` : ''}` :
+                 queueStatus.status === 'paused' ? '⏸ Paused' :
+                 queueStatus.status === 'stuck' ? `⚠️ Stuck ${queueStatus.elapsed_min}m` :
+                 '🟢 Idle'}
+              </span>
+            )}
+            {/* Start Queue */}
+            {(!queueStatus || queueStatus.status === 'idle' || queueStatus.status === 'paused') && (
+              <button onClick={startQueue} disabled={startingQueue}
+                className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
+                {startingQueue ? '⏳ Starting…' : '▶ Start Queue'}
+              </button>
+            )}
             <button
               onClick={() => { setShowSmartAdd(s => !s); setSmartResult(null); setSmartInput('') }}
               className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 text-white text-sm font-medium rounded-lg hover:bg-amber-600 transition-colors"
@@ -795,6 +845,7 @@ export default function ClawQueuePage() {
             >
               <span className="text-base leading-none">+</span> Add Prompt
             </button>
+            {startMsg && <span className="text-xs text-gray-600">{startMsg}</span>}
           </div>
         </div>
 
