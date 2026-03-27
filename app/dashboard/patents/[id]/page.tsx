@@ -3954,6 +3954,11 @@ export default function PatentDetail() {
                 </div>
               )
             })()}
+            {/* ── Activity Timeline (below journal) */}
+            <div className="mt-8 border-t border-gray-100 pt-6">
+              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">📡 Activity Log</h3>
+              <PatentActivityTimeline patentId={patent.id} authToken={authToken} />
+            </div>
           </div>
         )}
 

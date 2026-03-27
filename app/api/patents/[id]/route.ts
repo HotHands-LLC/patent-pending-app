@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { computeIpReadinessScore } from '@/lib/ip-readiness'
 import { evaluatePatentPhase } from '@/lib/filing-pipeline'
+import { logActivity } from '@/lib/activity-log'
 
 const supabaseService = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -145,6 +146,29 @@ export async function PATCH(
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // ── Activity log for key field changes ────────────────────────────────────
+  const logFields = ['spec_draft', 'claims_draft', 'abstract_draft', 'filing_status', 'title', 'display_name']
+  for (const field of logFields) {
+    if (body[field] !== undefined && patent && body[field] !== (patent as Record<string,unknown>)[field]) {
+      const action = field === 'claims_draft' ? 'claims_edit'
+        : field === 'spec_draft' ? 'spec_edit'
+        : field === 'filing_status' ? 'status_change'
+        : field === 'title' || field === 'display_name' ? 'title_edit'
+        : 'spec_edit'
+      logActivity({
+        patentId: id,
+        userId: user.id,
+        actorType: 'user',
+        actorLabel: user.email ?? 'User',
+        actionType: action,
+        fieldChanged: field,
+        oldValue: String((patent as Record<string,unknown>)[field] ?? '').slice(0, 500),
+        newValue: String(body[field]).slice(0, 500),
+        summary: `Updated ${field.replace(/_/g,' ')}`,
+      }).catch(() => {})
+    }
   }
 
   // ── Task 3: Referral qualifying event ──────────────────────────────────────
