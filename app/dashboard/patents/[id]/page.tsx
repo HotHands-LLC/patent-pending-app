@@ -4003,7 +4003,6 @@ export default function PatentDetail() {
                 <PatentActivityTimeline patentId={patent.id} authToken={authToken} />
               </div>
             )}
-            {corrSubTab !== 'activity' && <div>
             {showCorrespondenceForm && (
               <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
                 <div className="bg-white w-full sm:max-w-2xl sm:rounded-xl rounded-t-xl max-h-[90vh] overflow-y-auto">
@@ -4151,7 +4150,6 @@ export default function PatentDetail() {
                 ))}
               </div>
             )}
-          </div>}
           </div>
         )}
 
