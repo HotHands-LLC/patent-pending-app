@@ -1106,6 +1106,9 @@ export default function ClawQueuePage() {
                   <label className="block text-xs font-semibold text-gray-500 mb-1">Prompt Body</label>
                   <textarea value={smartBody} onChange={e => setSmartBody(e.target.value)} rows={10}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y" />
+                  <div className={`text-xs mt-1 ${smartBody.trim().length === 0 ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                    {smartBody.length} chars{smartBody.trim().length === 0 ? ' — body is empty! Cannot save.' : ''}
+                  </div>
                 </div>
                 <div className="flex gap-3">
                   <button onClick={saveSmartQueue} disabled={smartSaving || !smartBody.trim() || !smartLabel.trim()}
