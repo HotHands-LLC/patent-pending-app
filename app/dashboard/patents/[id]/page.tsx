@@ -2308,6 +2308,20 @@ export default function PatentDetail() {
         {tab === 'details' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+              {/* Pattie-First Banner — surfaced at top of Overview for easy access */}
+              {!showPattie && canWrite && (!isCollaborator || (collabPerms.pattie ?? false)) && (
+                <button
+                  onClick={() => setShowPattie(true)}
+                  className="w-full flex items-center gap-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl px-5 py-4 hover:from-indigo-700 hover:to-violet-700 transition-all shadow-sm group text-left"
+                >
+                  <span className="text-2xl">🤖</span>
+                  <div className="flex-1">
+                    <p className="font-bold text-sm">Ask Pattie about this patent</p>
+                    <p className="text-xs text-white/70">Strengthen claims · Fix spec gaps · Prep for filing</p>
+                  </div>
+                  <span className="text-white/70 group-hover:text-white text-lg">→</span>
+                </button>
+              )}
               {/* Filing Journey Timeline */}
               <FilingTimeline patent={patent} />
               <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
