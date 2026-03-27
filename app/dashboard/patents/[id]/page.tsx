@@ -4151,8 +4151,7 @@ export default function PatentDetail() {
                 ))}
               </div>
             )}
-          </div>
-          }
+          </div>}
           </div>
         )}
 
