@@ -274,6 +274,45 @@ export default function MissionControlPage() {
     showToast('📋 Copied!')
   }
 
+  async function postDirectly(item: ContentItem & { _rawId?: string }) {
+    const rawId = (item as unknown as { _rawId: string })._rawId ?? item.id
+    const serviceName = DIRECT_POST_PLATFORMS[item.platform]
+    if (!serviceName) return
+    setPostingDirectlyId(item.id)
+    try {
+      const res = await fetch('/api/social/post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ platform: serviceName, content: item.body ?? item.title }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        // Auto-mark as posted
+        if (item.source === 'marketing_ideas') {
+          await supabase.from('marketing_ideas')
+            .update({ status: 'posted', posted_at: new Date().toISOString() })
+            .eq('id', rawId)
+        } else {
+          await supabase.from('social_post_log')
+            .update({ status: 'posted', posted_at: new Date().toISOString() })
+            .eq('id', rawId)
+        }
+        setContentItems(prev => prev.filter(c => c.id !== item.id))
+        if (data.post_url) {
+          showToast(`🚀 Posted! View it → ${data.post_url}`)
+        } else {
+          showToast(`🚀 Posted to ${item.platform}!`)
+        }
+      } else {
+        showToast(`❌ ${data.error ?? 'Post failed'}`)
+      }
+    } catch {
+      showToast('❌ Network error — post failed')
+    } finally {
+      setPostingDirectlyId(null)
+    }
+  }
+
   // ── Radar actions ──────────────────────────────────────────────────────────
 
   async function markReplied(id: string) {
@@ -449,13 +488,23 @@ export default function MissionControlPage() {
                     {item.body && (
                       <p className="text-xs text-gray-500 line-clamp-2 mb-3">{item.body}</p>
                     )}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         onClick={() => copyContent(item)}
                         className="px-3 py-1.5 bg-[#1a1f36] text-white text-xs font-semibold rounded-lg hover:bg-[#2d3561]"
                       >
                         📋 Copy
                       </button>
+                      {/* "Post Directly" — only shown if this platform has an active OAuth connection */}
+                      {DIRECT_POST_PLATFORMS[item.platform] && activeConnections.has(DIRECT_POST_PLATFORMS[item.platform]) && (
+                        <button
+                          onClick={() => postDirectly({ ...item, _rawId: rawId } as ContentItem & { _rawId: string })}
+                          disabled={postingDirectlyId === item.id}
+                          className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {postingDirectlyId === item.id ? '⏳ Posting…' : `🚀 Post to ${item.platform}`}
+                        </button>
+                      )}
                       <button
                         onClick={() => markPosted({ ...item, _rawId: rawId } as ContentItem & { _rawId: string })}
                         disabled={markingPostedId === item.id}
