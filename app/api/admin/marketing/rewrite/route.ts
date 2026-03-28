@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getPattieContext } from '@/lib/pattie-context'
+import { MARKETING_GUARDRAILS } from '@/lib/marketing-guardrails'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30

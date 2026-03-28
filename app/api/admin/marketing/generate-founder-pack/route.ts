@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { MARKETING_GUARDRAILS } from '@/lib/marketing-guardrails'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -8,10 +9,12 @@ const ADMIN_EMAILS = ['support@hotdeck.com', 'agent@hotdeck.com']
 function getUser(t: string) { return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL??'', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY??'', {global:{headers:{Authorization:`Bearer ${t}`}}}) }
 function getSvc() { return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL??'', process.env.SUPABASE_SERVICE_ROLE_KEY??'') }
 
-const FOUNDER_CTX = `Founder: Chad Bostwick — built patentpending.app because he couldn't afford $10K+ in attorney fees.
-Platform: patentpending.app — file your patent, keep your idea. AI-powered patent filing for independent inventors.
+const FOUNDER_CTX = `Founder: Chad Bostwick — built PatentPending.app because he couldn't afford $10K+ in attorney fees.
+Platform: PatentPending.app (https://patentpending.app) — file your patent, keep your idea. AI-powered patent filing for independent inventors.
 First patent filed: RIP2 — Light-Based Communication System for Blind Individuals. Filed March 12, 2026.
 Tone: direct, builder-first, no fluff.`
+
+import { MARKETING_GUARDRAILS } from '@/lib/marketing-guardrails'
 
 async function gemini(prompt: string): Promise<string> {
   const key = process.env.GEMINI_API_KEY ?? ''

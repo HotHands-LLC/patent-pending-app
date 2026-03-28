@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { MARKETING_GUARDRAILS } from '@/lib/marketing-guardrails'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { brand = 'pp.app', type = 'ideas', channel, title, hook } = body
+  const { brand = 'PatentPending.app', type = 'ideas', channel, title, hook } = body
 
   // Fetch patent context
   const { data: patents } = await svc()
@@ -42,29 +43,39 @@ export async function POST(req: NextRequest) {
 
   let prompt: string
   if (type === 'draft_single') {
-    prompt = `Write a complete social media post for ${channel}.
+    prompt = `You are a marketing content writer for PatentPending.app.
+
+${MARKETING_GUARDRAILS}
+
+Write a complete social media post for ${channel}.
 Title/Angle: ${title}
 Hook: ${hook ?? ''}
-Brand: ${brand} (patentpending.app — AI platform to help inventors file their own patents)
+Brand: PatentPending.app (AI platform to help inventors file their own patents)
 Write the full post body. Match the voice and format of the channel.
 Return JSON: {"body": "..."}` 
   } else if (type === 'attorney_outreach') {
-    prompt = `You are a marketing copywriter for patentpending.app. Write a warm, professional attorney outreach email.
+    prompt = `You are a marketing copywriter for PatentPending.app.
 
-Brand: patentpending.app
+${MARKETING_GUARDRAILS}
+
+Write a warm, professional attorney outreach email.
+
+Brand: PatentPending.app
 Target: Solo and small patent attorneys
 Angle: PatentPending.app helps inventors who can't afford full legal representation file and manage their own patents. We'd love to be a referral resource — attorneys send clients who need help but can't pay full fees; inventors get AI-assisted filing; attorneys focus on complex cases.
 
 Write:
 - Subject line (one line, compelling, professional)
-- Body (3 paragraphs: intro/hook, value prop, soft call to action)
-- Sign as: Chad Bostwick, Founder, patentpending.app
+- Body (3 paragraphs: intro/hook, value prop, soft call to action — use "connect with patent professionals" not attorney promises)
+- Sign as: Chad Bostwick, Founder, PatentPending.app
 
 Return JSON: {"subject": "...", "body": "..."}`
   } else {
-    prompt = `You are a marketing strategist for ${brand}. Generate 5 ranked content ideas.
+    prompt = `You are a marketing strategist for PatentPending.app. Generate 5 ranked content ideas.
 
-Brand: ${brand}
+${MARKETING_GUARDRAILS}
+
+Brand: PatentPending.app
 Active patents: ${patentList}
 Founder story: Independent inventor who built an AI platform to file his own patents. Filed RIP2 (Light-Based Communication System) using the platform. Non-technical founder navigating USPTO pro se.
 Available channels: TikTok, Instagram, LinkedIn, Reddit, Attorney Outreach, Amazon

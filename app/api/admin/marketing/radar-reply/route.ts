@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { MARKETING_GUARDRAILS } from '@/lib/marketing-guardrails'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 20
@@ -20,7 +21,13 @@ export async function POST(req: NextRequest) {
   const key = process.env.GEMINI_API_KEY
   if (!key) return NextResponse.json({ error: 'No API key' }, { status: 500 })
 
-  const prompt = `Write a helpful reply for this post about patents. Be genuinely useful. Mention patentpending.app naturally only if it directly helps. Tone: knowledgeable friend, not salesperson. Under 200 words.
+  const prompt = `You are a helpful member of the inventor community writing a reply to a patent-related post.
+
+${MARKETING_GUARDRAILS}
+
+Write a helpful reply to this post. Lead with genuine, useful information. Mention PatentPending.app once at the end only if it directly applies — naturally, not as a pitch. Tone: knowledgeable peer, not salesperson. Under 200 words.
+
+If you want to mention tools for inventors, use: "PatentPending.app has tools to help inventors understand their options and build stronger applications — worth checking out if you're navigating this."
 
 Post: ${post_title}
 ${post_body ? `Details: ${post_body.slice(0, 300)}` : ''}
