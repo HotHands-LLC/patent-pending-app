@@ -26,6 +26,7 @@ import AdminInvestmentGate from '@/components/AdminInvestmentGate'
 import FilingGuide from '@/components/FilingGuide'
 import EnhancementTab from '@/components/EnhancementTab'
 import PattieChatDrawer from '@/components/PattieChatDrawer'
+import PattieInlinePanel from '@/components/PattieInlinePanel'
 import PatentActivityTimeline from '@/components/PatentActivityTimeline'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 
@@ -1468,6 +1469,11 @@ export default function PatentDetail() {
   const [showArc3Interview, setShowArc3Interview] = useState(false)
   const [showPattie, setShowPattie] = useState(false)
   const [pattieInitialMessage, setPattieInitialMessage] = useState<string | undefined>(undefined)
+  // P-Fix-3a: 35/65 split layout state
+  const [advancedExpanded, setAdvancedExpanded] = useState(false)
+  const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false)
+  const [statusClickMessage, setStatusClickMessage] = useState<string | undefined>(undefined)
+  const [contextualOpening, setContextualOpening] = useState<string | undefined>(undefined)
   const [arc3Slug, setArc3Slug] = useState<string | null>(null)
   const [showDownloadModal, setShowDownloadModal] = useState(false)
   const [showMarkFiledModal, setShowMarkFiledModal] = useState(false)
@@ -1625,6 +1631,19 @@ export default function PatentDetail() {
   }
 
   useEffect(() => { loadAll() }, [id, router])
+
+  // P-Fix-3a: Fetch contextual Pattie opening on patent load
+  useEffect(() => {
+    if (!patent || !authToken || contextualOpening) return
+    fetch(`/api/patents/${patent.id}/pattie-opening`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.message) setContextualOpening(d.message) })
+      .catch(() => {/* non-critical */})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patent?.id, authToken])
 
   // Auto-advance Claims Approved step for admin users with claims present
   useEffect(() => {
@@ -2240,6 +2259,184 @@ export default function PatentDetail() {
           </div>
         )}
 
+        {/* ── P-Fix-3a: 35/65 PATTIE-FIRST SPLIT LAYOUT ──────────────────────── */}
+        {/* Mobile: slim status strip */}
+        <div className="md:hidden mb-3">
+          <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm">
+            <div className="flex items-center gap-3">
+              {!isGranted && days !== null && (
+                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${getUrgencyBadge(days)}`}>
+                  {days <= 0 ? 'OVERDUE' : `${days}d left`}
+                </span>
+              )}
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[patent.status] || 'bg-gray-100 text-gray-800'}`}>
+                {patent.status.replace('_', ' ')}
+              </span>
+            </div>
+            <button
+              onClick={() => setMobileDetailsOpen(o => !o)}
+              className="flex items-center gap-1 text-xs font-semibold text-indigo-600 px-3 py-1.5 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+            >
+              ⚙️ Details {mobileDetailsOpen ? '▲' : '▼'}
+            </button>
+          </div>
+        </div>
+
+        {/* Desktop: 35/65 split panel */}
+        <div className="hidden md:flex gap-5 mb-6" style={{ minHeight: 520 }}>
+          {/* Left: Status panel (35%) */}
+          <div className="flex-none" style={{ width: '35%' }}>
+            <div className="space-y-3">
+              {/* Status panel */}
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Patent Status</span>
+                </div>
+                <div className="px-4 py-3 space-y-1">
+                  {/* Spec */}
+                  {(() => {
+                    const hasSpec = !!((patent as Record<string, unknown>).spec_draft as string | null) || patent.spec_uploaded
+                    return (
+                      <button
+                        onClick={() => setStatusClickMessage('Tell me about my specification status and what I can improve')}
+                        className="w-full flex items-center justify-between text-sm hover:bg-indigo-50 px-2 py-2 rounded-lg transition-colors group text-left"
+                      >
+                        <span className="text-gray-700 group-hover:text-indigo-700">Specification</span>
+                        <span>{hasSpec ? '✅' : '❌'}</span>
+                      </button>
+                    )
+                  })()}
+                  {/* Claims */}
+                  {(() => {
+                    const hasClaims = !!patent.claims_draft
+                    const claimsApproved = patent.filing_status === 'approved' || patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
+                    return (
+                      <button
+                        onClick={() => setStatusClickMessage('Tell me about my claims status and how strong they are')}
+                        className="w-full flex items-center justify-between text-sm hover:bg-indigo-50 px-2 py-2 rounded-lg transition-colors group text-left"
+                      >
+                        <span className="text-gray-700 group-hover:text-indigo-700">Claims</span>
+                        <span>{!hasClaims ? '❌' : claimsApproved ? '✅' : '⚠️'}</span>
+                      </button>
+                    )
+                  })()}
+                  {/* Figures */}
+                  {(() => {
+                    const hasFigs = patent.figures_uploaded
+                    const npStepsLocal = (patent as Record<string, unknown>).np_filing_steps as Record<string, boolean> | null ?? {}
+                    const figConfirmed = !!npStepsLocal.figures
+                    return (
+                      <button
+                        onClick={() => setStatusClickMessage('Tell me about my figures status')}
+                        className="w-full flex items-center justify-between text-sm hover:bg-indigo-50 px-2 py-2 rounded-lg transition-colors group text-left"
+                      >
+                        <span className="text-gray-700 group-hover:text-indigo-700">Figures</span>
+                        <span>{!hasFigs ? '❌' : figConfirmed ? '✅' : '⚠️'}</span>
+                      </button>
+                    )
+                  })()}
+                  {/* IDS */}
+                  {(() => {
+                    const npStepsLocal = (patent as Record<string, unknown>).np_filing_steps as Record<string, boolean> | null ?? {}
+                    const idsOk = !!npStepsLocal.ids_confirmed
+                    return (
+                      <button
+                        onClick={() => setStatusClickMessage('Tell me about my IDS (Information Disclosure Statement) status')}
+                        className="w-full flex items-center justify-between text-sm hover:bg-indigo-50 px-2 py-2 rounded-lg transition-colors group text-left"
+                      >
+                        <span className="text-gray-700 group-hover:text-indigo-700">IDS</span>
+                        <span>{idsOk ? '✅' : '⏳'}</span>
+                      </button>
+                    )
+                  })()}
+                  {/* ADS (Cover Sheet) */}
+                  {(() => {
+                    const adsOk = !!patent.cover_sheet_acknowledged
+                    return (
+                      <button
+                        onClick={() => setStatusClickMessage('Tell me about my ADS (Application Data Sheet / Cover Sheet) status')}
+                        className="w-full flex items-center justify-between text-sm hover:bg-indigo-50 px-2 py-2 rounded-lg transition-colors group text-left"
+                      >
+                        <span className="text-gray-700 group-hover:text-indigo-700">Cover Sheet (ADS)</span>
+                        <span>{adsOk ? '✅' : '❌'}</span>
+                      </button>
+                    )
+                  })()}
+                  {/* Deadline */}
+                  {!isGranted && deadline && (
+                    <button
+                      onClick={() => setStatusClickMessage(`My deadline is in ${days ?? '?'} days. What do I need to do to be ready for filing?`)}
+                      className="w-full flex items-center justify-between text-sm hover:bg-indigo-50 px-2 py-2 rounded-lg transition-colors group text-left"
+                    >
+                      <span className="text-gray-700 group-hover:text-indigo-700">Deadline</span>
+                      <span className={`font-bold text-xs px-2 py-0.5 rounded-full ${days !== null && days <= 7 ? 'bg-red-100 text-red-700' : days !== null && days <= 30 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
+                        {days !== null && days <= 0 ? 'OVERDUE' : days !== null ? `${days}d` : '—'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+              {/* Advanced toggle */}
+              <button
+                onClick={() => setAdvancedExpanded(o => !o)}
+                className="w-full flex items-center justify-between px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm"
+              >
+                <span>⚙️ Advanced</span>
+                <span className="text-gray-400">{advancedExpanded ? '▲' : '▼'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Right: Pattie inline chat (65%) */}
+          <div className="flex-1 min-h-0" style={{ minHeight: 520 }}>
+            <PattieInlinePanel
+              patentId={patent.id}
+              patentTitle={patent.title}
+              authToken={authToken}
+              canEdit={canWrite}
+              patentStatus={patent.filing_status ?? patent.status}
+              onTierRequired={(feature) => setUpgradeFeature(feature)}
+              contextualOpening={contextualOpening}
+              pendingMessage={statusClickMessage}
+              onPendingMessageConsumed={() => setStatusClickMessage(undefined)}
+            />
+          </div>
+        </div>
+
+        {/* Mobile: Pattie full-screen chat */}
+        <div className="md:hidden mb-4 bg-white border border-gray-200 rounded-xl overflow-hidden" style={{ minHeight: 400 }}>
+          <PattieInlinePanel
+            patentId={patent.id}
+            patentTitle={patent.title}
+            authToken={authToken}
+            canEdit={canWrite}
+            patentStatus={patent.filing_status ?? patent.status}
+            onTierRequired={(feature) => setUpgradeFeature(feature)}
+            contextualOpening={contextualOpening}
+            pendingMessage={statusClickMessage}
+            onPendingMessageConsumed={() => setStatusClickMessage(undefined)}
+          />
+        </div>
+
+        {/* Mobile: Details bottom sheet */}
+        {mobileDetailsOpen && (
+          <div className="md:hidden fixed inset-0 z-50 flex items-end">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setMobileDetailsOpen(false)} />
+            <div className="relative w-full bg-white rounded-t-2xl shadow-xl max-h-[80vh] overflow-y-auto z-10">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                <span className="font-bold text-[#1a1f36] text-sm">Details</span>
+                <button onClick={() => setMobileDetailsOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl w-8 h-8 flex items-center justify-center">×</button>
+              </div>
+              <div className="px-5 py-4">
+                <p className="text-sm text-gray-500 mb-3">Use the tabs below to navigate detailed views.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Advanced: existing full tab UI (shown when expanded) ── */}
+        <div className={advancedExpanded ? 'block' : 'hidden'}>
+
         {/* Tabs */}
         {/* canView: owners see all; collaborators use permission matrix */}
         {(() => {
@@ -2314,20 +2511,7 @@ export default function PatentDetail() {
         {tab === 'details' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-              {/* Pattie-First Banner — surfaced at top of Overview for easy access */}
-              {!showPattie && canWrite && (!isCollaborator || (collabPerms.pattie ?? false)) && (
-                <button
-                  onClick={() => setShowPattie(true)}
-                  className="w-full flex items-center gap-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl px-5 py-4 hover:from-indigo-700 hover:to-violet-700 transition-all shadow-sm group text-left"
-                >
-                  <span className="text-2xl">🤖</span>
-                  <div className="flex-1">
-                    <p className="font-bold text-sm">Ask Pattie about this patent</p>
-                    <p className="text-xs text-white/70">Strengthen claims · Fix spec gaps · Prep for filing</p>
-                  </div>
-                  <span className="text-white/70 group-hover:text-white text-lg">→</span>
-                </button>
-              )}
+              {/* Pattie banner removed — Pattie is inline in the 35/65 split above */}
               {/* Filing Journey Timeline */}
               <FilingTimeline patent={patent} />
               <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
@@ -4229,25 +4413,7 @@ export default function PatentDetail() {
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
       {/* FAB removed — Pattie is now inline in the 35/65 split layout */}
 
-      {/* ── ASK PATTIE floating button ───────────────────────────────────────── */}
-      {patent && authToken && !showPattie && (!isCollaborator || (collabPerms.pattie ?? false)) && (
-        <button
-          onClick={() => setShowPattie(true)}
-          className="
-            fixed bottom-6 right-6 z-40
-            flex items-center gap-2
-            bg-[#4f46e5] text-white
-            px-4 py-3 rounded-full shadow-lg
-            hover:bg-[#4338ca] active:scale-95 transition-all
-            text-sm font-semibold
-            sm:rounded-full
-          "
-          aria-label="Open Pattie chat"
-        >
-          <span className="text-base">🦞</span>
-          <span>Ask Pattie</span>
-        </button>
-      )}
+      {/* FAB removed — Pattie is inline in the 35/65 layout above */}
 
       {/* ── PATTIE CHAT DRAWER ───────────────────────────────────────────────── */}
       {showPattie && patent && authToken && (
