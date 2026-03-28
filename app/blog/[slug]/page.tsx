@@ -9,14 +9,27 @@ function getSvc() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.SUPABASE_SERVICE_ROLE_KEY ?? '')
 }
 
+const BASE_URL = 'https://patentpending.app'
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const { data } = await getSvc().from('blog_posts').select('title, seo_title, seo_description, excerpt, published_at').eq('slug', slug).eq('status', 'published').single()
   if (!data) return { title: 'Not found' }
+  const title = data.seo_title ?? `${data.title} | patentpending.app`
+  const description = data.seo_description ?? data.excerpt ?? ''
+  const url = `${BASE_URL}/blog/${slug}`
   return {
-    title: data.seo_title ?? `${data.title} | patentpending.app`,
-    description: data.seo_description ?? data.excerpt ?? '',
-    openGraph: { title: data.seo_title ?? data.title, description: data.seo_description ?? data.excerpt ?? '', type: 'article', publishedTime: data.published_at ?? undefined },
+    title,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      title: data.seo_title ?? data.title,
+      description,
+      type: 'article',
+      url,
+      publishedTime: data.published_at ?? undefined,
+      siteName: 'patentpending.app',
+    },
   }
 }
 
@@ -58,11 +71,23 @@ export default async function BlogPostPage({ params }: Props) {
             <div className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed">{post.body_md}</div>
           )}
 
-          {/* Schema.org Article */}
+          {/* Schema.org Article JSON-LD */}
           <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
-            '@context': 'https://schema.org', '@type': 'Article',
-            headline: post.title, datePublished: post.published_at,
-            publisher: { '@type': 'Organization', name: 'patentpending.app', url: 'https://patentpending.app' },
+            '@context': 'https://schema.org',
+            '@type': 'Article',
+            headline: post.title,
+            description: post.seo_description ?? post.excerpt ?? '',
+            url: `${BASE_URL}/blog/${slug}`,
+            datePublished: post.published_at,
+            dateModified: post.updated_at ?? post.published_at,
+            author: { '@type': 'Organization', name: 'patentpending.app', url: BASE_URL },
+            publisher: {
+              '@type': 'Organization',
+              name: 'patentpending.app',
+              url: BASE_URL,
+              logo: { '@type': 'ImageObject', url: `${BASE_URL}/next.svg` },
+            },
+            mainEntityOfPage: { '@type': 'WebPage', '@id': `${BASE_URL}/blog/${slug}` },
           }) }} />
         </article>
 
