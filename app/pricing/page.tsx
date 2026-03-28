@@ -220,8 +220,17 @@ export default function PricingPage() {
           <p style={{ fontSize: 12, color: '#3f3f46', marginBottom: 8 }}>
             Secure checkout via Stripe. Cancel anytime. Annual plan billed upfront.
           </p>
-          <p style={{ fontSize: 12, color: '#3f3f46' }}>
+          <p style={{ fontSize: 12, color: '#3f3f46', marginBottom: 16 }}>
             One-time $49 filing fee per patent is separate from the Pro subscription.
+          </p>
+          <p style={{ fontSize: 13, color: '#52525b' }}>
+            Have questions?{' '}
+            <a
+              href="mailto:pattie@patentpending.app?subject=PatentPending.app%20%E2%80%94%20%5BQuestion%2FSupport%5D"
+              style={{ color: '#6366f1', textDecoration: 'none' }}
+            >
+              Contact Pattie →
+            </a>
           </p>
         </div>
       </div>

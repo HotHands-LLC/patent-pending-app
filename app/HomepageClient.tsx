@@ -382,6 +382,12 @@ export default function HomepageClient({ listings }: { listings: FeaturedListing
             <Link href="/about" className="hover:text-gray-600">About</Link>
             <Link href="/marketplace" className="hover:text-gray-600">Marketplace</Link>
             <Link href="/pricing" className="hover:text-gray-600">Pricing</Link>
+            <a
+              href="mailto:pattie@patentpending.app?subject=PatentPending.app%20%E2%80%94%20%5BQuestion%2FSupport%5D"
+              className="hover:text-gray-600"
+            >
+              Contact Pattie
+            </a>
           </div>
         </div>
       </footer>
