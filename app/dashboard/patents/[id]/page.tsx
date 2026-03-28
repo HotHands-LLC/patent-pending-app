@@ -14,6 +14,8 @@ import {
   CORRESPONDENCE_TYPE_LABELS, CORRESPONDENCE_TYPE_COLORS
 } from '@/lib/supabase'
 import type { ClaimsScore } from '@/lib/claims-score'
+import type { ClaimScorerResult } from '@/lib/claim-scorer'
+import ClaimScorePanel from '@/components/ClaimScorePanel'
 import UpgradeModal from '@/components/UpgradeModal'
 import CollaboratorsTab, { Collaborator } from '@/components/CollaboratorsTab'
 import Arc3Modal from '@/components/Arc3Modal'
@@ -1565,6 +1567,7 @@ export default function PatentDetail() {
     }
 
     setPatent(p)
+    setClaimsScorerResult((p.claims_scores as ClaimScorerResult | null) ?? null)
     setEditData(p)
     setDeadlines(d || [])
     setCorrespondence((c as PatentCorrespondence[]) || [])
@@ -1959,6 +1962,9 @@ export default function PatentDetail() {
   const deadlineLabel = isProvisionalFiled ? 'Non-provisional deadline' : 'Provisional filing deadline'
   const days = deadline ? getDaysUntil(deadline) : null
   const claimsScore = patent.claims_score as ClaimsScore | null
+  const [claimsScorerResult, setClaimsScorerResult] = useState<ClaimScorerResult | null>(
+    patent.claims_scores as ClaimScorerResult | null
+  )
 
   // For human patents without AI scoring, derive a basic score from claims_draft text
   const effectiveClaimsScore: ClaimsScore | null = (() => {
@@ -2901,6 +2907,23 @@ export default function PatentDetail() {
               </div>
             ) : (
               <div className="space-y-5">
+                {/* P35: Claim Strength Scorer */}
+                <ClaimScorePanel
+                  patentId={patent.id}
+                  authToken={authToken}
+                  claimsScores={claimsScorerResult}
+                  onAskPattie={(msg) => {
+                    setPattieInitialMessage(msg)
+                    setShowPattie(true)
+                  }}
+                  onReanalyzed={(result) => {
+                    setClaimsScorerResult(result)
+                    setPatent(prev => prev ? { ...prev, claims_scores: result as unknown as Record<string, unknown> } : null)
+                    showToast('✅ Claim strength scores updated!')
+                  }}
+                  canWrite={canWrite && !claimsReadOnly}
+                />
+
                 {/* Filing Readiness Score card — FEATURE 1B */}
                 {effectiveClaimsScore && <ScoreCard score={effectiveClaimsScore} />}
 
@@ -4199,10 +4222,12 @@ export default function PatentDetail() {
             </button>
           </div>
         )}
+        </div>{/* /advanced wrapper */}
       </div>
 
       {/* Toast */}
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
+      {/* FAB removed — Pattie is now inline in the 35/65 split layout */}
 
       {/* ── ASK PATTIE floating button ───────────────────────────────────────── */}
       {patent && authToken && !showPattie && (!isCollaborator || (collabPerms.pattie ?? false)) && (

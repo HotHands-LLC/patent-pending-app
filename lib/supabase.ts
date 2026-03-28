@@ -38,7 +38,8 @@ export type Patent = {
   claims_draft?: string | null
   claims_draft_research_pending?: string | null
   research_completed_at?: string | null
-  claims_score?: Record<string, unknown> | null  // jsonb — see lib/claims-score.ts ClaimsScore
+  claims_score?: Record<string, unknown> | null   // jsonb — see lib/claims-score.ts ClaimsScore (legacy)
+  claims_scores?: Record<string, unknown> | null  // jsonb — P35 per-claim strength scores (ClaimScorerResult)
   abstract_draft?: string | null
   intake_session_id?: string | null
   payment_confirmed_at?: string | null
