@@ -47,6 +47,28 @@ async function testLinkedIn(accessToken: string): Promise<{ ok: boolean; detail:
   return { ok: false, detail: `LinkedIn returned HTTP ${res.status}` }
 }
 
+async function testFacebook(creds: Record<string, string>): Promise<{ ok: boolean; detail: string }> {
+  const pageToken = creds?.page_access_token
+  const pageName = creds?.page_name
+  if (!pageToken) return { ok: false, detail: 'No page_access_token stored — please reconnect Facebook' }
+  // Validate token with Meta debug endpoint using app token
+  const appId = process.env.FB_APP_ID ?? ''
+  const appSecret = process.env.FB_APP_SECRET ?? ''
+  const appToken = `${appId}|${appSecret}`
+  const res = await fetch(
+    `https://graph.facebook.com/v19.0/debug_token?input_token=${encodeURIComponent(pageToken)}&access_token=${encodeURIComponent(appToken)}`,
+  )
+  if (res.ok) {
+    const data = await res.json()
+    if (data.data?.is_valid) {
+      return { ok: true, detail: `Connected as page: ${pageName ?? 'Facebook Page'} ✅` }
+    }
+    return { ok: false, detail: data.data?.error?.message ?? 'Token invalid — please reconnect' }
+  }
+  if (res.status === 401) return { ok: false, detail: 'Token expired — please reconnect Facebook' }
+  return { ok: false, detail: `Facebook API returned HTTP ${res.status}` }
+}
+
 async function testReddit(accessToken: string): Promise<{ ok: boolean; detail: string }> {
   const res = await fetch('https://oauth.reddit.com/api/v1/me', {
     headers: {
@@ -67,8 +89,8 @@ export async function GET(req: NextRequest) {
   if (!await checkAdmin(token)) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
   const service = req.nextUrl.searchParams.get('service') ?? ''
-  if (!['qbo', 'linkedin', 'reddit'].includes(service)) {
-    return NextResponse.json({ error: 'service must be qbo, linkedin, or reddit' }, { status: 400 })
+  if (!['qbo', 'linkedin', 'reddit', 'facebook'].includes(service)) {
+    return NextResponse.json({ error: 'service must be qbo, linkedin, reddit, or facebook' }, { status: 400 })
   }
 
   // Check env vars first
@@ -76,6 +98,7 @@ export async function GET(req: NextRequest) {
     qbo: ['QBO_CLIENT_ID', 'QBO_CLIENT_SECRET'],
     linkedin: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
     reddit: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'],
+    facebook: ['FB_APP_ID', 'FB_APP_SECRET'],
   }
   const missingEnv = (envCheck[service] ?? []).filter(k => !process.env[k])
   if (missingEnv.length > 0) {
@@ -111,6 +134,7 @@ export async function GET(req: NextRequest) {
   let result: { ok: boolean; detail: string }
   if (service === 'qbo') result = await testQBO(accessToken, row.realm_id ?? '')
   else if (service === 'linkedin') result = await testLinkedIn(accessToken)
+  else if (service === 'facebook') result = await testFacebook(creds)
   else result = await testReddit(accessToken)
 
   return NextResponse.json({ ...result, configured: true })

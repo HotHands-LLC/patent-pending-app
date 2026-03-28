@@ -21,6 +21,18 @@ const GUIDES: Record<string, { portalUrl: string; steps: string[] }> = {
       'Redeploy the app, then click "Connect QuickBooks Online" below.',
     ],
   },
+  facebook: {
+    portalUrl: 'https://developers.facebook.com/apps/',
+    steps: [
+      'Go to developers.facebook.com → Create App → Business type.',
+      'Under App Settings → Basic: set the App Domain to patentpending.app.',
+      'Add "Facebook Login" product → Settings → add redirect URI: https://patentpending.app/api/integrations/facebook/callback',
+      'Request permissions: pages_manage_posts, pages_read_engagement (in App Review if live).',
+      'Copy App ID and App Secret from App Settings → Basic.',
+      'Add FB_APP_ID and FB_APP_SECRET to Vercel → Project Settings → Environment Variables.',
+      'Redeploy, then click "Connect Facebook" below. Make sure your Facebook account manages at least one Page.',
+    ],
+  },
   reddit: {
     portalUrl: 'https://www.reddit.com/prefs/apps',
     steps: [
@@ -46,6 +58,7 @@ const GUIDES: Record<string, { portalUrl: string; steps: string[] }> = {
 
 const INTEGRATIONS = [
   { id: 'qbo',      name: 'QuickBooks Online', icon: '📊', desc: 'Sync Stripe payments to QBO automatically as income transactions.', available: true },
+  { id: 'facebook', name: 'Facebook / Meta',   icon: '📘', desc: 'Post to your Facebook Page — OAuth via Meta Graph API.',           available: true },
   { id: 'reddit',   name: 'Reddit',             icon: '🔴', desc: 'Post to r/patents, r/inventors — OAuth via Reddit API.',           available: true },
   { id: 'linkedin', name: 'LinkedIn',            icon: '💼', desc: 'Post to personal profile — OAuth via LinkedIn API.',              available: true },
   { id: 'shopify',  name: 'Shopify',             icon: '🛒', desc: 'Sync orders and revenue from Shopify stores.',                    available: false },
@@ -290,6 +303,8 @@ export default function IntegrationsPage() {
             {[
               { key: 'QBO_CLIENT_ID', service: 'QuickBooks Online' },
               { key: 'QBO_CLIENT_SECRET', service: 'QuickBooks Online' },
+              { key: 'FB_APP_ID', service: 'Facebook / Meta' },
+              { key: 'FB_APP_SECRET', service: 'Facebook / Meta' },
               { key: 'LINKEDIN_CLIENT_ID', service: 'LinkedIn' },
               { key: 'LINKEDIN_CLIENT_SECRET', service: 'LinkedIn' },
               { key: 'REDDIT_CLIENT_ID', service: 'Reddit' },

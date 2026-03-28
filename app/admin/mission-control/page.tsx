@@ -51,15 +51,22 @@ interface RadarLead {
 
 // ── Platform helpers ──────────────────────────────────────────────────────────
 
-const PLATFORM_ORDER = ['Reddit', 'LinkedIn', 'TikTok', 'Instagram']
+/** Platforms we can post to directly (must match integration_credentials.service) */
+const DIRECT_POST_PLATFORMS: Record<string, string> = {
+  Facebook: 'facebook',
+  LinkedIn: 'linkedin',
+}
+
+const PLATFORM_ORDER = ['Reddit', 'LinkedIn', 'TikTok', 'Instagram', 'Facebook']
 const PLATFORM_COLORS: Record<string, string> = {
   Reddit:    'bg-orange-100 text-orange-700 border-orange-200',
   LinkedIn:  'bg-blue-100 text-blue-700 border-blue-200',
   TikTok:    'bg-pink-100 text-pink-700 border-pink-200',
   Instagram: 'bg-purple-100 text-purple-700 border-purple-200',
+  Facebook:  'bg-blue-100 text-blue-800 border-blue-300',
 }
 const PLATFORM_ICONS: Record<string, string> = {
-  Reddit: '🔴', LinkedIn: '💼', TikTok: '🎵', Instagram: '📸',
+  Reddit: '🔴', LinkedIn: '💼', TikTok: '🎵', Instagram: '📸', Facebook: '📘',
 }
 
 function platformSort(a: ContentItem, b: ContentItem) {
@@ -103,16 +110,34 @@ export default function MissionControlPage() {
   const [contentItems, setContentItems] = useState<ContentItem[]>([])
   const [radarLeads, setRadarLeads] = useState<RadarLead[]>([])
 
+  // Active OAuth platform connections (service names that are connected + active)
+  const [activeConnections, setActiveConnections] = useState<Set<string>>(new Set())
+
   // Action states
   const [publishingId, setPublishingId] = useState<string | null>(null)
   const [skippingId, setSkippingId] = useState<string | null>(null)
   const [markingPostedId, setMarkingPostedId] = useState<string | null>(null)
   const [markingRepliedId, setMarkingRepliedId] = useState<string | null>(null)
   const [dismissingId, setDismissingId] = useState<string | null>(null)
+  const [postingDirectlyId, setPostingDirectlyId] = useState<string | null>(null)
 
   // ── Load data ──────────────────────────────────────────────────────────────
 
   const loadAll = useCallback(async (token: string) => {
+    // Load active OAuth integrations for direct-post gating
+    try {
+      const intgRes = await fetch('/api/integrations', { headers: { Authorization: `Bearer ${token}` } })
+      if (intgRes.ok) {
+        const intgData = await intgRes.json()
+        const active = new Set<string>(
+          (intgData.integrations ?? [])
+            .filter((i: { service: string; is_active: boolean }) => i.is_active)
+            .map((i: { service: string }) => i.service),
+        )
+        setActiveConnections(active)
+      }
+    } catch { /* non-blocking */ }
+
     // Patent deadlines — next 90 days, pending only
     const { data: dl } = await supabase
       .from('patent_deadlines')

@@ -29,6 +29,22 @@ interface PlatformDef {
 
 const PLATFORMS: PlatformDef[] = [
   {
+    id: 'facebook',
+    name: 'Facebook / Meta',
+    icon: '📘',
+    fields: [],
+    hints: [],
+    guide: {
+      portalUrl: 'https://developers.facebook.com/apps/',
+      steps: [
+        'Set FB_APP_ID and FB_APP_SECRET in Vercel environment variables.',
+        'Ensure your Facebook App has pages_manage_posts and pages_read_engagement permissions.',
+        'Click "Connect via OAuth" below — you\'ll be redirected to authorize via Meta.',
+        'After approving, the page access token is stored automatically.',
+      ],
+    },
+  },
+  {
     id: 'reddit',
     name: 'Reddit',
     icon: '🔴',
@@ -206,7 +222,18 @@ export default function ConnectionsPage() {
     })
   }, [router, fetchConnections])
 
+  /** Platforms that use OAuth redirect instead of a credential form */
+  const OAUTH_PLATFORMS: Record<string, string> = {
+    facebook: `/api/integrations/facebook/auth`,
+    linkedin: `/api/integrations/linkedin/auth`,
+    reddit: `/api/integrations/reddit/auth`,
+  }
+
   function openModal(platformId: PlatformId) {
+    if (OAUTH_PLATFORMS[platformId]) {
+      window.location.href = OAUTH_PLATFORMS[platformId]
+      return
+    }
     setModalPlatform(platformId)
     setFormValues({})
   }
@@ -240,7 +267,7 @@ export default function ConnectionsPage() {
     if (!authToken) return
     setTesting(platformId)
     // For OAuth-backed platforms, delegate to the integration health endpoint
-    const oauthPlatforms = ['reddit', 'linkedin']
+    const oauthPlatforms = ['reddit', 'linkedin', 'facebook']
     if (oauthPlatforms.includes(platformId)) {
       try {
         const res = await fetch(`/api/integrations/health?service=${platformId}`, {
