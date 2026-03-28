@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { createClient } from '@supabase/supabase-js'
 import { notFound, redirect } from 'next/navigation'
-import Link from 'next/link'
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -14,14 +14,15 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 }
 
-export default async function BlogPreviewPage({ params }: Props) {
+export default async function BlogDraftPreviewPage({ params }: Props) {
   const { id } = await params
   const svc = getSvc()
 
+  // Fetch post by id — any status (admin view)
   const { data: post } = await svc.from('blog_posts').select('*').eq('id', id).single()
   if (!post) notFound()
 
-  // If published, redirect to the real slug URL
+  // If published, redirect to canonical slug URL
   if (post.status === 'published' && post.slug) {
     redirect(`/blog/${post.slug}`)
   }
@@ -58,11 +59,9 @@ export default async function BlogPreviewPage({ params }: Props) {
         {/* Main content */}
         <article className="lg:col-span-2">
           <div className="mb-6">
-            {post.category && (
-              <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-medium capitalize mr-2">
-                {post.category.replace(/-/g, ' ')}
-              </span>
-            )}
+            <span className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-medium capitalize mr-2">
+              {post.category?.replace(/-/g, ' ')}
+            </span>
             {post.read_time_minutes && <span className="text-xs text-gray-400">{post.read_time_minutes} min read</span>}
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-[#1a1f36] mb-3 leading-tight">{post.title}</h1>
