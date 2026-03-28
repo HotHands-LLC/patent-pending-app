@@ -8,12 +8,14 @@ import PatentPhaseWidget from "@/components/dashboard/PatentPhaseWidget"
 import ReviewQueue from "@/components/dashboard/ReviewQueue"
 import PatentIntakeCard from "@/components/dashboard/PatentIntakeCard"
 import NewPatentModal from "@/components/NewPatentModal"
+import PattieIntakeModal from "@/components/PattieIntakeModal"
 
 export default function Dashboard() {
   const [patents, setPatents] = useState<Patent[]>([])
   const [deadlines, setDeadlines] = useState<(PatentDeadline & { patents: { title: string } })[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showPattieIntake, setShowPattieIntake] = useState(false)
   const [authToken, setAuthToken] = useState('')
   const [show2FABanner, setShow2FABanner] = useState(false)
   const [require2FA, setRequire2FA] = useState(false)
@@ -221,7 +223,7 @@ export default function Dashboard() {
           <PatentPhaseWidget patents={patents ?? []} />
         </div>
 
-                <button onClick={() => setShowNewModal(true)} className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium min-h-[44px] hover:bg-[#2d3561] transition-colors">
+                <button onClick={() => setShowPattieIntake(true)} className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium min-h-[44px] hover:bg-[#2d3561] transition-colors">
                   + Add First Patent
                 </button>
               </div>
@@ -283,7 +285,7 @@ export default function Dashboard() {
             { href: '/dashboard/patents', icon: '📋', label: 'All Patents' },
           ].map((a) => (
             a.href === '#new-patent' ? (
-              <button key={a.label} onClick={() => setShowNewModal(true)}
+              <button key={a.label} onClick={() => setShowPattieIntake(true)}
                 className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-xl hover:border-[#1a1f36]/30 transition-colors text-center min-h-[80px] justify-center w-full">
                 <span className="text-2xl">{a.icon}</span>
                 <span className="text-xs font-medium text-[#1a1f36]">{a.label}</span>
@@ -298,6 +300,14 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+
+      {showPattieIntake && (
+        <PattieIntakeModal
+          onClose={() => setShowPattieIntake(false)}
+          onManualFallback={() => { setShowPattieIntake(false); setShowNewModal(true) }}
+          authToken={authToken}
+        />
+      )}
 
       {showNewModal && (
         <NewPatentModal

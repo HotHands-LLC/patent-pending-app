@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import { supabase, Patent, getDaysUntil, getUrgencyBadge } from '@/lib/supabase'
 import NewPatentModal from '@/components/NewPatentModal'
+import PattieIntakeModal from '@/components/PattieIntakeModal'
 import OnboardingChecklist from '@/components/OnboardingChecklist'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -37,6 +38,7 @@ export default function PatentsPage() {
   const [patents, setPatents] = useState<Patent[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showPattieIntake, setShowPattieIntake] = useState(false)
   const [authToken, setAuthToken] = useState('')
   const router = useRouter()
 
@@ -67,7 +69,7 @@ export default function PatentsPage() {
             <h1 className="text-xl sm:text-2xl font-bold text-[#1a1f36]">Patents</h1>
             <p className="text-gray-500 mt-1 text-sm">{patents.length} patent{patents.length !== 1 ? 's' : ''} in portfolio</p>
           </div>
-          <button onClick={() => setShowNewModal(true)} className="px-3 sm:px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors min-h-[44px] flex items-center">
+          <button onClick={() => setShowPattieIntake(true)} className="px-3 sm:px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors min-h-[44px] flex items-center">
             + New Patent
           </button>
         </div>
@@ -77,7 +79,7 @@ export default function PatentsPage() {
             <div className="text-4xl mb-4">📋</div>
             <h3 className="font-semibold text-[#1a1f36] mb-2">No patents yet</h3>
             <p className="text-gray-400 text-sm mb-6">Register your first patent to get started.</p>
-            <button onClick={() => setShowNewModal(true)} className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold min-h-[44px] hover:bg-[#2d3561] transition-colors">
+            <button onClick={() => setShowPattieIntake(true)} className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold min-h-[44px] hover:bg-[#2d3561] transition-colors">
               + Add Patent
             </button>
           </div>
@@ -176,6 +178,21 @@ export default function PatentsPage() {
         )}
       </div>
 
+      {showPattieIntake && (
+        <PattieIntakeModal
+          onClose={() => setShowPattieIntake(false)}
+          onManualFallback={() => { setShowPattieIntake(false); setShowNewModal(true) }}
+          authToken={authToken}
+        />
+      )}
+
+      {showPattieIntake && (
+        <PattieIntakeModal
+          onClose={() => setShowPattieIntake(false)}
+          onManualFallback={() => { setShowPattieIntake(false); setShowNewModal(true) }}
+          authToken={authToken}
+        />
+      )}
       {showNewModal && (
         <NewPatentModal
           onClose={() => setShowNewModal(false)}
