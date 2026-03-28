@@ -19,19 +19,45 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await getUser(token).auth.getUser()
   if (!user || !ADMIN_EMAILS.includes(user.email ?? '')) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
 
-  // Re-enable auto-runner if paused
-  await getSvc().from('app_settings').upsert({ key: 'queue_auto_run_enabled', value: 'true' }, { onConflict: 'key' })
+  const svc = getSvc()
 
-  // Trigger queue runner directly (fire-and-forget, 20s timeout)
+  // Re-enable auto-runner if paused
+  await svc.from('app_settings').upsert({ key: 'queue_auto_run_enabled', value: 'true' }, { onConflict: 'key' })
+
+  // Find the next queued item (lowest priority number, then oldest)
+  const { data: nextItem } = await svc
+    .from('claw_prompt_queue')
+    .select('id, prompt_label')
+    .eq('status', 'queued')
+    .order('priority', { ascending: true })
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single()
+
+  if (!nextItem) {
+    const { data: allQueued } = await svc.from('claw_prompt_queue').select('id').eq('status', 'queued')
+    return NextResponse.json({ ok: true, task: null, queued: allQueued?.length ?? 0, message: 'No queued items' })
+  }
+
+  // Mark it as in_progress
+  await svc
+    .from('claw_prompt_queue')
+    .update({ status: 'in_progress', started_at: new Date().toISOString() })
+    .eq('id', nextItem.id)
+
+  // Fire queue runner in background (non-blocking)
   try {
-    const { stdout } = await execAsync(
+    execAsync(
       'python3 /Users/hotdeck-agent/.openclaw/workspace/scripts/claw-queue-runner.py --auto',
       { timeout: 20000 }
-    )
-    const { data: items } = await getSvc().from('claw_prompt_queue').select('id', { count: 'exact' }).eq('status', 'queued')
-    return NextResponse.json({ ok: true, output: stdout.slice(0, 300), queued: items?.length ?? 0 })
-  } catch (e) {
-    const err = e as { message?: string; stdout?: string }
-    return NextResponse.json({ ok: false, error: err.message, output: err.stdout?.slice(0, 200) })
-  }
+    ).catch(() => { /* non-blocking */ })
+  } catch { /* ignore */ }
+
+  const { data: remaining } = await svc.from('claw_prompt_queue').select('id').eq('status', 'queued')
+  return NextResponse.json({
+    ok: true,
+    task: nextItem.prompt_label,
+    taskId: nextItem.id,
+    queued: remaining?.length ?? 0,
+  })
 }

@@ -271,7 +271,6 @@ export default function ClawQueuePage() {
   const [autoRunEnabled, setAutoRunEnabled] = useState(true)
   const [queueStatus, setQueueStatus] = useState<{status:string;active_label:string|null;elapsed_min:number;queued_count:number}|null>(null)
   const [startingQueue, setStartingQueue] = useState(false)
-  const [startMsg, setStartMsg] = useState('')
   const [securityGateEnabled, setSecurityGateEnabled] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
   const [nextCheckSecs, setNextCheckSecs] = useState(1800) // 30 min default
@@ -452,14 +451,25 @@ export default function ClawQueuePage() {
 
   async function startQueue() {
     if (!authToken) return
-    setStartingQueue(true); setStartMsg('')
+    setStartingQueue(true)
     try {
       const r = await fetch('/api/admin/queue/start', { method: 'POST', headers: { Authorization: `Bearer ${authToken}` } })
       const d = await r.json()
-      setStartMsg(r.ok ? `✅ Queue started — ${d.queued ?? 0} items pending` : `❌ ${d.error ?? 'Failed'}`)
-      if (r.ok) { setAutoRunEnabled(true); fetchQueue(authToken) }
-    } catch { setStartMsg('❌ Network error') }
-    finally { setStartingQueue(false) }
+      if (r.ok) {
+        const msg = d.task
+          ? `▶ Started: ${d.task}${d.queued > 0 ? ` · ${d.queued} more queued` : ''}`
+          : d.message ?? '✅ Queue triggered'
+        showToast(msg)
+        setAutoRunEnabled(true)
+        fetchQueue(authToken)
+      } else {
+        showToast(`❌ ${d.error ?? 'Failed to start queue'}`)
+      }
+    } catch {
+      showToast('❌ Network error — queue not started')
+    } finally {
+      setStartingQueue(false)
+    }
   }
 
   // ── Smart Add: Analyze with Pattie ─────────────────────────────────────────
@@ -858,7 +868,7 @@ export default function ClawQueuePage() {
             >
               <span className="text-base leading-none">+</span> Add Prompt
             </button>
-            {startMsg && <span className="text-xs text-gray-600">{startMsg}</span>}
+
           </div>
         </div>
 

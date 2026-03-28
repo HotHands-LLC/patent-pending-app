@@ -10,6 +10,7 @@ import { useState } from "react";
 // ── Types (matches your lib/supabase.ts) ────────────────────────────────────
 type PatentStatus =
   | "provisional"
+  | "provisional_draft"
   | "non_provisional"
   | "published"
   | "granted"
