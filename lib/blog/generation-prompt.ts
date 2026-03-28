@@ -4,7 +4,11 @@
  * TODO: Wire into BlogClaw generation when the auto-generation pipeline ships.
  */
 
-export const AEO_SYSTEM_PROMPT = `
+import { MARKETING_GUARDRAILS } from '@/lib/marketing-guardrails'
+
+export const AEO_SYSTEM_PROMPT = `${MARKETING_GUARDRAILS}
+
+
 BLOG POST FORMAT REQUIREMENTS (AEO — Answer Engine Optimization):
 
 1. Title must be a direct question OR a clear answer statement.

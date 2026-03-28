@@ -94,7 +94,11 @@ export default function AdminBlogPage() {
                       {p.status === 'draft' && <button onClick={() => setStatus(p.id, 'published')} className="text-xs px-2.5 py-1 bg-green-600 text-white rounded hover:bg-green-700">Publish</button>}
                       {p.status === 'published' && <button onClick={() => setStatus(p.id, 'draft')} className="text-xs px-2.5 py-1 border border-gray-200 text-gray-600 rounded hover:bg-gray-50">Unpublish</button>}
                       {p.status !== 'archived' && <button onClick={() => setStatus(p.id, 'archived')} className="text-xs text-gray-300 hover:text-red-400 px-1.5">✕</button>}
-                      <a href={`/blog/${p.slug}`} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:underline px-1">Preview</a>
+                      <a
+                        href={p.status !== 'published' ? `/blog/preview/${p.id}` : `/blog/${p.slug}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-indigo-500 hover:underline px-1"
+                      >{p.status !== 'published' ? '👁 Preview Draft' : 'View'}</a>
                     </div>
                   </td>
                 </tr>

@@ -33,11 +33,15 @@ export async function POST(req: NextRequest) {
 
   const founderCtx = await getPattieContext('pp.app').catch(() => '')
 
-  const prompt = `You are a marketing content writer. Rewrite the following ${channel} content in a "${tone}" tone.
+  const prompt = `You are a marketing content writer for PatentPending.app.
+
+${MARKETING_GUARDRAILS}
 ${founderCtx ? `\n${founderCtx}\n` : ''}
+Rewrite the following ${channel} content in a "${tone}" tone.
 Tone description: ${toneGuides[tone] ?? tone}
 Platform: ${channel}
 Preserve the core message and key information. Keep the same approximate length.
+Apply all marketing guardrails above — fix any violations in the original if present.
 
 ORIGINAL:
 ${current_body}

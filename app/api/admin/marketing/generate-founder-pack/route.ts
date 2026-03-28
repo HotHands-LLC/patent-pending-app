@@ -10,11 +10,11 @@ function getUser(t: string) { return createClient(process.env.NEXT_PUBLIC_SUPABA
 function getSvc() { return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL??'', process.env.SUPABASE_SERVICE_ROLE_KEY??'') }
 
 const FOUNDER_CTX = `Founder: Chad Bostwick — built PatentPending.app because he couldn't afford $10K+ in attorney fees.
-Platform: PatentPending.app (https://patentpending.app) — file your patent, keep your idea. AI-powered patent filing for independent inventors.
+Platform: PatentPending.app (https://patentpending.app) — file your patent, keep your idea. AI-powered patent filing for independent inventors. The AI is called "Pattie" or "PatentPending AI".
 First patent filed: RIP2 — Light-Based Communication System for Blind Individuals. Filed March 12, 2026.
-Tone: direct, builder-first, no fluff.`
+Tone: direct, builder-first, no fluff.
 
-import { MARKETING_GUARDRAILS } from '@/lib/marketing-guardrails'
+${MARKETING_GUARDRAILS}`
 
 async function gemini(prompt: string): Promise<string> {
   const key = process.env.GEMINI_API_KEY ?? ''
@@ -27,12 +27,12 @@ async function gemini(prompt: string): Promise<string> {
 }
 
 const PIECES = [
-  { channel: 'TikTok', title: 'TikTok: I Filed My Own Patent', prompt: `${FOUNDER_CTX}\nWrite a 45-second TikTok script. Hook: "I filed this". [VISUAL] cues. End with patentpending.app CTA.` },
+  { channel: 'TikTok', title: 'TikTok: I Filed My Own Patent', prompt: `${FOUNDER_CTX}\nWrite a 45-second TikTok script. Hook: "I filed this". [VISUAL] cues. End with https://patentpending.app CTA.` },
   { channel: 'Instagram', title: 'Instagram: The RIP2 Story', prompt: `${FOUNDER_CTX}\nInstagram caption for Chad at his desk. RIP2 story. Question at end. Under 300 words. Then HASHTAGS: [15 tags]` },
-  { channel: 'LinkedIn', title: 'LinkedIn: Founder Announcement', prompt: `${FOUNDER_CTX}\nLinkedIn post about launching pp.app. RIP2 story. 1,000–1,300 chars. CTA at end.` },
-  { channel: 'Reddit', title: 'Reddit r/patents: Lessons', prompt: `${FOUNDER_CTX}\nReddit post for r/patents. TITLE: [title]\n\n3-4 lessons from filing RIP2. Mention pp.app once. Under 500 words.` },
-  { channel: 'Attorney Outreach', title: 'Attorney Outreach Email', prompt: `${FOUNDER_CTX}\nCold email to solo patent attorneys. SUBJECT: [subject]\n\nReferral partner angle. Under 200 words.` },
-  { channel: 'Reddit', title: 'Reddit r/entrepreneur: Builder Story', prompt: `${FOUNDER_CTX}\nReddit r/entrepreneur post. TITLE: I got tired of attorney quotes...\n\nBuilder journey. Under 600 words.` },
+  { channel: 'LinkedIn', title: 'LinkedIn: Founder Announcement', prompt: `${FOUNDER_CTX}\nLinkedIn post about launching PatentPending.app. RIP2 story. 1,000–1,300 chars. CTA at end pointing to https://patentpending.app` },
+  { channel: 'Reddit', title: 'Reddit r/patents: Lessons', prompt: `${FOUNDER_CTX}\nReddit post for r/patents. TITLE: [title]\n\n3-4 lessons from filing RIP2. Mention PatentPending.app once naturally at the end. Under 500 words. Peer-to-peer tone, never promotional.` },
+  { channel: 'Attorney Outreach', title: 'Attorney Outreach Email', prompt: `${FOUNDER_CTX}\nCold email to solo patent attorneys. SUBJECT: [subject]\n\nReferral partner angle — use "connect with patent professionals" framing. Under 200 words.` },
+  { channel: 'Reddit', title: 'Reddit r/entrepreneur: Builder Story', prompt: `${FOUNDER_CTX}\nReddit r/entrepreneur post. TITLE: I got tired of attorney quotes...\n\nBuilder journey. Under 600 words. Peer-to-peer tone, never promotional.` },
 ]
 
 export async function POST(req: NextRequest) {
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       if (content.startsWith('SUBJECT:')) { const lines = content.split('\n',3); subject = lines[0].replace('SUBJECT:','').trim(); title = subject; body = lines.slice(1).join('\n').trim() }
       if (content.startsWith('TITLE:')) { const lines = content.split('\n',3); title = lines[0].replace('TITLE:','').trim(); body = lines.slice(1).join('\n').trim() }
       if (p.channel === 'TikTok') hook = body.split('\n')[0].slice(0,100)
-      await svc.from('marketing_ideas').insert({ brand:'pp.app', channel:p.channel, title:title.slice(0,200), body, hook, subject_line:subject, hashtags, status:'ready', source:'pattie' })
+      await svc.from('marketing_ideas').insert({ brand:'PatentPending.app', channel:p.channel, title:title.slice(0,200), body, hook, subject_line:subject, hashtags, status:'ready', source:'pattie' })
       saved++
     } catch { /* skip on error */ }
     await new Promise(r => setTimeout(r, 500))
