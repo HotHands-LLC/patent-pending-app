@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useEffect, useCallback } from 'react'
+import PattieSuggestionCards from '@/components/PattieSuggestionCards'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Suggestion {
@@ -477,14 +478,22 @@ export default function PattieChatDrawer({
           )}
 
           {isFirstMessage && !streaming && (
-            <div className="flex flex-wrap gap-2 pl-9 pt-1">
-              {starterChips.map(chip => (
-                <button key={chip} onClick={() => sendMessage(chip)}
-                  className="text-xs px-3 py-1.5 rounded-full border border-[#4f46e5] text-[#4f46e5] hover:bg-[#4f46e5] hover:text-white transition-colors font-medium">
-                  {chip}
-                </button>
-              ))}
-            </div>
+            <>
+              {/* P-Fix-3b: Proactive suggestion cards — shown before first message */}
+              <PattieSuggestionCards
+                patentId={patentId}
+                authToken={authToken}
+                onAccept={(message) => sendMessage(message)}
+              />
+              <div className="flex flex-wrap gap-2 pl-9 pt-1">
+                {starterChips.map(chip => (
+                  <button key={chip} onClick={() => sendMessage(chip)}
+                    className="text-xs px-3 py-1.5 rounded-full border border-[#4f46e5] text-[#4f46e5] hover:bg-[#4f46e5] hover:text-white transition-colors font-medium">
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
 
           {messages.map((msg, idx) => (
