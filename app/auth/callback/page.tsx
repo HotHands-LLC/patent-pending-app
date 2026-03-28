@@ -78,6 +78,25 @@ function CallbackHandler() {
       } catch { /* non-fatal */ }
     }
 
+    // ── Save first-touch UTM source to profile ───────────────────────────────
+    // Read from user_metadata (set at signUp) or localStorage
+    const metaUtmSource = user.user_metadata?.utm_source as string | undefined
+    let localUtmSource: string | null = null
+    try {
+      const stored = localStorage.getItem('pp_utm_first')
+      if (stored) localUtmSource = (JSON.parse(stored) as { utm_source?: string }).utm_source ?? null
+    } catch { /* ignore */ }
+    const utmSourceToSave = metaUtmSource ?? localUtmSource ?? null
+    if (utmSourceToSave) {
+      try {
+        await fetch('/api/users/profile', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ utm_source: utmSourceToSave }),
+        })
+      } catch { /* non-fatal */ }
+    }
+
     // ── Attorney partner attribution (reads httpOnly ppa_ref cookie) ─────────
     try {
       await fetch('/api/partner/record-attorney-referral', {

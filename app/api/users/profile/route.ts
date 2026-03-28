@@ -19,6 +19,7 @@ const ALLOWED = [
   'company', 'uspto_customer_number',
   'default_assignee_name', 'default_assignee_address',
   'referred_by_code', 'referred_by_partner_id',
+  'utm_source',
 ] as const
 
 /** GET /api/users/profile — returns current user's profile */

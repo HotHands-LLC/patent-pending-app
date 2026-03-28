@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, Suspense } from 'react'
 import { trackEvent, getStoredUtm } from '@/components/GoogleAnalytics'
+import { getStoredFirstUtm } from '@/hooks/useUtm'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -62,6 +63,8 @@ function SignupForm() {
     const pendingRefCode = refCode ?? localStorage.getItem(REFERRAL_CODE_KEY)
 
     const utmParams = getStoredUtm()
+    const utmFirst = getStoredFirstUtm()
+    const firstUtmSource = utmFirst.utm_source ?? null
 
     const { data, error: signupErr } = await supabase.auth.signUp({
       email,
@@ -74,6 +77,8 @@ function SignupForm() {
           ...(pendingRefCode ? { referred_by_code: pendingRefCode } : {}),
           // Store UTM params so they survive email confirmation delay
           ...(Object.keys(utmParams).length > 0 ? { utm_params: utmParams } : {}),
+          // Store first-touch UTM source for attribution (written to profiles on confirm)
+          ...(firstUtmSource ? { utm_source: firstUtmSource } : {}),
         },
         emailRedirectTo: `${window.location.origin}/auth/callback?invite=${inviteToken ?? ''}`,
       },
@@ -107,18 +112,25 @@ function SignupForm() {
   async function recordReferral(accessToken: string, _userId: string) {
     const code = refCode ?? localStorage.getItem(REFERRAL_CODE_KEY)
     const partnerId = referralPartnerId
-    if (!code) return
+    const utmFirst = getStoredFirstUtm()
+    const utmSourceValue = utmFirst.utm_source ?? null
+
+    const profileUpdates: Record<string, string | null> = {}
+    if (code) {
+      profileUpdates.referred_by_code = code
+      if (partnerId) profileUpdates.referred_by_partner_id = partnerId
+    }
+    if (utmSourceValue) profileUpdates.utm_source = utmSourceValue
+
+    if (Object.keys(profileUpdates).length === 0) return
+
     try {
-      // Write referred_by_code + referred_by_partner_id to user's patent_profile
       await fetch('/api/users/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({
-          referred_by_code: code,
-          ...(partnerId ? { referred_by_partner_id: partnerId } : {}),
-        }),
+        body: JSON.stringify(profileUpdates),
       })
-      localStorage.removeItem(REFERRAL_CODE_KEY)
+      if (code) localStorage.removeItem(REFERRAL_CODE_KEY)
     } catch { /* non-fatal */ }
   }
 
