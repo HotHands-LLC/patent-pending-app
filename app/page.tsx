@@ -31,7 +31,7 @@ export default function Home() {
         <HomepageHero />
 
         {/* Features */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pb-20">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pb-12">
           {[
             {
               icon: '💬',
@@ -58,6 +58,22 @@ export default function Home() {
               <p className="text-gray-500 text-sm">{f.desc}</p>
             </div>
           ))}
+        </div>
+
+        {/* Patent Journey teaser */}
+        <div className="border border-gray-100 rounded-2xl p-8 mb-16 text-center">
+          <div className="text-3xl mb-3">🗺️</div>
+          <h2 className="text-xl font-bold text-[#1a1f36] mb-2">Understand the Full Patent Journey</h2>
+          <p className="text-gray-500 text-sm mb-5 max-w-md mx-auto">
+            From invention disclosure to maintenance fees — 8 stages, explained in plain English.
+            Interactive timeline with estimated timelines for each phase.
+          </p>
+          <Link
+            href="/timeline"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1a1f36] text-white rounded-xl text-sm font-semibold hover:bg-[#2d3561] transition-colors"
+          >
+            View the Patent Journey →
+          </Link>
         </div>
       </main>
 

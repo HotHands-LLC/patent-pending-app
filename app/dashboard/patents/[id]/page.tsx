@@ -29,6 +29,7 @@ import PattieChatDrawer from '@/components/PattieChatDrawer'
 import PattieInlinePanel from '@/components/PattieInlinePanel'
 import PatentActivityTimeline from '@/components/PatentActivityTimeline'
 import { USPTO_FEES } from '@/lib/uspto-fees'
+import PatentJourneyTimeline from '@/components/PatentJourneyTimeline'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -2512,7 +2513,16 @@ export default function PatentDetail() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className="lg:col-span-2 space-y-4 sm:space-y-6">
               {/* Pattie banner removed — Pattie is inline in the 35/65 split above */}
-              {/* Filing Journey Timeline */}
+              {/* Patent Journey Timeline — full 8-stage visual (P36) */}
+              <PatentJourneyTimeline
+                status={patent.filing_status ?? patent.status}
+                filingDate={patent.filing_date}
+                provisionalFiledAt={(patent as Record<string, unknown>).provisional_filed_at as string | null}
+                npFiledAt={(patent as Record<string, unknown>).nonprov_deadline_at as string | null}
+                npFilingSteps={(patent as Record<string, unknown>).np_filing_steps as Record<string, boolean> | null}
+              />
+
+              {/* Filing Journey Timeline (condensed) */}
               <FilingTimeline patent={patent} />
               <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
                 <h2 className="font-semibold text-[#1a1f36] mb-4">Patent Details</h2>
