@@ -1,78 +1,148 @@
 'use client'
+
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Navbar from '@/components/Navbar'
-import { supabase, getDaysUntil, getUrgencyBadge } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface PatentDeadlineRow {
+interface PatentRow {
   id: string
-  deadline_type: string
-  due_date: string
-  status: 'pending' | 'completed' | 'missed' | 'extended'
+  title: string
+  application_number: string | null
+  np_deadline: string | null
+  status: string | null
+  is_fallback?: boolean
+}
+
+interface QueueData {
+  status: 'running' | 'idle' | 'paused'
+  in_progress: Array<{ id: string; prompt_label: string; started_at: string | null }>
+  queued_count: number
+  queued: Array<{ id: string; prompt_label: string; priority: number; created_at: string }>
+  current_task: { id: string; prompt_label: string; started_at: string | null } | null
+  elapsed_min: number
+  last_completed: { id: string; prompt_label: string; completed_at: string | null } | null
+  auto_run_enabled: boolean
+}
+
+interface CronRow {
+  cron_name: string
+  status: string
+  ran_at: string
   notes: string | null
-  patents: { title: string; id: string }
 }
 
-interface BlogPost {
-  id: string
-  title: string
-  slug: string
-  status: string
-  published_at: string | null
-  word_count: number | null
-  category: string | null
-  created_at: string
+interface RadarData {
+  pending_count: number
+  last_run: string | null
 }
 
-interface ContentItem {
-  id: string
-  source: 'marketing_ideas' | 'social_post_log'
-  platform: string
-  title: string
-  body: string | null
-  status: string
-  posted_at: string | null
+interface HealthIndicator {
+  status: 'green' | 'yellow' | 'red'
+  [key: string]: unknown
 }
 
-interface RadarLead {
-  id: string
-  source: string
-  post_url: string
-  post_title: string
-  post_body: string | null
-  draft_reply: string | null
-  status: string
-  score: number
-  found_at: string
+interface HealthData {
+  pattie: HealthIndicator & { errors_last_hour: number }
+  supabase: HealthIndicator & { errors_last_24h: number }
+  vercel: HealthIndicator & { last_deploy_sha: string | null }
+  queue: HealthIndicator & { queued_count: number; current_task: string | null }
+  radar: HealthIndicator & { pending_count: number }
 }
 
-// ── Platform helpers ──────────────────────────────────────────────────────────
-
-/** Platforms we can post to directly (must match integration_credentials.service) */
-const DIRECT_POST_PLATFORMS: Record<string, string> = {
-  Facebook: 'facebook',
-  LinkedIn: 'linkedin',
+interface ActionItems {
+  dynamic_patents: PatentRow[]
+  static: {
+    steve_mccain: string | null
+    improvmx: string | null
+    vercel: string | null
+  }
 }
 
-const PLATFORM_ORDER = ['Reddit', 'LinkedIn', 'TikTok', 'Instagram', 'Facebook']
-const PLATFORM_COLORS: Record<string, string> = {
-  Reddit:    'bg-orange-100 text-orange-700 border-orange-200',
-  LinkedIn:  'bg-blue-100 text-blue-700 border-blue-200',
-  TikTok:    'bg-pink-100 text-pink-700 border-pink-200',
-  Instagram: 'bg-purple-100 text-purple-700 border-purple-200',
-  Facebook:  'bg-blue-100 text-blue-800 border-blue-300',
-}
-const PLATFORM_ICONS: Record<string, string> = {
-  Reddit: '🔴', LinkedIn: '💼', TikTok: '🎵', Instagram: '📸', Facebook: '📘',
+interface MissionControlData {
+  patents: PatentRow[]
+  queue: QueueData
+  cron_health: CronRow[] | null
+  radar: RadarData
+  health: HealthData
+  action_items: ActionItems
 }
 
-function platformSort(a: ContentItem, b: ContentItem) {
-  const ai = PLATFORM_ORDER.indexOf(a.platform)
-  const bi = PLATFORM_ORDER.indexOf(b.platform)
-  return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function getDaysUntil(dateStr: string | null): number {
+  if (!dateStr) return 9999
+  const target = new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00'))
+  return Math.ceil((target.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+}
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return '—'
+  return new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  })
+}
+
+function formatDateTime(dateStr: string | null): string {
+  if (!dateStr) return '—'
+  return new Date(dateStr).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+}
+
+function deadlineColor(days: number) {
+  if (days <= 7) return 'bg-red-50 border-red-200 text-red-700'
+  if (days <= 30) return 'bg-yellow-50 border-yellow-200 text-yellow-700'
+  return 'bg-green-50 border-green-200 text-green-700'
+}
+
+function deadlineEmoji(days: number) {
+  if (days <= 7) return '🔴'
+  if (days <= 30) return '🟡'
+  return '🟢'
+}
+
+function deadlineBadge(days: number) {
+  if (days < 0) return { text: `${Math.abs(days)}d OVERDUE`, cls: 'bg-red-600 text-white' }
+  if (days === 0) return { text: 'TODAY', cls: 'bg-red-600 text-white' }
+  return { text: `${days}d`, cls: days <= 7 ? 'bg-red-100 text-red-700' : days <= 30 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700' }
+}
+
+function healthColor(status: 'green' | 'yellow' | 'red') {
+  return {
+    green: 'bg-green-500',
+    yellow: 'bg-yellow-400',
+    red: 'bg-red-500',
+  }[status]
+}
+
+function healthBg(status: 'green' | 'yellow' | 'red') {
+  return {
+    green: 'bg-green-50 border-green-200',
+    yellow: 'bg-yellow-50 border-yellow-200',
+    red: 'bg-red-50 border-red-200',
+  }[status]
+}
+
+function cronStatusBadge(status: string) {
+  if (status === 'ok' || status === 'success') return { emoji: '✅', cls: 'bg-green-100 text-green-700' }
+  if (status === 'warning' || status === 'warn') return { emoji: '⚠️', cls: 'bg-yellow-100 text-yellow-700' }
+  return { emoji: '❌', cls: 'bg-red-100 text-red-700' }
+}
+
+// ── Section wrapper ───────────────────────────────────────────────────────────
+
+function Section({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`bg-white rounded-2xl border border-gray-200 overflow-hidden ${className ?? ''}`}>
+      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+        <h2 className="font-bold text-[#1a1f36] text-sm">{title}</h2>
+      </div>
+      <div className="p-6">{children}</div>
+    </div>
+  )
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -83,127 +153,29 @@ function useToast() {
   return { toast, show }
 }
 
-// ── Section wrapper ───────────────────────────────────────────────────────────
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-        <h2 className="font-bold text-[#1a1f36] text-base">{title}</h2>
-      </div>
-      <div className="p-6">{children}</div>
-    </div>
-  )
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
+// ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function MissionControlPage() {
   const router = useRouter()
   const { toast, show: showToast } = useToast()
   const [authToken, setAuthToken] = useState('')
   const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<MissionControlData | null>(null)
+  const [startingQueue, setStartingQueue] = useState(false)
+  const [dismissingKey, setDismissingKey] = useState<string | null>(null)
 
-  // Section data
-  const [deadlines, setDeadlines] = useState<PatentDeadlineRow[]>([])
-  const [blogPosts, setBlogPosts] = useState<BlogPost[]>([])
-  const [contentItems, setContentItems] = useState<ContentItem[]>([])
-  const [radarLeads, setRadarLeads] = useState<RadarLead[]>([])
-
-  // Active OAuth platform connections (service names that are connected + active)
-  const [activeConnections, setActiveConnections] = useState<Set<string>>(new Set())
-
-  // Action states
-  const [publishingId, setPublishingId] = useState<string | null>(null)
-  const [skippingId, setSkippingId] = useState<string | null>(null)
-  const [markingPostedId, setMarkingPostedId] = useState<string | null>(null)
-  const [markingRepliedId, setMarkingRepliedId] = useState<string | null>(null)
-  const [dismissingId, setDismissingId] = useState<string | null>(null)
-  const [postingDirectlyId, setPostingDirectlyId] = useState<string | null>(null)
-
-  // ── Load data ──────────────────────────────────────────────────────────────
-
-  const loadAll = useCallback(async (token: string) => {
-    // Load active OAuth integrations for direct-post gating
+  const loadData = useCallback(async (token: string) => {
     try {
-      const intgRes = await fetch('/api/integrations', { headers: { Authorization: `Bearer ${token}` } })
-      if (intgRes.ok) {
-        const intgData = await intgRes.json()
-        const active = new Set<string>(
-          (intgData.integrations ?? [])
-            .filter((i: { service: string; is_active: boolean }) => i.is_active)
-            .map((i: { service: string }) => i.service),
-        )
-        setActiveConnections(active)
+      const res = await fetch('/api/admin/mission-control', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const json = await res.json() as MissionControlData
+        setData(json)
       }
-    } catch { /* non-blocking */ }
-
-    // Patent deadlines — next 90 days, pending only
-    const { data: dl } = await supabase
-      .from('patent_deadlines')
-      .select('id, deadline_type, due_date, status, notes, patents(title, id)')
-      .eq('status', 'pending')
-      .order('due_date', { ascending: true })
-      .limit(20)
-    setDeadlines((dl ?? []) as unknown as PatentDeadlineRow[])
-
-    // Blog queue — draft or scheduled, next 3
-    const res = await fetch('/api/admin/blog', { headers: { Authorization: `Bearer ${token}` } })
-    if (res.ok) {
-      const d = await res.json()
-      const queue = (d.posts ?? []).filter((p: BlogPost) =>
-        p.status === 'draft' || p.status === 'scheduled'
-      ).slice(0, 3)
-      setBlogPosts(queue)
+    } catch {
+      // silently fail
     }
-
-    // Content ready to post — marketing_ideas
-    const { data: ideas } = await supabase
-      .from('marketing_ideas')
-      .select('id, channel, title, body, status, posted_at')
-      .eq('status', 'ready')
-      .is('posted_at', null)
-      .order('created_at', { ascending: true })
-    const ideaItems: ContentItem[] = (ideas ?? []).map(i => ({
-      id: `idea-${i.id}`,
-      source: 'marketing_ideas' as const,
-      platform: i.channel ?? 'Unknown',
-      title: i.title,
-      body: i.body,
-      status: i.status,
-      posted_at: i.posted_at,
-      _rawId: i.id,
-    } as ContentItem & { _rawId: string }))
-
-    // Content ready to post — social_post_log
-    const { data: posts } = await supabase
-      .from('social_post_log')
-      .select('id, platform, title, content, status, posted_at')
-      .eq('status', 'ready')
-      .is('posted_at', null)
-      .order('created_at', { ascending: true })
-    const postItems: ContentItem[] = (posts ?? []).map(p => ({
-      id: `log-${p.id}`,
-      source: 'social_post_log' as const,
-      platform: p.platform ?? 'Unknown',
-      title: p.title ?? '',
-      body: p.content,
-      status: p.status,
-      posted_at: p.posted_at,
-      _rawId: p.id,
-    } as ContentItem & { _rawId: string }))
-
-    const combined = [...ideaItems, ...postItems].sort(platformSort)
-    setContentItems(combined)
-
-    // Radar leads — not yet replied/dismissed, with draft_reply
-    const { data: radar } = await supabase
-      .from('community_radar_leads')
-      .select('id, source, post_url, post_title, post_body, draft_reply, status, score, found_at')
-      .not('status', 'in', '("replied","dismissed")')
-      .order('score', { ascending: false })
-      .limit(20)
-    setRadarLeads(radar ?? [])
   }, [])
 
   useEffect(() => {
@@ -212,391 +184,472 @@ export default function MissionControlPage() {
       supabase.auth.getSession().then(({ data: { session } }) => {
         const token = session?.access_token ?? ''
         setAuthToken(token)
-        loadAll(token).finally(() => setLoading(false))
+        loadData(token).finally(() => setLoading(false))
       })
     })
-  }, [router, loadAll])
+  }, [router, loadData])
 
-  // ── Blog actions ───────────────────────────────────────────────────────────
-
-  async function publishPost(id: string) {
-    setPublishingId(id)
+  async function startQueue() {
+    setStartingQueue(true)
     try {
-      const res = await fetch('/api/admin/blog', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ id, status: 'published' }),
-      })
-      if (res.ok) {
-        setBlogPosts(prev => prev.filter(p => p.id !== id))
-        showToast('🚀 Post published!')
-      }
-    } finally { setPublishingId(null) }
-  }
-
-  async function skipPost(id: string) {
-    setSkippingId(id)
-    try {
-      const res = await fetch('/api/admin/blog', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ id, status: 'skipped' }),
-      })
-      if (res.ok) {
-        setBlogPosts(prev => prev.filter(p => p.id !== id))
-        showToast('⏭️ Post skipped')
-      }
-    } finally { setSkippingId(null) }
-  }
-
-  // ── Content actions ────────────────────────────────────────────────────────
-
-  async function markPosted(item: ContentItem & { _rawId?: string }) {
-    const rawId = (item as unknown as { _rawId: string })._rawId ?? item.id
-    setMarkingPostedId(item.id)
-    try {
-      if (item.source === 'marketing_ideas') {
-        await supabase.from('marketing_ideas')
-          .update({ status: 'posted', posted_at: new Date().toISOString() })
-          .eq('id', rawId)
-      } else {
-        await supabase.from('social_post_log')
-          .update({ status: 'posted', posted_at: new Date().toISOString() })
-          .eq('id', rawId)
-      }
-      setContentItems(prev => prev.filter(c => c.id !== item.id))
-      showToast('📤 Marked as posted!')
-    } finally { setMarkingPostedId(null) }
-  }
-
-  async function copyContent(item: ContentItem) {
-    await navigator.clipboard.writeText(item.body ?? item.title)
-    showToast('📋 Copied!')
-  }
-
-  async function postDirectly(item: ContentItem & { _rawId?: string }) {
-    const rawId = (item as unknown as { _rawId: string })._rawId ?? item.id
-    const serviceName = DIRECT_POST_PLATFORMS[item.platform]
-    if (!serviceName) return
-    setPostingDirectlyId(item.id)
-    try {
-      const res = await fetch('/api/social/post', {
+      const res = await fetch('/api/admin/queue/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ platform: serviceName, content: item.body ?? item.title }),
+        headers: { Authorization: `Bearer ${authToken}` },
       })
-      const data = await res.json()
-      if (data.success) {
-        // Auto-mark as posted
-        if (item.source === 'marketing_ideas') {
-          await supabase.from('marketing_ideas')
-            .update({ status: 'posted', posted_at: new Date().toISOString() })
-            .eq('id', rawId)
-        } else {
-          await supabase.from('social_post_log')
-            .update({ status: 'posted', posted_at: new Date().toISOString() })
-            .eq('id', rawId)
-        }
-        setContentItems(prev => prev.filter(c => c.id !== item.id))
-        if (data.post_url) {
-          showToast(`🚀 Posted! View it → ${data.post_url}`)
-        } else {
-          showToast(`🚀 Posted to ${item.platform}!`)
-        }
+      const json = await res.json()
+      if (res.ok) {
+        showToast('▶ Queue started!')
+        await loadData(authToken)
       } else {
-        showToast(`❌ ${data.error ?? 'Post failed'}`)
+        showToast(`❌ ${json.error ?? 'Failed to start queue'}`)
       }
-    } catch {
-      showToast('❌ Network error — post failed')
     } finally {
-      setPostingDirectlyId(null)
+      setStartingQueue(false)
     }
   }
 
-  // ── Radar actions ──────────────────────────────────────────────────────────
-
-  async function markReplied(id: string) {
-    setMarkingRepliedId(id)
+  async function dismissActionItem(key: string) {
+    setDismissingKey(key)
     try {
-      await supabase.from('community_radar_leads')
-        .update({ status: 'replied', replied_at: new Date().toISOString() })
-        .eq('id', id)
-      setRadarLeads(prev => prev.filter(l => l.id !== id))
-      showToast('✅ Marked as replied!')
-    } finally { setMarkingRepliedId(null) }
+      const res = await fetch('/api/admin/mission-control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ key }),
+      })
+      if (res.ok) {
+        showToast('✓ Marked done')
+        await loadData(authToken)
+      }
+    } finally {
+      setDismissingKey(null)
+    }
   }
-
-  async function dismissLead(id: string) {
-    setDismissingId(id)
-    try {
-      await supabase.from('community_radar_leads')
-        .update({ status: 'dismissed' })
-        .eq('id', id)
-      setRadarLeads(prev => prev.filter(l => l.id !== id))
-      showToast('🚫 Dismissed')
-    } finally { setDismissingId(null) }
-  }
-
-  async function copyReply(lead: RadarLead) {
-    await navigator.clipboard.writeText(lead.draft_reply ?? '')
-    showToast('📋 Reply copied!')
-  }
-
-  // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) return (
-    <div className="min-h-screen bg-gray-50">
-      <Navbar />
-      <div className="flex items-center justify-center h-64 text-gray-400">Loading Mission Control…</div>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-gray-400 text-sm">Loading Mission Control…</div>
     </div>
   )
 
+  const d = data
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navbar />
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
 
         {/* Header */}
-        <div>
-          <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
-            <Link href="/admin" className="hover:text-[#1a1f36]">Admin</Link>
-            <span>/</span>
-            <span className="text-[#1a1f36]">Mission Control</span>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
+              <Link href="/admin" className="hover:text-[#1a1f36]">Admin</Link>
+              <span>/</span>
+              <span className="text-[#1a1f36]">Mission Control</span>
+            </div>
+            <h1 className="text-2xl font-bold text-[#1a1f36]">🎯 Mission Control</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+            </p>
           </div>
-          <h1 className="text-2xl font-bold text-[#1a1f36]">🎯 Mission Control</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-          </p>
+          <button
+            onClick={() => loadData(authToken)}
+            className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50"
+          >
+            ↻ Refresh
+          </button>
         </div>
 
-        {/* ── Section 1: Patent Deadlines ──────────────────────────────────── */}
-        <Section title="⚖️ Patent Deadlines">
-          {deadlines.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No upcoming deadlines. You&apos;re clear! 🎉</p>
-          ) : (
-            <div className="space-y-3">
-              {deadlines.map(d => {
-                const days = getDaysUntil(d.due_date)
-                return (
-                  <div key={d.id} className="flex items-center justify-between gap-4 border border-gray-100 rounded-xl p-4 hover:bg-gray-50">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-[#1a1f36] truncate">{d.patents?.title ?? 'Unknown Patent'}</p>
-                      <p className="text-xs text-gray-400 mt-0.5 capitalize">
-                        {d.deadline_type.replace(/_/g, ' ')} · Due {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                      {d.notes && <p className="text-xs text-gray-500 mt-0.5">{d.notes}</p>}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${getUrgencyBadge(days)}`}>
-                        {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'TODAY' : `${days}d`}
-                      </span>
-                      <a
-                        href="https://patentcenter.uspto.gov"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1.5 bg-[#1a1f36] text-white text-xs font-semibold rounded-lg hover:bg-[#2d3561] whitespace-nowrap"
-                      >
-                        File Now →
-                      </a>
-                      <a
-                        href="tel:8065496480"
-                        className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 whitespace-nowrap"
-                      >
-                        📞 Text Steve
-                      </a>
-                    </div>
-                  </div>
-                )
-              })}
+        {/* ── Platform Health Strip ──────────────────────────────────────────── */}
+        {d?.health && (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {/* Pattie */}
+            <div className={`rounded-xl border p-4 ${healthBg(d.health.pattie.status)}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`w-2 h-2 rounded-full ${healthColor(d.health.pattie.status)}`} />
+                <span className="text-xs font-bold text-gray-700">Pattie</span>
+              </div>
+              <p className="text-xs text-gray-500">
+                {d.health.pattie.errors_last_hour === 0
+                  ? 'No errors (1h)'
+                  : `${d.health.pattie.errors_last_hour} error${d.health.pattie.errors_last_hour !== 1 ? 's' : ''} (1h)`}
+              </p>
             </div>
-          )}
-        </Section>
 
-        {/* ── Section 2: Blog Queue ────────────────────────────────────────── */}
-        <Section title="📝 Blog Queue">
-          {blogPosts.length < 3 && (
-            <div className={`mb-4 flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold ${blogPosts.length === 0 ? 'bg-red-50 border border-red-200 text-red-700' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
-              ⚠️ Only {blogPosts.length} post{blogPosts.length !== 1 ? 's' : ''} queued — schedule more content!
+            {/* Supabase */}
+            <div className={`rounded-xl border p-4 ${healthBg(d.health.supabase.status)}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`w-2 h-2 rounded-full ${healthColor(d.health.supabase.status)}`} />
+                <span className="text-xs font-bold text-gray-700">Supabase</span>
+              </div>
+              <p className="text-xs text-gray-500">
+                {d.health.supabase.errors_last_24h === 0
+                  ? 'Clean (24h)'
+                  : `${d.health.supabase.errors_last_24h} error${d.health.supabase.errors_last_24h !== 1 ? 's' : ''} (24h)`}
+              </p>
             </div>
-          )}
-          {blogPosts.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No draft or scheduled posts. <Link href="/admin/blog/new" className="text-indigo-600 hover:underline">Write one →</Link></p>
-          ) : (
-            <div className="space-y-3">
-              {blogPosts.map(post => (
-                <div key={post.id} className="flex items-center justify-between gap-4 border border-gray-100 rounded-xl p-4 hover:bg-gray-50">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm text-[#1a1f36] truncate">{post.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${post.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
-                        {post.status}
-                      </span>
-                      {post.word_count && <span className="text-xs text-gray-400">{post.word_count} words</span>}
-                      {post.category && <span className="text-xs text-gray-400">· {post.category}</span>}
-                    </div>
+
+            {/* Vercel */}
+            <div className={`rounded-xl border p-4 ${healthBg(d.health.vercel.status)}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`w-2 h-2 rounded-full ${healthColor(d.health.vercel.status)}`} />
+                <span className="text-xs font-bold text-gray-700">Vercel</span>
+              </div>
+              <p className="text-xs text-gray-500 truncate">
+                {d.health.vercel.last_deploy_sha
+                  ? `SHA: ${String(d.health.vercel.last_deploy_sha).slice(0, 7)}`
+                  : 'Connected'}
+              </p>
+            </div>
+
+            {/* Queue */}
+            <div className={`rounded-xl border p-4 ${
+              d.health.queue.status === 'green' ? 'bg-green-50 border-green-200' :
+              d.health.queue.status === 'yellow' ? 'bg-yellow-50 border-yellow-200' :
+              'bg-gray-50 border-gray-200'
+            }`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`w-2 h-2 rounded-full ${
+                  d.queue.status === 'running' ? 'bg-green-500' :
+                  d.queue.status === 'paused' ? 'bg-gray-400' : 'bg-blue-400'
+                }`} />
+                <span className="text-xs font-bold text-gray-700">Queue</span>
+              </div>
+              <p className="text-xs text-gray-500 capitalize">
+                {d.queue.status} · {d.queue.queued_count} queued
+              </p>
+            </div>
+
+            {/* Radar */}
+            <div className={`rounded-xl border p-4 ${healthBg(d.health.radar.status)}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`w-2 h-2 rounded-full ${healthColor(d.health.radar.status)}`} />
+                <span className="text-xs font-bold text-gray-700">Radar</span>
+              </div>
+              <p className="text-xs text-gray-500">
+                {d.health.radar.pending_count} pending repl{d.health.radar.pending_count !== 1 ? 'ies' : 'y'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Main + Sidebar layout ─────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* ── Left: Main sections (2/3 width) ───────────────────────────── */}
+          <div className="lg:col-span-2 space-y-6">
+
+            {/* Section 1: Patent Deadlines */}
+            <Section title="⚖️ Patent Deadlines">
+              {!d || d.patents.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">No patent deadlines found.</p>
+              ) : (
+                <div className="space-y-2">
+                  {d.patents.map(p => {
+                    const days = getDaysUntil(p.np_deadline)
+                    const badge = deadlineBadge(days)
+                    const rowColor = deadlineColor(days)
+                    const emoji = deadlineEmoji(days)
+                    return (
+                      <div key={p.id} className={`flex items-center justify-between gap-3 border rounded-xl px-4 py-3 ${rowColor}`}>
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className="text-base shrink-0">{emoji}</span>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm text-[#1a1f36] truncate">{p.title}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {p.application_number ? `#${p.application_number} · ` : ''}
+                              NP Deadline: {formatDate(p.np_deadline)}
+                              {p.is_fallback && ' (hardcoded)'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${badge.cls}`}>
+                            {badge.text}
+                          </span>
+                          {p.status && (
+                            <span className="px-2 py-0.5 bg-white/70 border border-gray-200 rounded text-xs text-gray-500 capitalize">
+                              {p.status.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </Section>
+
+            {/* Section 2: Queue Status */}
+            <Section title="⚡ Queue Status">
+              {!d ? (
+                <p className="text-sm text-gray-400">Loading…</p>
+              ) : (
+                <div className="space-y-4">
+                  {/* Status row */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${
+                      d.queue.status === 'running' ? 'bg-green-100 text-green-700' :
+                      d.queue.status === 'paused' ? 'bg-gray-100 text-gray-600' :
+                      'bg-blue-100 text-blue-700'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        d.queue.status === 'running' ? 'bg-green-500 animate-pulse' :
+                        d.queue.status === 'paused' ? 'bg-gray-400' : 'bg-blue-400'
+                      }`} />
+                      {d.queue.status.toUpperCase()}
+                    </span>
+                    <span className="text-sm text-gray-500">{d.queue.queued_count} item{d.queue.queued_count !== 1 ? 's' : ''} queued</span>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Link href={`/admin/blog/${post.id}/edit`} className="px-3 py-1.5 border border-gray-200 text-gray-600 text-xs font-semibold rounded-lg hover:bg-gray-50">
-                      Edit
+
+                  {/* Current task */}
+                  {d.queue.current_task ? (
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                      <p className="text-xs text-blue-500 font-semibold mb-1">▶ In Progress</p>
+                      <p className="text-sm font-semibold text-[#1a1f36]">{d.queue.current_task.prompt_label}</p>
+                      {d.queue.elapsed_min > 0 && (
+                        <p className="text-xs text-gray-400 mt-1">Running {d.queue.elapsed_min}m</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400">No task currently running.</p>
+                  )}
+
+                  {/* Last completed */}
+                  {d.queue.last_completed && (
+                    <div className="text-xs text-gray-400">
+                      ✓ Last completed: <span className="text-gray-600">{d.queue.last_completed.prompt_label}</span>
+                      {d.queue.last_completed.completed_at && ` · ${formatDateTime(d.queue.last_completed.completed_at)}`}
+                    </div>
+                  )}
+
+                  {/* Queued items preview */}
+                  {d.queue.queued.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 mb-2">Up next:</p>
+                      <div className="space-y-1">
+                        {d.queue.queued.slice(0, 5).map((item, i) => (
+                          <div key={item.id} className="flex items-center gap-2 text-xs text-gray-600">
+                            <span className="text-gray-400">{i + 1}.</span>
+                            <span className="truncate">{item.prompt_label}</span>
+                          </div>
+                        ))}
+                        {d.queue.queued.length > 5 && (
+                          <p className="text-xs text-gray-400">…and {d.queue.queued.length - 5} more</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Start queue button */}
+                  {d.queue.queued_count > 0 && d.queue.status !== 'running' && (
+                    <button
+                      onClick={startQueue}
+                      disabled={startingQueue}
+                      className="px-4 py-2 bg-[#1a1f36] text-white text-sm font-semibold rounded-xl hover:bg-[#2d3561] disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {startingQueue ? <span className="animate-spin">⏳</span> : '▶'} Start Queue
+                    </button>
+                  )}
+
+                  <div className="pt-2 border-t border-gray-100">
+                    <Link href="/admin/claw-queue" className="text-xs text-indigo-600 hover:underline">
+                      View full queue →
                     </Link>
-                    <button
-                      onClick={() => publishPost(post.id)}
-                      disabled={publishingId === post.id}
-                      className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
-                    >
-                      {publishingId === post.id ? '⏳' : '🚀 Publish Now'}
-                    </button>
-                    <button
-                      onClick={() => skipPost(post.id)}
-                      disabled={skippingId === post.id}
-                      className="px-3 py-1.5 border border-gray-200 text-gray-500 text-xs font-semibold rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      {skippingId === post.id ? '⏳' : 'Skip'}
-                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <Link href="/admin/blog" className="text-xs text-indigo-600 hover:underline">View all blog posts →</Link>
-          </div>
-        </Section>
+              )}
+            </Section>
 
-        {/* ── Section 3: Content Ready to Post ────────────────────────────── */}
-        <Section title="📣 Content Ready to Post">
-          {contentItems.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No content ready to post. <Link href="/admin/marketing" className="text-indigo-600 hover:underline">Generate some →</Link></p>
-          ) : (
-            <div className="space-y-3">
-              {contentItems.map(item => {
-                const rawId = (item as unknown as { _rawId: string })._rawId ?? item.id
-                const color = PLATFORM_COLORS[item.platform] ?? 'bg-gray-100 text-gray-700 border-gray-200'
-                const icon = PLATFORM_ICONS[item.platform] ?? '📱'
-                const charCount = (item.body ?? '').length
-                return (
-                  <div key={item.id} className="border border-gray-100 rounded-xl p-4 hover:bg-gray-50">
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span className={`px-2 py-0.5 rounded text-xs font-semibold border shrink-0 ${color}`}>
-                          {icon} {item.platform}
-                        </span>
-                        <p className="text-sm font-semibold text-[#1a1f36] truncate">{item.title}</p>
-                      </div>
-                      <span className="text-xs text-gray-400 shrink-0">{charCount.toLocaleString()} chars</span>
-                    </div>
-                    {item.body && (
-                      <p className="text-xs text-gray-500 line-clamp-2 mb-3">{item.body}</p>
-                    )}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        onClick={() => copyContent(item)}
-                        className="px-3 py-1.5 bg-[#1a1f36] text-white text-xs font-semibold rounded-lg hover:bg-[#2d3561]"
-                      >
-                        📋 Copy
-                      </button>
-                      {/* "Post Directly" — only shown if this platform has an active OAuth connection */}
-                      {DIRECT_POST_PLATFORMS[item.platform] && activeConnections.has(DIRECT_POST_PLATFORMS[item.platform]) && (
-                        <button
-                          onClick={() => postDirectly({ ...item, _rawId: rawId } as ContentItem & { _rawId: string })}
-                          disabled={postingDirectlyId === item.id}
-                          className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
-                        >
-                          {postingDirectlyId === item.id ? '⏳ Posting…' : `🚀 Post to ${item.platform}`}
-                        </button>
-                      )}
-                      <button
-                        onClick={() => markPosted({ ...item, _rawId: rawId } as ContentItem & { _rawId: string })}
-                        disabled={markingPostedId === item.id}
-                        className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
-                      >
-                        {markingPostedId === item.id ? '⏳' : '✅ Mark Posted'}
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <Link href="/admin/marketing" className="text-xs text-indigo-600 hover:underline">View Marketing Command Center →</Link>
-          </div>
-        </Section>
-
-        {/* ── Section 4: Community Radar — Replies Needing Approval ────────── */}
-        <Section title="📡 Community Radar — Replies Needing Approval">
-          {radarLeads.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No draft replies pending. All clear! ✅</p>
-          ) : (
-            <div className="space-y-3">
-              {radarLeads.map(lead => {
-                const sourceColor = lead.source === 'reddit' ? 'bg-orange-100 text-orange-700' : 'bg-amber-100 text-amber-700'
-                const sourceIcon = lead.source === 'reddit' ? '🔴' : '⚡'
-                const truncTitle = lead.post_title.length > 80 ? lead.post_title.slice(0, 77) + '…' : lead.post_title
-                return (
-                  <div key={lead.id} className={`border rounded-xl p-4 ${lead.score >= 80 ? 'border-red-100 bg-red-50/30' : 'border-gray-100'}`}>
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${sourceColor}`}>
-                            {sourceIcon} {lead.source === 'reddit' ? 'Reddit' : 'HN'}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${lead.score >= 80 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                            {lead.score}/100
-                          </span>
+            {/* Section 3: Cron Health */}
+            <Section title="⏰ Cron Health (Last 24h)">
+              {!d ? (
+                <p className="text-sm text-gray-400">Loading…</p>
+              ) : d.cron_health === null ? (
+                <div className="text-center py-6">
+                  <p className="text-sm text-gray-400">No cron log available</p>
+                  <p className="text-xs text-gray-300 mt-1">Create a <code className="bg-gray-100 px-1 rounded">cron_run_log</code> table to enable tracking</p>
+                </div>
+              ) : d.cron_health.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">No cron runs in the last 24h.</p>
+              ) : (
+                <div className="space-y-2">
+                  {d.cron_health.map(cron => {
+                    const badge = cronStatusBadge(cron.status)
+                    return (
+                      <div key={cron.cron_name} className="flex items-center justify-between gap-3 border border-gray-100 rounded-xl px-4 py-3 hover:bg-gray-50">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <span className="text-base">{badge.emoji}</span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-[#1a1f36] truncate">{cron.cron_name}</p>
+                            {cron.notes && (
+                              <p className="text-xs text-gray-400 truncate mt-0.5">{cron.notes}</p>
+                            )}
+                          </div>
                         </div>
-                        <a
-                          href={lead.post_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm font-semibold text-[#1a1f36] hover:text-indigo-600"
-                        >
-                          {truncTitle}
-                        </a>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${badge.cls}`}>
+                            {cron.status}
+                          </span>
+                          <span className="text-xs text-gray-400">{formatDateTime(cron.ran_at)}</span>
+                        </div>
                       </div>
-                    </div>
+                    )
+                  })}
+                </div>
+              )}
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <Link href="/admin/crons" className="text-xs text-indigo-600 hover:underline">
+                  View cron manager →
+                </Link>
+              </div>
+            </Section>
 
-                    {lead.draft_reply && (
-                      <div className="mt-3 bg-gray-50 border border-gray-100 rounded-lg p-3 mb-3">
-                        <p className="text-xs font-semibold text-gray-500 mb-1">Draft Reply</p>
-                        <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap line-clamp-4">{lead.draft_reply}</p>
-                      </div>
+            {/* Section 4: Community Radar */}
+            <Section title="📡 Community Radar">
+              {!d ? (
+                <p className="text-sm text-gray-400">Loading…</p>
+              ) : (
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <p className="text-2xl font-bold text-[#1a1f36]">{d.radar.pending_count}</p>
+                    <p className="text-sm text-gray-500">
+                      {d.radar.pending_count === 1 ? 'reply' : 'replies'} pending review (draft/pending)
+                    </p>
+                    {d.radar.last_run && (
+                      <p className="text-xs text-gray-400">Last run: {formatDateTime(d.radar.last_run)}</p>
                     )}
+                  </div>
+                  <Link
+                    href="/admin/observer"
+                    className="px-4 py-2 bg-[#1a1f36] text-white text-sm font-semibold rounded-xl hover:bg-[#2d3561] whitespace-nowrap"
+                  >
+                    Review →
+                  </Link>
+                </div>
+              )}
+            </Section>
+          </div>
 
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {lead.draft_reply && (
-                        <button
-                          onClick={() => copyReply(lead)}
-                          className="px-3 py-1.5 bg-[#1a1f36] text-white text-xs font-semibold rounded-lg hover:bg-[#2d3561]"
-                        >
-                          📋 Copy Reply
-                        </button>
-                      )}
+          {/* ── Right: Chad's To-Do sidebar (1/3 width) ───────────────────── */}
+          <div className="space-y-4">
+            <Section title="📋 Chad's To-Do">
+              {!d ? (
+                <p className="text-sm text-gray-400">Loading…</p>
+              ) : (
+                <div className="space-y-4">
+
+                  {/* Dynamic: urgent patents */}
+                  {d.action_items.dynamic_patents.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-red-500 mb-2 uppercase tracking-wide">⚠ Urgent Patents</p>
+                      <div className="space-y-2">
+                        {d.action_items.dynamic_patents.map(p => {
+                          const days = getDaysUntil(p.np_deadline)
+                          return (
+                            <div key={p.id} className="bg-red-50 border border-red-100 rounded-xl p-3">
+                              <p className="text-sm font-semibold text-red-700">{p.title}</p>
+                              <p className="text-xs text-red-500 mt-0.5">
+                                NP deadline {formatDate(p.np_deadline)} · {days}d left
+                              </p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Static: Steve McCain */}
+                  {d.action_items.static.steve_mccain && (
+                    <div className="border border-gray-200 rounded-xl p-3">
+                      <div className="flex items-start gap-2">
+                        <span className="text-base shrink-0">📝</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-700 mb-1">Steve McCain</p>
+                          <p className="text-xs text-gray-600">{d.action_items.static.steve_mccain}</p>
+                        </div>
+                      </div>
                       <button
-                        onClick={() => markReplied(lead.id)}
-                        disabled={markingRepliedId === lead.id}
-                        className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"
+                        onClick={() => dismissActionItem('chad_action_steve_mccain')}
+                        disabled={dismissingKey === 'chad_action_steve_mccain'}
+                        className="mt-2 w-full px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-500 font-medium disabled:opacity-50"
                       >
-                        {markingRepliedId === lead.id ? '⏳' : '✅ Mark Replied'}
-                      </button>
-                      <button
-                        onClick={() => dismissLead(lead.id)}
-                        disabled={dismissingId === lead.id}
-                        className="px-3 py-1.5 border border-gray-200 text-gray-500 text-xs font-semibold rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                      >
-                        {dismissingId === lead.id ? '⏳' : '🚫 Dismiss'}
+                        {dismissingKey === 'chad_action_steve_mccain' ? '…' : '✓ Done'}
                       </button>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <Link href="/admin/marketing#radar" className="text-xs text-indigo-600 hover:underline">View full Community Radar →</Link>
-          </div>
-        </Section>
+                  )}
 
+                  {/* Static: ImprovMX */}
+                  {d.action_items.static.improvmx && (
+                    <div className="border border-gray-200 rounded-xl p-3">
+                      <div className="flex items-start gap-2">
+                        <span className="text-base shrink-0">📧</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-700 mb-1">ImprovMX</p>
+                          <p className="text-xs text-gray-600">{d.action_items.static.improvmx}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => dismissActionItem('chad_action_improvmx')}
+                        disabled={dismissingKey === 'chad_action_improvmx'}
+                        className="mt-2 w-full px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-500 font-medium disabled:opacity-50"
+                      >
+                        {dismissingKey === 'chad_action_improvmx' ? '…' : '✓ Done'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Static: Vercel */}
+                  {d.action_items.static.vercel && (
+                    <div className="border border-gray-200 rounded-xl p-3">
+                      <div className="flex items-start gap-2">
+                        <span className="text-base shrink-0">▲</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-700 mb-1">Vercel</p>
+                          <p className="text-xs text-gray-600">{d.action_items.static.vercel}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => dismissActionItem('chad_action_vercel')}
+                        disabled={dismissingKey === 'chad_action_vercel'}
+                        className="mt-2 w-full px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-500 font-medium disabled:opacity-50"
+                      >
+                        {dismissingKey === 'chad_action_vercel' ? '…' : '✓ Done'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* All clear */}
+                  {d.action_items.dynamic_patents.length === 0
+                    && !d.action_items.static.steve_mccain
+                    && !d.action_items.static.improvmx
+                    && !d.action_items.static.vercel && (
+                    <p className="text-sm text-gray-400 text-center py-4">All clear! Nothing needs attention. 🎉</p>
+                  )}
+                </div>
+              )}
+            </Section>
+
+            {/* Quick links */}
+            <Section title="🔗 Quick Links">
+              <div className="space-y-2">
+                {[
+                  { href: '/admin/claw-queue', label: '⚡ Queue Manager' },
+                  { href: '/admin/observer', label: '📡 Radar / Observer' },
+                  { href: '/admin/crons', label: '⏰ Cron Manager' },
+                  { href: '/admin/claw-patents', label: '🏛 Patent Admin' },
+                  { href: '/admin/security', label: '🔒 Security' },
+                ].map(link => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="block px-3 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+            </Section>
+          </div>
+        </div>
       </div>
 
       {/* Toast */}
