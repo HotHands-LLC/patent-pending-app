@@ -1673,9 +1673,10 @@ export default function PatentDetail() {
   }, [isAdmin, patent?.id, patent?.claims_draft, patent?.filing_status, authToken])
 
   // Handle ?pattie= URL param — auto-open Pattie with initial context (not shown as visible message)
+  // NOTE: suppressed for on_hold patents — Pattie should not proactively engage on hold patents
   useEffect(() => {
     const pattiePrefill = searchParams.get('pattie')
-    if (pattiePrefill && patent && authToken && !showPattie) {
+    if (pattiePrefill && patent && authToken && !showPattie && !isOnHold(patent)) {
       setPattieInitialMessage(decodeURIComponent(pattiePrefill))
       setShowPattie(true)
       // Clean the URL so refreshing doesn't re-trigger
@@ -1703,51 +1704,6 @@ export default function PatentDetail() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, authToken, patent?.id])
-
-  // Auto-open Pattie when ?pattie= param is present (from new patent creation flow)
-  // NOTE: suppressed for on_hold patents — Pattie should not proactively engage on hold patents
-  useEffect(() => {
-    const pattieAutoPrompt = searchParams.get('pattie')
-    if (pattieAutoPrompt && patent && !isOnHold(patent)) {
-      setPattieInitialPrompt(decodeURIComponent(pattieAutoPrompt))
-      setShowPattie(true)
-      // Clean URL to avoid re-triggering on refresh
-      router.replace(`/dashboard/patents/${patent.id}`, { scroll: false })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, patent?.id])
-
-  // 54A: Load founder story dismissal from localStorage
-  useEffect(() => {
-    if (!patent?.id) return
-    setFounderStoryDismissed(localStorage.getItem(`founder_story_dismissed_${patent.id}`) === 'true')
-  }, [patent?.id])
-
-  // 54A + 54B: Check if founder story and content blast correspondence exist
-  useEffect(() => {
-    if (!patent?.id) return
-    const check = async () => {
-      try {
-        const { data } = await supabase
-          .from('patent_correspondence')
-          .select('id')
-          .eq('patent_id', patent.id)
-          .contains('tags', ['founder_story'])
-          .limit(1)
-        setHasFounderStory((data?.length ?? 0) > 0)
-      } catch { setHasFounderStory(false) }
-      try {
-        const blastRows = await supabase
-          .from('patent_correspondence')
-          .select('id')
-          .eq('patent_id', patent.id)
-          .contains('tags', ['content_blast'])
-          .limit(1)
-        setHasContentBlast((blastRows.data?.length ?? 0) > 0)
-      } catch { setHasContentBlast(false) }
-    }
-    check()
-  }, [patent?.id])
 
   // Handle post-upgrade return from Stripe — show toast + refresh Pro state
   useEffect(() => {
@@ -2075,124 +2031,6 @@ export default function PatentDetail() {
   // Claims are always read-only for granted patents (issued — nothing to edit)
   // Also read-only for on_hold patents
   const claimsReadOnly = isGranted || isPatentOnHold || !canWrite
-
-  // 52E: openPattieWith helper — sets a preloaded prompt and opens the Pattie drawer
-  // NOTE: suppressed for on_hold patents
-  function openPattieWith(prompt: string) {
-    if (isPatentOnHold) return
-    setPattieInitialPrompt(prompt)
-    setShowPattie(true)
-  }
-
-  // 54A: Open Pattie with the founder interview prompt
-  function openFounderInterview() {
-    const title = patent?.title ?? 'your invention'
-    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    openPattieWith(`You are Pattie, the patent AI for PatentPending. You are conducting a short founder interview for "${title}".
-
-Your goal: capture the inventor's authentic story. Ask ONE question at a time. Listen, follow up naturally, then move on. Do NOT list all questions upfront.
-
-Start by congratulating them: "Congratulations on filing ${title}! Before we dive in — can you tell me what this invention actually does? Explain it like you're telling a friend."
-
-Cover these in natural order: (1) What it does, (2) The origin spark, (3) The problem it solves, (4) The hardest part of the journey, (5) Any surprises, (6) The 5-year vision, (7) Message to other inventors, (8) Where they spend time online.
-
-After 6-10 exchanges, say you have what you need and ask if they want to add anything. Then use the create_correspondence tool to save a structured founder story document with sections: The Invention, The Origin, The Problem It Solves, The Journey, The Vision, In Their Own Words, Their Platforms, Pattie's Notes. Title it "Founder Story — ${title}". Type: "other".
-
-Then confirm: "Your founder story is saved in your Correspondence tab. When you're ready to turn it into social posts, just ask."`)
-  }
-
-  // 54B: Content Blast handler
-  async function handleContentBlast() {
-    setContentBlastLoading(true)
-    setContentBlastError(null)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      const res = await fetch(`/api/patents/${patent!.id}/content-blast`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({}),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        if (data.error === 'no_founder_story') {
-          setContentBlastError('Complete the Founder Interview first to unlock Content Blast.')
-        } else if (res.status === 402 || data.error === 'payment_required') {
-          // Not purchased — silently re-fetch patent so card flips to "Unlock" state
-          await loadAll()
-          return
-        } else {
-          setContentBlastError(data.message ?? 'Generation failed.')
-        }
-        return
-      }
-      setContentBlastData(data as ContentBlast)
-      setHasContentBlast(true)
-      setContentBlastTab(0)
-      setShowContentBlastModal(true)
-    } catch {
-      setContentBlastError('Network error. Please try again.')
-    } finally {
-      setContentBlastLoading(false)
-    }
-  }
-
-  // 54C: Content Blast purchase handler
-  async function handleContentBlastPurchase() {
-    // Optimistic check — if already purchased locally, skip checkout and generate directly
-    const blastPurchasedLocal = !!(patent as Patent & { content_blast_purchased_at?: string | null }).content_blast_purchased_at
-    if (blastPurchasedLocal) {
-      handleContentBlast()
-      return
-    }
-
-    setCheckoutLoading(true)
-    setContentBlastError(null)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      const res = await fetch(`/api/patents/${patent!.id}/content-blast/checkout`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setContentBlastError(data.message ?? 'Could not start checkout.')
-        return
-      }
-      if (data.alreadyPurchased) {
-        // Race condition: already purchased — reload and go straight to generation
-        window.location.reload()
-        return
-      }
-      if (data.url) {
-        window.location.href = data.url // redirect to Stripe Checkout
-      }
-    } catch {
-      setContentBlastError('Network error. Please try again.')
-    } finally {
-      setCheckoutLoading(false)
-    }
-  }
-
-  // 52E: localStorage dismiss helpers for Pattie entry cards
-  function isPattieEntryDismissed(patentId: string, tabName: string): boolean {
-    if (typeof window === 'undefined') return false
-    return localStorage.getItem(`pattie_entry_dismissed_${patentId}_${tabName}`) === 'true'
-  }
-  function dismissPattieEntry(patentId: string, tabName: string): void {
-    if (typeof window === 'undefined') return
-    localStorage.setItem(`pattie_entry_dismissed_${patentId}_${tabName}`, 'true')
-  }
-
-  // 52E: urgency color map for lifecycle badge
-  const URGENCY_COLORS = {
-    none:     { badge: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' },
-    low:      { badge: 'bg-blue-50 text-blue-700', dot: 'bg-blue-400' },
-    medium:   { badge: 'bg-yellow-50 text-yellow-700', dot: 'bg-yellow-400' },
-    high:     { badge: 'bg-orange-50 text-orange-700', dot: 'bg-orange-500' },
-    critical: { badge: 'bg-red-50 text-red-700', dot: 'bg-red-500' },
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -2573,23 +2411,34 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
             </div>
           </div>
 
-          {/* Right: Pattie inline chat (65%) */}
+          {/* Right: Pattie inline chat (65%) — hidden for on_hold patents */}
           <div className="flex-1 min-h-0" style={{ minHeight: 520 }}>
-            <PattieInlinePanel
-              patentId={patent.id}
-              patentTitle={patent.title}
-              authToken={authToken}
-              canEdit={canWrite}
-              patentStatus={patent.filing_status ?? patent.status}
-              onTierRequired={(feature) => setUpgradeFeature(feature)}
-              contextualOpening={contextualOpening}
-              pendingMessage={statusClickMessage}
-              onPendingMessageConsumed={() => setStatusClickMessage(undefined)}
-            />
+            {isPatentOnHold ? (
+              <div className="h-full flex items-center justify-center bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="text-center p-8">
+                  <div className="text-4xl mb-3">⏸</div>
+                  <p className="text-sm font-semibold text-amber-800">Patent On Hold</p>
+                  <p className="text-xs text-amber-600 mt-1">Pattie is unavailable for patents on hold.</p>
+                </div>
+              </div>
+            ) : (
+              <PattieInlinePanel
+                patentId={patent.id}
+                patentTitle={patent.title}
+                authToken={authToken}
+                canEdit={canWrite}
+                patentStatus={patent.filing_status ?? patent.status}
+                onTierRequired={(feature) => setUpgradeFeature(feature)}
+                contextualOpening={contextualOpening}
+                pendingMessage={statusClickMessage}
+                onPendingMessageConsumed={() => setStatusClickMessage(undefined)}
+              />
+            )}
           </div>
         </div>
 
-        {/* Mobile: Pattie full-screen chat */}
+        {/* Mobile: Pattie full-screen chat — hidden for on_hold */}
+        {!isPatentOnHold && (
         <div className="md:hidden mb-4 bg-white border border-gray-200 rounded-xl overflow-hidden" style={{ minHeight: 400 }}>
           <PattieInlinePanel
             patentId={patent.id}
@@ -2603,6 +2452,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
             onPendingMessageConsumed={() => setStatusClickMessage(undefined)}
           />
         </div>
+        )}
 
         {/* Mobile: Details bottom sheet */}
         {mobileDetailsOpen && (
@@ -2633,7 +2483,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'filing' && isPatentOnHold) return false  // no filing workflow for on_hold patents
-              if (t === 'enhancement' && isPatentOnHold) return false  // no enhancement for on_hold
+              if (t === 'enhancement' && isPatentOnHold) return false  // no enhancement for on_hold patents
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
@@ -3281,22 +3131,10 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                 </button>
               </div>
             ) : !patent.claims_draft ? (
-              <div>
-                {/* 52E: Pattie-first entry card for empty claims — suppressed for on_hold */}
-                {!isPatentOnHold && !isPattieEntryDismissed(patent.id, 'claims') ? (
-                  <PattieEntryCard
-                    prompt="Pattie can draft your claims starting from independent Claim 1. Ready?"
-                    primaryLabel="Draft with Pattie"
-                    onPrimary={() => openPattieWith('Please draft patent claims for this invention. Start with a broad independent Claim 1, then add 3-4 dependent claims narrowing on specific features.')}
-                    secondaryLabel="Write manually"
-                    onSecondary={() => { dismissPattieEntry(patent.id, 'claims'); setPatent(prev => prev ? { ...prev, claims_draft: ' ' } : null) }}
-                  />
-                ) : null}
-                <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-                  <div className="text-3xl mb-3">⏳</div>
-                  <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
-                  <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
-                </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
+                <div className="text-3xl mb-3">⏳</div>
+                <p className="text-gray-500 text-sm font-medium mb-1">No claims draft yet</p>
+                <p className="text-gray-400 text-xs">Complete payment through the intake flow to generate your claims draft.</p>
               </div>
             ) : (
               <div className="space-y-5">
@@ -3902,16 +3740,6 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                   <div className="p-5">
                     {!patent.spec_draft ? (
                       <>
-                        {/* 52E: Pattie-first entry card for empty spec — suppressed for on_hold */}
-                        {!isPatentOnHold && !isPattieEntryDismissed(patent.id, 'description') && (
-                          <PattieEntryCard
-                            prompt="Pattie can draft your specification based on your invention details. Want to start there?"
-                            primaryLabel="Start with Pattie"
-                            onPrimary={() => openPattieWith('Please draft a detailed specification for this patent. Start with the technical field, background, summary of the invention, and detailed description.')}
-                            secondaryLabel="Write manually"
-                            onSecondary={() => dismissPattieEntry(patent.id, 'description')}
-                          />
-                        )}
                         <p className="text-sm text-gray-600 mb-4">
                           Don&apos;t have a specification yet? Let AI draft one from your claims. It&apos;ll generate Background, Summary, and Detailed Description sections — you review and refine.
                         </p>
@@ -4632,46 +4460,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
       {/* FAB removed — Pattie is now inline in the 35/65 split layout */}
 
-      {/* ── ASK PATTIE / INTERVIEW floating buttons ──────────────────────────── */}
-      {patent && authToken && !showPattie && !showArc1Interview && !isPatentOnHold && (!isCollaborator || (collabPerms.pattie ?? false)) && (
-        <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
-          {/* Start Interview — shown when patent is empty (free for all, gate is at export) */}
-          {!isCollaborator && canWrite &&
-            !(patent as Record<string,unknown>).abstract_draft &&
-            !(patent as Record<string,unknown>).description &&
-            !(patent as Record<string,unknown>).claims_draft && (
-            <button
-              onClick={() => setShowArc1Interview(true)}
-              className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2.5 rounded-full shadow-lg hover:bg-violet-700 active:scale-95 transition-all text-sm font-semibold"
-              aria-label="Start invention interview"
-            >
-              <span className="text-base">🎤</span>
-              <span>Start Interview</span>
-            </button>
-          )}
-          <button
-            onClick={() => setShowPattie(true)}
-            className="flex items-center gap-2 bg-[#4f46e5] text-white px-4 py-3 rounded-full shadow-lg hover:bg-[#4338ca] active:scale-95 transition-all text-sm font-semibold"
-            aria-label="Open Pattie chat"
-          >
-            <span className="text-base">🦞</span>
-            <span>Ask Pattie</span>
-          </button>
-        </div>
-      )}
-
-      {/* ── ARC 1 INTERVIEW DRAWER ───────────────────────────────────────────── */}
-      {showArc1Interview && patent && authToken && (
-        <PattieInterviewDrawer
-          patentId={patent.id}
-          patentTitle={patent.title}
-          authToken={authToken}
-          onClose={() => setShowArc1Interview(false)}
-          onDraftApplied={() => { loadAll(); setShowArc1Interview(false) }}
-          onSwitchToPolish={() => { setShowArc1Interview(false); setShowPattie(true) }}
-          onTierRequired={(feature) => { setShowArc1Interview(false); setUpgradeFeature(feature) }}
-        />
-      )}
+      {/* FAB removed — Pattie is inline in the 35/65 layout above */}
 
       {/* ── PATTIE CHAT DRAWER ───────────────────────────────────────────────── */}
       {showPattie && patent && authToken && (

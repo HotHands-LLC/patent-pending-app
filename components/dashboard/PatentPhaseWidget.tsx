@@ -15,7 +15,8 @@ type PatentStatus =
   | "published"
   | "granted"
   | "abandoned"
-  | "research_import";
+  | "research_import"
+  | "on_hold";
 
 interface Patent {
   id: string;
