@@ -504,7 +504,7 @@ export default function ProfilePage() {
                   href="/pricing"
                   className="inline-flex items-center px-5 py-3 bg-amber-500 text-white rounded-xl text-sm font-bold hover:bg-amber-600 transition-colors"
                 >
-                  Upgrade to Pro · $149/mo →
+                  Upgrade to Pro · $49/mo →
                 </Link>
                 <div className="mt-2 text-xs text-gray-400">
                   {patentCount} patent{patentCount !== 1 ? 's' : ''} filed · Free tier includes 2 revisions per patent

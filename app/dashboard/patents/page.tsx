@@ -12,6 +12,7 @@ const STATUS_COLORS: Record<string, string> = {
   published: 'bg-indigo-100 text-indigo-800',
   granted: 'bg-green-100 text-green-800',
   abandoned: 'bg-gray-100 text-gray-800',
+  on_hold: 'bg-amber-100 text-amber-800',
 }
 
 export default function PatentsPage() {

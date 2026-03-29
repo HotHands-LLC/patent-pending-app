@@ -12,7 +12,7 @@ export type Patent = {
   title: string
   description: string | null
   inventors: string[]
-  status: 'provisional' | 'non_provisional' | 'published' | 'granted' | 'abandoned' | 'research_import'
+  status: 'provisional' | 'non_provisional' | 'published' | 'granted' | 'abandoned' | 'research_import' | 'on_hold'
   provisional_number: string | null
   application_number: string | null
   filing_date: string | null

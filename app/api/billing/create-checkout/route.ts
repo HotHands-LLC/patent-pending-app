@@ -18,8 +18,8 @@ function getSupabaseService() {
 }
 
 // Stripe Price IDs — sourced from pricing-config.ts (env-var-based with fallbacks)
-// STRIPE_PRO_MONTHLY_PRICE_ID  → $39/mo (price_1T8IP4EtYVLjzMmuiA0sU5j3 fallback)
-// STRIPE_PRO_ANNUAL_PRICE_ID   → $390/yr (price_1TCx36EtYVLjzMmu1YSqUWk0 fallback)
+// STRIPE_PRO_MONTHLY_PRICE_ID  → $49/mo (price_1T8IP4EtYVLjzMmuiA0sU5j3 fallback) — P-Fix-4 Founder Rate
+// STRIPE_PRO_ANNUAL_PRICE_ID   → $490/yr (price_1T8IP5EtYVLjzMmuoLKun0vw fallback) — P-Fix-4 Founder Rate
 function getPriceId(interval: 'monthly' | 'annual'): string {
   return STRIPE_PRICE_IDS[interval]
 }

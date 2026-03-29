@@ -277,7 +277,7 @@ export default function EnhancementTab({ patent, authToken, isPro = false, onNav
               className="shrink-0 flex flex-col items-center gap-1 px-5 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm whitespace-nowrap"
             >
               <span>Upgrade to Pro</span>
-              <span className="text-xs font-normal opacity-80">$149/mo · $99/mo annual</span>
+              <span className="text-xs font-normal opacity-80">$49/mo · $490/yr</span>
             </a>
           </div>
         </div>

@@ -90,6 +90,12 @@ export default function AdminPage() {
   const [authToken, setAuthToken] = useState('')
   const [mfaWarning, setMfaWarning] = useState<'setup' | 'verify' | null>(null)
 
+  // ── Queue state ──────────────────────────────────────────────────────────────
+  const [queueStatus, setQueueStatus] = useState<{ status: 'running' | 'idle' | 'paused'; queued_count: number; in_progress: { id: string; prompt_label: string }[]; queued: { id: string; prompt_label: string }[] } | null>(null)
+  const [queueLoading, setQueueLoading] = useState(false)
+  const [queueStarting, setQueueStarting] = useState(false)
+  const [queueMsg, setQueueMsg] = useState('')
+
   // Inbox state
   interface InboxItem {
     id: string; uid: string; subject: string; from_email: string; from_name: string | null;
@@ -156,6 +162,19 @@ export default function AdminPage() {
         const data = await res.json()
         setStats(data)
         setLoading(false)
+
+        // Load queue status
+        try {
+          const qRes = await fetch('/api/admin/queue/start', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          })
+          if (qRes.ok) {
+            const qData = await qRes.json()
+            setQueueStatus(qData)
+          }
+        } catch {
+          // non-fatal — queue panel degrades gracefully
+        }
       } catch (err) {
         console.error('[AdminPage] load error:', err)
         setError('Failed to load admin panel. Please refresh the page.')
@@ -164,6 +183,44 @@ export default function AdminPage() {
     }
     load()
   }, [router])
+
+  async function refreshQueue() {
+    if (!authToken) return
+    setQueueLoading(true)
+    try {
+      const res = await fetch('/api/admin/queue/start', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      if (res.ok) setQueueStatus(await res.json())
+    } catch {
+      // non-fatal
+    } finally {
+      setQueueLoading(false)
+    }
+  }
+
+  async function startQueue() {
+    if (!authToken || queueStarting) return
+    setQueueStarting(true)
+    setQueueMsg('')
+    try {
+      const res = await fetch('/api/admin/queue/start', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setQueueMsg(`▶ Started: ${data.started?.prompt_label ?? 'queue item'}`)
+        setTimeout(refreshQueue, 2000)
+      } else {
+        setQueueMsg(`Error: ${data.error}`)
+      }
+    } catch {
+      setQueueMsg('Network error starting queue')
+    } finally {
+      setQueueStarting(false)
+    }
+  }
 
   // ── Maintenance state ─────────────────────────────────────────────────────
   const [patentFilter, setPatentFilter] = useState<'all' | 'human' | 'claw'>('all')
@@ -514,6 +571,69 @@ export default function AdminPage() {
           {activeSection === 'overview' && (
             <div>
               <h1 className="text-xl font-bold text-gray-900 mb-5">Overview</h1>
+
+              {/* ── Queue Status Panel ────────────────────────────────────────── */}
+              <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-700">🤖 Claw Prompt Queue</span>
+                    {queueStatus && (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                        queueStatus.status === 'running' ? 'bg-amber-100 text-amber-700 animate-pulse' :
+                        queueStatus.status === 'idle' ? 'bg-gray-100 text-gray-600' :
+                        'bg-red-100 text-red-600'
+                      }`}>
+                        {queueStatus.status === 'running' ? '⚙️ Queue running' :
+                         queueStatus.status === 'idle' ? `Queue idle — ${queueStatus.queued_count} item${queueStatus.queued_count !== 1 ? 's' : ''} waiting` :
+                         '⏸ Queue paused'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={refreshQueue}
+                      disabled={queueLoading}
+                      className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-50 transition-colors"
+                    >
+                      {queueLoading ? '⟳' : '↻ Refresh'}
+                    </button>
+                    {queueStatus && queueStatus.status !== 'running' && queueStatus.queued_count > 0 && (
+                      <button
+                        onClick={startQueue}
+                        disabled={queueStarting}
+                        className="text-xs font-bold px-3 py-1.5 bg-[#1a1f36] text-white rounded-lg hover:bg-[#2d3561] disabled:opacity-50 transition-colors"
+                      >
+                        {queueStarting ? 'Starting…' : '▶ Start Queue'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {queueMsg && (
+                  <p className={`text-xs mb-2 ${queueMsg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>{queueMsg}</p>
+                )}
+                {queueStatus?.in_progress && queueStatus.in_progress.length > 0 && (
+                  <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">
+                    ⚙️ In progress: <strong>{queueStatus.in_progress[0].prompt_label}</strong>
+                  </div>
+                )}
+                {queueStatus?.queued && queueStatus.queued.length > 0 ? (
+                  <div className="space-y-1 mt-1">
+                    {queueStatus.queued.slice(0, 3).map((item, i) => (
+                      <div key={item.id} className="text-xs text-gray-500 flex items-center gap-2">
+                        <span className="w-4 h-4 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center font-mono text-[10px] shrink-0">{i + 1}</span>
+                        {item.prompt_label}
+                      </div>
+                    ))}
+                    {queueStatus.queued.length > 3 && (
+                      <div className="text-xs text-gray-400">+{queueStatus.queued.length - 3} more…</div>
+                    )}
+                  </div>
+                ) : queueStatus ? (
+                  <p className="text-xs text-gray-400">Queue is empty.</p>
+                ) : (
+                  <p className="text-xs text-gray-400">Loading queue status…</p>
+                )}
+              </div>
 
               {/* Revenue row */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">

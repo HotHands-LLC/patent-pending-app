@@ -113,6 +113,7 @@ export async function POST(req: NextRequest) {
       .select('id, title, status, filing_status, nonprov_deadline_at, marketplace_enabled')
       .eq('owner_id', user.id)
       .neq('status', 'research_import')
+      .neq('status', 'on_hold')  // on_hold patents excluded from Pattie proactive suggestions
       .order('updated_at', { ascending: false })
       .limit(20),
     supabaseService.from('profiles').select('display_name, subscription_status').eq('id', user.id).single(),

@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a;line-height:1.6">
 <p>Welcome to the patentpending.app Partner Program!</p>
 <p>Your unique referral link: <strong><a href="${referralUrl}">${referralUrl}</a></strong></p>
-<p>Share this link with inventor clients. When they upgrade to Pro ($39/month or $390/year), you earn 20% of their first year's subscription. Marketplace transaction commissions coming soon.</p>
+<p>Share this link with inventor clients. When they upgrade to Pro ($49/month or $490/year), you earn 20% of their first year's subscription. Marketplace transaction commissions coming soon.</p>
 <p>View your dashboard: <a href="https://patentpending.app/dashboard/partner">patentpending.app/dashboard/partner</a></p>
 <p>Commissions are paid monthly. Minimum payout: $50. Reply to this email to set up your payout method.</p>
 <p>— The patentpending.app team</p>

@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { trackEvent } from '@/components/GoogleAnalytics'
-import { PRICING } from '@/lib/pricing-config'
+import { PRICING, PRICING_COPY } from '@/lib/pricing-config'
 
 export default function PricingPage() {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
@@ -54,6 +54,10 @@ export default function PricingPage() {
   const annualPrice = PRICING.pro.annual
   const annualMonthlyEquiv = PRICING.pro.annualMonthlyEquiv
   const savingsPct = PRICING.pro.annualSavingsPct
+  const strikethroughPrice = PRICING.monthly.strikethrough
+  const founderBadge = PRICING.monthly.badge
+  // Suppress unused warning — used in JSX below
+  void PRICING_COPY
 
   return (
     <div style={{ minHeight: '100vh', background: '#09090b', color: '#f4f4f5', fontFamily: 'inherit' }}>
@@ -170,9 +174,22 @@ export default function PricingPage() {
             <div style={{ fontSize: 28, fontWeight: 800, color: '#f4f4f5', marginBottom: 4 }}>
               {billingPeriod === 'annual'
                 ? <>${annualPrice} <span style={{ fontSize: 14, fontWeight: 400, color: '#71717a' }}>/year <span style={{ fontSize: 12, color: '#52525b' }}>(${annualMonthlyEquiv}/mo)</span></span></>
-                : <>${monthlyPrice} <span style={{ fontSize: 14, fontWeight: 400, color: '#71717a' }}>/month</span></>
+                : <>
+                    <span style={{ textDecoration: 'line-through', color: '#52525b', fontSize: 20, fontWeight: 600, marginRight: 6 }}>{strikethroughPrice}</span>
+                    ${monthlyPrice} <span style={{ fontSize: 14, fontWeight: 400, color: '#71717a' }}>/month</span>
+                  </>
               }
             </div>
+            {billingPeriod === 'monthly' && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 20, padding: '3px 10px', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#10b981' }}>🎉 {founderBadge}</span>
+              </div>
+            )}
+            {billingPeriod === 'annual' && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 20, padding: '3px 10px', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#10b981' }}>💚 2 months free</span>
+              </div>
+            )}
             <p style={{ fontSize: 13, color: '#71717a', marginBottom: 20 }}>Everything in Free, plus:</p>
             <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[

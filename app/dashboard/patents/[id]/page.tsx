@@ -64,6 +64,12 @@ const STATUS_COLORS: Record<string, string> = {
   published: 'bg-indigo-100 text-indigo-800',
   granted: 'bg-green-100 text-green-800',
   abandoned: 'bg-gray-100 text-gray-800',
+  on_hold: 'bg-amber-100 text-amber-800',
+}
+
+// Patents on hold should not show filing CTAs or Pattie suggestions
+function isOnHold(patent: { status?: string } | null | undefined): boolean {
+  return patent?.status === 'on_hold'
 }
 
 type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'ids' | 'investors' | 'admin'
@@ -1425,9 +1431,10 @@ export default function PatentDetail() {
   }, [searchParams, authToken, patent?.id])
 
   // Auto-open Pattie when ?pattie= param is present (from new patent creation flow)
+  // NOTE: suppressed for on_hold patents — Pattie should not proactively engage on hold patents
   useEffect(() => {
     const pattieAutoPrompt = searchParams.get('pattie')
-    if (pattieAutoPrompt && patent) {
+    if (pattieAutoPrompt && patent && !isOnHold(patent)) {
       setPattieInitialPrompt(decodeURIComponent(pattieAutoPrompt))
       setShowPattie(true)
       // Clean URL to avoid re-triggering on refresh
@@ -1779,14 +1786,18 @@ export default function PatentDetail() {
   //   collaborators: can write only if can_edit=true AND patent is not locked
   const isLocked = patent.is_locked ?? false
   const isGranted = patent.status === 'granted'
+  const isPatentOnHold = isOnHold(patent)
   const canWrite = !isLocked && (!isCollaborator || collabCanEdit)
   // 52A: Patent lifecycle state machine — used in 52E for lifecycle badge
   const lifecycle = usePatentLifecycle(patent)
   // Claims are always read-only for granted patents (issued — nothing to edit)
-  const claimsReadOnly = isGranted || !canWrite
+  // Also read-only for on_hold patents
+  const claimsReadOnly = isGranted || isPatentOnHold || !canWrite
 
   // 52E: openPattieWith helper — sets a preloaded prompt and opens the Pattie drawer
+  // NOTE: suppressed for on_hold patents
   function openPattieWith(prompt: string) {
+    if (isPatentOnHold) return
     setPattieInitialPrompt(prompt)
     setShowPattie(true)
   }
@@ -1912,6 +1923,20 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
           <span>/</span>
           <span className="text-[#1a1f36] truncate">{patent.title}</span>
         </div>
+
+        {/* On Hold banner */}
+        {patent.status === 'on_hold' && (
+          <div className="mb-5 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 flex items-start gap-3">
+            <span className="text-2xl flex-shrink-0">⏸</span>
+            <div>
+              <p className="text-sm font-bold text-amber-800">On Hold</p>
+              <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                This patent is currently on hold and cannot be progressed until the hold is resolved.
+                Filing-related actions are unavailable. Contact support if you have questions.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Research Import banner */}
         {patent.status === 'research_import' && (
@@ -2117,6 +2142,8 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
           const visibleTabs: Tab[] = (['details', 'claims', 'ids', 'filing', 'correspondence', 'collaborators', 'leads', 'enhancement', 'investors', ...(isAdmin ? ['admin' as Tab] : [])] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
+              if (t === 'filing' && isPatentOnHold) return false  // no filing workflow for on_hold patents
+              if (t === 'enhancement' && isPatentOnHold) return false  // no enhancement for on_hold
               if (t === 'enhancement') return !isCollaborator && isFiled  // owner-only, post-filing only
               if (t === 'leads') return !isCollaborator && arc3Active  // owner-only, only when Marketplace active
               if (t === 'ids') return !isCollaborator  // owner-only
@@ -2924,8 +2951,8 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
               </div>
             ) : !patent.claims_draft ? (
               <div>
-                {/* 52E: Pattie-first entry card for empty claims */}
-                {!isPattieEntryDismissed(patent.id, 'claims') ? (
+                {/* 52E: Pattie-first entry card for empty claims — suppressed for on_hold */}
+                {!isPatentOnHold && !isPattieEntryDismissed(patent.id, 'claims') ? (
                   <PattieEntryCard
                     prompt="Pattie can draft your claims starting from independent Claim 1. Ready?"
                     primaryLabel="Draft with Pattie"
@@ -3525,8 +3552,8 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
                   <div className="p-5">
                     {!patent.spec_draft ? (
                       <>
-                        {/* 52E: Pattie-first entry card for empty spec */}
-                        {!isPattieEntryDismissed(patent.id, 'description') && (
+                        {/* 52E: Pattie-first entry card for empty spec — suppressed for on_hold */}
+                        {!isPatentOnHold && !isPattieEntryDismissed(patent.id, 'description') && (
                           <PattieEntryCard
                             prompt="Pattie can draft your specification based on your invention details. Want to start there?"
                             primaryLabel="Start with Pattie"
@@ -4283,7 +4310,7 @@ Then confirm: "Your founder story is saved in your Correspondence tab. When you'
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
 
       {/* ── ASK PATTIE / INTERVIEW floating buttons ──────────────────────────── */}
-      {patent && authToken && !showPattie && !showArc1Interview && (!isCollaborator || (collabPerms.pattie ?? false)) && (
+      {patent && authToken && !showPattie && !showArc1Interview && !isPatentOnHold && (!isCollaborator || (collabPerms.pattie ?? false)) && (
         <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
           {/* Start Interview — shown when patent is empty (free for all, gate is at export) */}
           {!isCollaborator && canWrite &&
