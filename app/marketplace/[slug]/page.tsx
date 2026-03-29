@@ -4,8 +4,8 @@ import type { Metadata } from 'next'
 import MarketplaceDealClient from './MarketplaceDealClient'
 
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 export async function generateMetadata(
@@ -52,13 +52,18 @@ export default async function MarketplaceDealPage(
       provisional_app_number, provisional_filed_at, nonprov_deadline_at,
       marketplace_published_at, created_at,
       ip_readiness_score, spec_draft, claims_draft, abstract_draft, figures,
-      youtube_embed_url
+      youtube_embed_url, marketplace_views, marketplace_inquiries, deal_structure_type
     `)
     .eq('marketplace_slug', slug)
     .eq('marketplace_enabled', true)
     .single()
 
   if (!patent) notFound()
+
+  // Increment view count (fire and forget)
+  void supabaseService.from('patents').update({
+    marketplace_views: ((patent as Record<string, unknown>).marketplace_views as number ?? 0) + 1
+  }).eq('id', patent.id)
 
   return <MarketplaceDealClient patent={patent} />
 }

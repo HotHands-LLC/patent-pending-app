@@ -52,7 +52,7 @@ export const PRICING_COPY = {
   freeTier: 'Interview, Pattie conversations, 5 autoresearch queries/month, 1 patent in dashboard, marketplace listing — no credit card required.',
   proMonthly: `$${PRICING.pro.monthly}/month`,
   proAnnual: `$${PRICING.pro.annual}/year`,
-  proDescription: 'All filing document exports (spec, claims, ADS, cover sheet, IDS draft), unlimited autoresearch, multiple patents.',
+  proDescription: 'All filing document exports (spec, claims, ADS, cover sheet, IDS draft), unlimited autoresearch, multiple patents. $149/mo or $1,290/yr.',
   marketplaceFee: `${PRICING.marketplace.successFeePercent}% success fee on verified deals (patent sale, licensing, settlement).`,
   referralFee: `${PRICING.referral.firstYearPercent}% of referred client's first year Pro subscription (launching soon).`,
 } as const

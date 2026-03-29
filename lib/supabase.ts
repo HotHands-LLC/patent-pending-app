@@ -1,8 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-
-const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co')
-const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key')
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
@@ -39,7 +38,8 @@ export type Patent = {
   claims_draft?: string | null
   claims_draft_research_pending?: string | null
   research_completed_at?: string | null
-  claims_score?: Record<string, unknown> | null  // jsonb — see lib/claims-score.ts ClaimsScore
+  claims_score?: Record<string, unknown> | null   // jsonb — see lib/claims-score.ts ClaimsScore (legacy)
+  claims_scores?: Record<string, unknown> | null  // jsonb — P35 per-claim strength scores (ClaimScorerResult)
   abstract_draft?: string | null
   intake_session_id?: string | null
   payment_confirmed_at?: string | null
@@ -47,7 +47,6 @@ export type Patent = {
   // Filing journey (cont.10)
   spec_uploaded?: boolean
   figures_uploaded?: boolean
-  figure_descriptions?: Record<string, string> | null
   cover_sheet_acknowledged?: boolean
   // Spec drafting (cont.11)
   spec_draft?: string | null
@@ -138,15 +137,21 @@ export type PatentCorrespondence = {
 }
 
 export const CORRESPONDENCE_TYPE_LABELS: Record<string, string> = {
-  uspto_action: 'USPTO Action',
-  filing: 'Filing',
-  email: 'Email',
-  attorney_note: 'Attorney Note',
-  boclaw_note: 'Pattie Note',
-  deadline_notice: 'Deadline Notice',
-  ai_research: 'AI Research',
-  marketplace_inquiry: 'Marketplace',
-  other: 'Other',
+  uspto_action:       '🏛️ USPTO Response',
+  filing:             '📄 Filing Document',
+  email:              '📧 Email',
+  attorney_note:      '⚖️ Attorney Note',
+  boclaw_note:        '🤖 Pattie Update',
+  pattie_note:        '🤖 Pattie Update',
+  deadline_notice:    '⏰ Deadline Notice',
+  ai_research:        '🔬 Research',
+  ai_improvement:     '✨ Improvement',
+  improvement:        '✨ Improvement',
+  system:             '⚙️ System Event',
+  marketplace_inquiry:'🏪 Marketplace',
+  research_report:    '🔬 Research Report',
+  manual:             '📝 Note',
+  other:              '📌 Update',
 }
 
 export const CORRESPONDENCE_TYPE_COLORS: Record<string, string> = {

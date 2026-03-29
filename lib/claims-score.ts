@@ -1,5 +1,4 @@
 // lib/claims-score.ts
-
 // Generates a Filing Readiness Score for a patent's claims draft via Gemini.
 // Called async after claims_status becomes 'complete'.
 // Stores result in patents.claims_score (jsonb).

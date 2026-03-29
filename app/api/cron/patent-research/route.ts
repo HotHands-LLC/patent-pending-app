@@ -3,8 +3,6 @@ import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { FROM_DEFAULT, withFooter, htmlToText } from '@/lib/email'
 
-export const dynamic = 'force-dynamic'
-
 /**
  * POST /api/cron/patent-research
  *
@@ -24,12 +22,12 @@ export const dynamic = 'force-dynamic'
  */
 
 const serviceClient = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 function getResend() {
-  return new Resend((process.env.RESEND_API_KEY ?? 'placeholder-resend-key'))
+  return new Resend(process.env.RESEND_API_KEY!)
 }
 
 const BRAVE_KEY = process.env.BRAVE_API_KEY

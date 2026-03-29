@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { computeIpReadinessScore } from '@/lib/ip-readiness'
 import { evaluatePatentPhase } from '@/lib/filing-pipeline'
+import { logActivity } from '@/lib/activity-log'
 
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 const ALLOWED_FILING_STATUSES = ['draft', 'approved', 'filed', 'provisional_filed', 'nonprov_filed', 'issued', 'granted'] as const
@@ -39,6 +40,11 @@ const ALLOWED_UPDATE_FIELDS = [
   'youtube_embed_url',       // text — YouTube embed for deal page video
   'ip_readiness_score',      // integer 0-100 — computed readiness
   'is_locked',               // patent lock — read-only for everyone when true
+  'score_card_enabled',      // public PatentScore share toggle
+  'np_filing_steps',         // non-provisional filing step completion
+  'lifecycle_state',         // PROVISIONAL_ACTIVE etc.
+  'prior_art_search_run_at', // IDS autoresearch timestamp
+  'public_slug',             // public URL slug for score card
   'entity_status',           // micro | small | large — persisted from cover sheet
   'claims_draft',            // allow Pattie suggest_field_update to PATCH this
   'background',              // spec section
@@ -73,8 +79,8 @@ export async function PATCH(
 
   // Verify user via anon client
   const userClient = createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
   const { data: { user } } = await userClient.auth.getUser()
@@ -142,6 +148,29 @@ export async function PATCH(
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // ── Activity log for key field changes ────────────────────────────────────
+  const logFields = ['spec_draft', 'claims_draft', 'abstract_draft', 'filing_status', 'title', 'display_name']
+  for (const field of logFields) {
+    if (body[field] !== undefined && patent && body[field] !== (patent as Record<string,unknown>)[field]) {
+      const action = field === 'claims_draft' ? 'claims_edit'
+        : field === 'spec_draft' ? 'spec_edit'
+        : field === 'filing_status' ? 'status_change'
+        : field === 'title' || field === 'display_name' ? 'title_edit'
+        : 'spec_edit'
+      logActivity({
+        patentId: id,
+        userId: user.id,
+        actorType: 'user',
+        actorLabel: user.email ?? 'User',
+        actionType: action,
+        fieldChanged: field,
+        oldValue: String((patent as Record<string,unknown>)[field] ?? '').slice(0, 500),
+        newValue: String(body[field]).slice(0, 500),
+        summary: `Updated ${field.replace(/_/g,' ')}`,
+      }).catch(() => {})
+    }
+  }
+
   // ── Task 3: Referral qualifying event ──────────────────────────────────────
   // Fire when filing_status transitions to 'filed' (Step 8/9 — USPTO confirmation)
   if (body.filing_status === 'filed' && patent) {
@@ -160,8 +189,6 @@ export async function PATCH(
 // ── Referral qualifying event (async, non-blocking) ────────────────────────
 import { waitUntil } from '@vercel/functions'
 import { buildEmail, sendEmail, FROM_DEFAULT } from '@/lib/email'
-
-export const dynamic = 'force-dynamic'
 
 /** GA4 Measurement Protocol — server-side filing_completed event */
 async function trackFilingCompleted(userId: string, patentId: string) {

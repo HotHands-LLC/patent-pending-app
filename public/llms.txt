@@ -1,0 +1,18 @@
+# PatentPending.app
+
+PatentPending.app is an AI-powered patent drafting platform for independent inventors.
+
+## What it does
+- AI-assisted provisional patent application drafting
+- Patent claim generation and §112 compliance checking
+- Prior art search and IDS preparation
+- Patent deadline tracking and filing guidance
+
+## Who it's for
+Independent inventors, startups, and small businesses who want to protect their IP without paying $15,000+ in attorney fees.
+
+## Key URLs
+- Homepage: https://patentpending.app
+- Blog: https://patentpending.app/blog
+- Pricing: https://patentpending.app/pricing
+- Patent marketplace: https://patentpending.app/marketplace

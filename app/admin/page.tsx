@@ -33,6 +33,10 @@ interface AdminStats {
     claw_spec_ok: boolean | null;
     claw_provisional_ready: boolean | null;
     claw_improvement_day: number | null;
+    score_delta_24h: number | null;
+    commercial_tier: number | null;
+    tier_rationale: string | null;
+    tier_classified_at: string | null;
   }>
   user_table: Array<{
     id: string; name: string; email: string; is_admin: boolean;
@@ -230,6 +234,9 @@ export default function AdminPage() {
   const [intakeSaving, setIntakeSaving] = useState(false)
   const [intakeSaved, setIntakeSaved] = useState(false)
   const [intakeInput, setIntakeInput] = useState<number>(0)
+  const [pattieCtx, setPattieCtx] = useState<string>('')
+  const [pattieCtxSaving, setPattieCtxSaving] = useState(false)
+  const [pattieCtxSaved, setPattieCtxSaved] = useState(false)
   React.useEffect(() => {
     if (!authToken) return
     supabase.from('app_settings').select('value').eq('key', 'claw_nightly_new_patent_limit').single()
@@ -237,12 +244,30 @@ export default function AdminPage() {
         const v = data ? parseInt(data.value, 10) : 0
         setIntakeLimit(v); setIntakeInput(v)
       })
+    // Load Pattie context
+    fetch('/api/admin/pattie-context', { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.context_json) setPattieCtx(JSON.stringify(d.context_json, null, 2)) })
+      .catch(() => {})
   }, [authToken])
   async function saveIntakeLimit() {
     setIntakeSaving(true); setIntakeSaved(false)
     await supabase.from('app_settings').upsert({ key: 'claw_nightly_new_patent_limit', value: String(intakeInput) })
     setIntakeLimit(intakeInput); setIntakeSaving(false); setIntakeSaved(true)
     setTimeout(() => setIntakeSaved(false), 3000)
+  }
+  async function savePattieCtx() {
+    try {
+      JSON.parse(pattieCtx) // validate
+    } catch { alert('Invalid JSON — fix syntax before saving'); return }
+    setPattieCtxSaving(true)
+    await fetch('/api/admin/pattie-context', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ context_json: JSON.parse(pattieCtx) }),
+    })
+    setPattieCtxSaving(false); setPattieCtxSaved(true)
+    setTimeout(() => setPattieCtxSaved(false), 3000)
   }
   function toggleSort(col: 'score' | 'deadline' | 'updated') {
     setPatentSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: col === 'updated' ? 'desc' : col === 'score' ? 'desc' : 'asc' })
@@ -561,6 +586,54 @@ export default function AdminPage() {
             >
               <span className="mr-2">🔬</span>Patent Research
             </Link>
+            <Link
+              href="/admin/claw-queue"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50"
+            >
+              <span className="mr-2">🗂</span>Claw Queue
+            </Link>
+            <Link
+              href="/admin/crons"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50"
+            >
+              <span className="mr-2">⏰</span>Crons
+            </Link>
+            <Link
+              href="/admin/demo-analytics"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50"
+            >
+              <span className="mr-2">📊</span>Demo Analytics
+            </Link>
+            <Link
+              href="/admin/integrations"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50"
+            >
+              <span className="mr-2">🔗</span>Integrations
+            </Link>
+            <Link
+              href="/admin/feature-catalog"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50"
+            >
+              <span className="mr-2">🏗️</span>Features
+            </Link>
+            <Link
+              href="/admin/contest"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-amber-600 hover:bg-amber-50 font-semibold"
+            >
+              <span className="mr-2">🏆</span>Contest
+            </Link>
+            <Link
+              href="/admin/marketing"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50"
+            >
+              <span className="mr-2">📣</span>Marketing
+            </Link>
+            <Link
+              href="/admin/marketing/connections"
+              className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-colors flex items-center text-gray-600 hover:bg-gray-50 pl-6"
+            >
+              <span className="mr-2">🔌</span>Connections
+            </Link>
           </div>
         </nav>
 
@@ -795,6 +868,30 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              {/* ── Pattie Context Editor ────────────────────────────── */}
+              <div className="mb-4 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-semibold text-indigo-900">🤖 Pattie Founder Context</p>
+                    <p className="text-xs text-indigo-600 mt-0.5">Injected into every Pattie call. Edit JSON and save.</p>
+                  </div>
+                  <button
+                    onClick={savePattieCtx}
+                    disabled={pattieCtxSaving}
+                    className="px-3 py-1.5 bg-indigo-700 text-white text-sm font-semibold rounded-lg hover:bg-indigo-800 disabled:opacity-50 shrink-0"
+                  >
+                    {pattieCtxSaving ? 'Saving…' : pattieCtxSaved ? 'Saved ✓' : 'Save'}
+                  </button>
+                </div>
+                <textarea
+                  value={pattieCtx}
+                  onChange={e => setPattieCtx(e.target.value)}
+                  rows={8}
+                  className="w-full font-mono text-xs border border-indigo-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
+                  placeholder="Loading…"
+                />
+              </div>
+
               {(() => {
                 const archivedCount = stats.patent_table.filter(p => p.status === 'archived').length
                 const visiblePatents = showArchivedPatents
@@ -881,7 +978,10 @@ export default function AdminPage() {
                           <tr key={p.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <Link href={`/dashboard/patents/${p.id}`} className="font-medium text-gray-800 hover:text-blue-600 hover:underline max-w-[200px] truncate block">
+                                <Link
+                                  href={`/dashboard/patents/${p.id}?from=admin&sort=${patentSort.col}&dir=${patentSort.dir}&pos=${filteredPatents.indexOf(p) + 1}&total=${filteredPatents.length}`}
+                                  className="font-medium text-gray-800 hover:text-blue-600 hover:underline max-w-[200px] truncate block"
+                                >
                                   {p.title}
                                 </Link>
                                 {p.is_claw_draft && (
@@ -892,11 +992,19 @@ export default function AdminPage() {
                               </div>
                             </td>
                             <td className="px-4 py-3">
-                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                p.filing_status === 'filed' ? 'bg-green-100 text-green-700' :
-                                p.filing_status === 'approved' ? 'bg-blue-100 text-blue-700' :
-                                'bg-gray-100 text-gray-600'
-                              }`}>{p.filing_status}</span>
+                              {p.is_claw_draft ? (
+                                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                  p.claw_provisional_ready ? 'bg-green-100 text-green-700' : 'bg-violet-100 text-violet-700'
+                                }`}>
+                                  {p.claw_provisional_ready ? 'provisional_ready' : p.filing_status ?? 'draft'}
+                                </span>
+                              ) : (
+                                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                  p.filing_status === 'filed' ? 'bg-green-100 text-green-700' :
+                                  p.filing_status === 'approved' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-gray-100 text-gray-600'
+                                }`}>{p.filing_status}</span>
+                              )}
                             </td>
                             <td className="px-4 py-3">
                               {p.is_claw_draft ? (
@@ -920,14 +1028,38 @@ export default function AdminPage() {
                               }
                             </td>
                             <td className="px-4 py-3">
-                              {p.is_claw_draft
-                                ? (p.claw_composite_score != null
-                                    ? <span className="font-mono font-semibold text-violet-700">{p.claw_composite_score}</span>
-                                    : '—')
-                                : (p.ip_readiness_score != null
-                                    ? <span className="font-mono text-gray-700">{p.ip_readiness_score}</span>
-                                    : '—')
-                              }
+                              <span className="flex items-center gap-1">
+                                {p.is_claw_draft
+                                  ? (p.claw_composite_score != null
+                                      ? <span className="font-mono font-semibold text-violet-700">{p.claw_composite_score}</span>
+                                      : '—')
+                                  : (p.ip_readiness_score != null
+                                      ? <span className="font-mono text-gray-700">{p.ip_readiness_score}</span>
+                                      : '—')
+                                }
+                                {p.score_delta_24h != null && p.score_delta_24h !== 0 && (
+                                  <span className={`text-[10px] font-semibold ${p.score_delta_24h > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                    {p.score_delta_24h > 0 ? `▲+${p.score_delta_24h.toFixed(1)}` : `▼${p.score_delta_24h.toFixed(1)}`}
+                                  </span>
+                                )}
+                              </span>
+                              {/* Tier badge */}
+                              {p.commercial_tier != null ? (
+                                <span
+                                  className={`mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    p.commercial_tier === 1 ? 'bg-green-100 text-green-700' :
+                                    p.commercial_tier === 2 ? 'bg-amber-100 text-amber-700' :
+                                    'bg-gray-100 text-gray-500'
+                                  }`}
+                                  title={p.tier_rationale ?? ''}
+                                >
+                                  {p.commercial_tier === 1 ? '🟢 T1' : p.commercial_tier === 2 ? '🟡 T2' : '🔴 T3'}
+                                </span>
+                              ) : p.is_claw_draft && p.claw_provisional_ready ? (
+                                <span className="mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-50 text-gray-400" title="Pending tier classification">
+                                  ⏳ tier?
+                                </span>
+                              ) : null}
                             </td>
                             <td className="px-4 py-3">
                               {days !== null ? (

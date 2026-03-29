@@ -5,6 +5,8 @@ import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 import { supabase, Patent, getDaysUntil, getUrgencyBadge } from '@/lib/supabase'
 import NewPatentModal from '@/components/NewPatentModal'
+import PattieIntakeModal from '@/components/PattieIntakeModal'
+import OnboardingChecklist from '@/components/OnboardingChecklist'
 
 const STATUS_COLORS: Record<string, string> = {
   provisional: 'bg-blue-100 text-blue-800',
@@ -15,10 +17,29 @@ const STATUS_COLORS: Record<string, string> = {
   on_hold: 'bg-amber-100 text-amber-800',
 }
 
+function getStatusLabel(patent: Patent): string {
+  if ((patent as Record<string, unknown>).is_claw_draft) {
+    const s = patent.status as string
+    if (s === 'provisional' || s === 'provisional_ready') return 'Ready to File'
+    return 'Draft'
+  }
+  return patent.status.replace(/_/g, ' ')
+}
+
+function getStatusColor(patent: Patent): string {
+  if ((patent as Record<string, unknown>).is_claw_draft) {
+    const s = patent.status as string
+    if (s === 'provisional' || s === 'provisional_ready') return 'bg-green-100 text-green-800'
+    return 'bg-gray-100 text-gray-600'
+  }
+  return STATUS_COLORS[patent.status] || 'bg-gray-100 text-gray-800'
+}
+
 export default function PatentsPage() {
   const [patents, setPatents] = useState<Patent[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewModal, setShowNewModal] = useState(false)
+  const [showPattieIntake, setShowPattieIntake] = useState(false)
   const [authToken, setAuthToken] = useState('')
   const router = useRouter()
 
@@ -42,13 +63,14 @@ export default function PatentsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
+      <OnboardingChecklist patentCount={patents.length} />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex items-center justify-between mb-6 sm:mb-8">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-[#1a1f36]">Patents</h1>
             <p className="text-gray-500 mt-1 text-sm">{patents.length} patent{patents.length !== 1 ? 's' : ''} in portfolio</p>
           </div>
-          <button onClick={() => setShowNewModal(true)} className="px-3 sm:px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors min-h-[44px] flex items-center">
+          <button onClick={() => setShowPattieIntake(true)} className="px-3 sm:px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] transition-colors min-h-[44px] flex items-center">
             + New Patent
           </button>
         </div>
@@ -58,7 +80,7 @@ export default function PatentsPage() {
             <div className="text-4xl mb-4">📋</div>
             <h3 className="font-semibold text-[#1a1f36] mb-2">No patents yet</h3>
             <p className="text-gray-400 text-sm mb-6">Register your first patent to get started.</p>
-            <button onClick={() => setShowNewModal(true)} className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold min-h-[44px] hover:bg-[#2d3561] transition-colors">
+            <button onClick={() => setShowPattieIntake(true)} className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold min-h-[44px] hover:bg-[#2d3561] transition-colors">
               + Add Patent
             </button>
           </div>
@@ -84,12 +106,12 @@ export default function PatentsPage() {
                     return (
                       <tr key={p.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4">
-                          <div className="font-medium text-[#1a1f36] text-sm">{p.title}</div>
+                          <div className="font-medium text-[#1a1f36] text-sm">{(p as Record<string,unknown>).display_name as string ?? p.title}</div>
                           <div className="text-xs text-gray-400 mt-0.5">{p.provisional_number || p.application_number || '—'}</div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[p.status] || 'bg-gray-100 text-gray-800'}`}>
-                            {p.status.replace('_', ' ')}
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(p)}`}>
+                            {getStatusLabel(p)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-500">
@@ -127,11 +149,11 @@ export default function PatentsPage() {
                     className="block bg-white rounded-xl border border-gray-200 p-4 hover:border-[#1a1f36]/30 transition-colors">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-[#1a1f36] text-sm leading-snug">{p.title}</div>
+                        <div className="font-semibold text-[#1a1f36] text-sm leading-snug">{(p as Record<string,unknown>).display_name as string ?? p.title}</div>
                         <div className="text-xs text-gray-400 mt-0.5">{p.provisional_number || p.application_number || 'No app #'}</div>
                       </div>
-                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[p.status] || 'bg-gray-100 text-gray-800'}`}>
-                        {p.status.replace('_', ' ')}
+                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${getStatusColor(p)}`}>
+                            {getStatusLabel(p)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between mt-3">
@@ -157,6 +179,21 @@ export default function PatentsPage() {
         )}
       </div>
 
+      {showPattieIntake && (
+        <PattieIntakeModal
+          onClose={() => setShowPattieIntake(false)}
+          onManualFallback={() => { setShowPattieIntake(false); setShowNewModal(true) }}
+          authToken={authToken}
+        />
+      )}
+
+      {showPattieIntake && (
+        <PattieIntakeModal
+          onClose={() => setShowPattieIntake(false)}
+          onManualFallback={() => { setShowPattieIntake(false); setShowNewModal(true) }}
+          authToken={authToken}
+        />
+      )}
       {showNewModal && (
         <NewPatentModal
           onClose={() => setShowNewModal(false)}

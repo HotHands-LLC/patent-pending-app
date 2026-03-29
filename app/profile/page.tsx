@@ -24,19 +24,7 @@ interface Profile {
   firm_name: string | null
   bar_state: string | null
   attorney_tos_accepted_at: string | null
-  pattie_guidance: boolean
-  content_platforms: string[] | null
 }
-
-const PLATFORM_OPTIONS = [
-  { value: 'tiktok',   label: 'TikTok',     emoji: '🎵' },
-  { value: 'youtube',  label: 'YouTube',    emoji: '📺' },
-  { value: 'facebook', label: 'Facebook',   emoji: '👥' },
-  { value: 'linkedin', label: 'LinkedIn',   emoji: '💼' },
-  { value: 'reddit',   label: 'Reddit',     emoji: '🤿' },
-  { value: 'twitter',  label: 'Twitter/X',  emoji: '🐦' },
-  { value: 'email',    label: 'Email',      emoji: '📧' },
-]
 
 interface Contact {
   id: string; contact_type: string; is_default: boolean
@@ -256,7 +244,6 @@ export default function ProfilePage() {
   const [editingContact, setEditingContact] = useState<Partial<Contact> | null>(null)
   const [showAddContact, setShowAddContact] = useState(false)
   const [patentCount, setPatentCount] = useState(0)
-  const [savingPlatforms, setSavingPlatforms] = useState(false)
 
   function showToast(msg: string) {
     setToast(msg)
@@ -283,24 +270,6 @@ export default function ProfilePage() {
     }
     load()
   }, [router])
-
-  async function saveContentPlatforms(platforms: string[]) {
-    if (!authToken) return
-    setSavingPlatforms(true)
-    const res = await fetch('/api/users/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ content_platforms: platforms }),
-    })
-    setSavingPlatforms(false)
-    if (res.ok) {
-      const { profile: updated } = await res.json()
-      setProfile(prev => prev ? { ...prev, content_platforms: updated.content_platforms ?? platforms } : null)
-      showToast('✅ Platforms saved')
-    } else {
-      showToast('⚠️ Save failed')
-    }
-  }
 
   async function saveProfileField(field: string, value: string) {
     if (!authToken) return
@@ -487,7 +456,7 @@ export default function ProfilePage() {
                         ['Filings',            '$49 each',      'Unlimited'],
                         ['Revisions',          '2 per patent',  'Unlimited'],
                         ['Deep Research Pass', '—',             '✅'],
-                        ['Pattie Polish', '—',             '✅'],
+                        ['AI Refinement Pass', '—',             '✅'],
                         ['Co-inventors',       '—',             '✅'],
                         ['AI Figure Generation','—',            '✅'],
                       ].map(([feat, free, pro]) => (
@@ -555,77 +524,9 @@ export default function ProfilePage() {
         </section>
       </div>
 
-      {/* ── Section E+: Pattie AI Preferences ──────────────────────────────── */}
+      {/* ── Section D2: Entity Status ─────────────────────────────────────────── */}
       <div className="max-w-3xl mx-auto px-4 pb-4">
-        <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-            <h2 className="text-sm font-bold text-[#1a1f36] uppercase tracking-wider">Pattie AI Assistant</h2>
-          </div>
-          <div className="px-6 py-5">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <div className="text-sm font-semibold text-[#1a1f36]">Pattie guidance</div>
-                <div className="text-xs text-gray-400 mt-0.5">Show Pattie suggestions on empty fields throughout your patents</div>
-              </div>
-              <button
-                onClick={async () => {
-                  const newVal = !profile.pattie_guidance
-                  setProfile(prev => prev ? { ...prev, pattie_guidance: newVal } : null)
-                  const res = await fetch('/api/users/profile', {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-                    body: JSON.stringify({ pattie_guidance: newVal }),
-                  })
-                  if (!res.ok) {
-                    setProfile(prev => prev ? { ...prev, pattie_guidance: !newVal } : null)
-                    showToast('⚠️ Save failed')
-                  }
-                }}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${profile.pattie_guidance ? 'bg-[#4f46e5]' : 'bg-gray-200'}`}
-                role="switch"
-                aria-checked={profile.pattie_guidance}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${profile.pattie_guidance ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      {/* ── 54B: Your Platforms ──────────────────────────────────────────────── */}
-      <div className="max-w-3xl mx-auto px-4 pb-4">
-        <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
-            <h2 className="text-sm font-bold text-[#1a1f36] uppercase tracking-wider">Your Platforms</h2>
-          </div>
-          <div className="px-6 py-5">
-            <p className="text-xs text-gray-500 mb-4">Tell Pattie where you post. Content Blast will generate copy tailored to your platforms.</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {PLATFORM_OPTIONS.map(({ value, label, emoji }) => {
-                const selected = (profile.content_platforms ?? []).includes(value)
-                return (
-                  <label key={value} className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-colors ${selected ? 'border-purple-300 bg-purple-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={(e) => {
-                        const current = profile.content_platforms ?? []
-                        const updated = e.target.checked
-                          ? [...current, value]
-                          : current.filter(p => p !== value)
-                        setProfile(prev => prev ? { ...prev, content_platforms: updated } : null)
-                        saveContentPlatforms(e.target.checked ? [...current, value] : current.filter(p => p !== value))
-                      }}
-                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                    />
-                    <span className="text-sm">{emoji} {label}</span>
-                  </label>
-                )
-              })}
-            </div>
-            {savingPlatforms && <p className="text-xs text-gray-400 mt-2">Saving…</p>}
-          </div>
-        </section>
+        <EntityStatusSection profile={profile} authToken={authToken ?? ''} onUpdate={p => setProfile(p)} />
       </div>
 
       {/* ── Section E: Patent Professional / Attorney Mode ──────────────────── */}
@@ -655,6 +556,11 @@ export default function ProfilePage() {
         </section>
       </div>
 
+      {/* ── Section F: Invite & Earn ──────────────────────────────────────────── */}
+      <div className="max-w-3xl mx-auto px-4 pb-8">
+        <ReferralSection authToken={authToken ?? ''} />
+      </div>
+
       {/* Contact modals */}
       {(editingContact || showAddContact) && (
         <ContactModal
@@ -664,6 +570,62 @@ export default function ProfilePage() {
         />
       )}
     </div>
+  )
+}
+
+// ── ReferralSection — Invite & Earn ──────────────────────────────────────────
+function ReferralSection({ authToken }: { authToken: string }) {
+  const [code, setCode] = React.useState<string | null>(null)
+  const [url, setUrl] = React.useState<string | null>(null)
+  const [stats, setStats] = React.useState({ signed_up: 0, activated: 0, rewarded: 0 })
+  const [copied, setCopied] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!authToken) return
+    fetch('/api/referral', { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(r => r.json()).then(d => { setCode(d.code); setUrl(d.url); setStats(d.stats ?? {}) }).catch(() => {})
+  }, [authToken])
+
+  return (
+    <section className="bg-white rounded-2xl border border-indigo-200 overflow-hidden">
+      <div className="px-6 py-4 border-b border-indigo-100 bg-indigo-50">
+        <h2 className="text-sm font-bold text-[#1a1f36] uppercase tracking-wider">🎁 Invite Inventors, Earn Free Pro</h2>
+      </div>
+      <div className="px-6 py-5">
+        <p className="text-sm text-gray-600 mb-4">
+          Share your invite link. For each friend who files a patent:
+          <span className="font-semibold text-indigo-700"> you both get 30 days free Pro.</span>
+        </p>
+        {url && (
+          <div className="flex items-center gap-2 mb-4">
+            <input readOnly value={url} className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono bg-gray-50 text-gray-700" />
+            <button onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-xs font-semibold hover:bg-gray-50">
+              {copied ? '✓ Copied' : '📋 Copy'}
+            </button>
+          </div>
+        )}
+        <div className="flex gap-4 text-sm text-gray-600 mb-4">
+          <span><strong>{stats.signed_up}</strong> signed up</span>
+          <span><strong>{stats.activated}</strong> filed a patent</span>
+          <span className="text-green-600 font-semibold"><strong>{stats.rewarded}</strong> reward{stats.rewarded !== 1 ? 's' : ''} earned</span>
+        </div>
+        {url && (
+          <div className="flex gap-3">
+            <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`}
+              target="_blank" rel="noopener noreferrer"
+              className="px-3 py-2 bg-[#0077b5] text-white text-xs font-semibold rounded-lg hover:opacity-90">
+              💼 LinkedIn
+            </a>
+            <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`Filing my own patent without a $10K lawyer — check out patentpending.app ${url}`)}`}
+              target="_blank" rel="noopener noreferrer"
+              className="px-3 py-2 bg-black text-white text-xs font-semibold rounded-lg hover:opacity-90">
+              𝕏 Post
+            </a>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -752,5 +714,63 @@ function AttorneySetupForm({ authToken, onComplete }: { authToken: string; onCom
         </button>
       </div>
     </form>
+  )
+}
+
+// ── EntityStatusSection ────────────────────────────────────────────────────────
+function EntityStatusSection({ profile, authToken, onUpdate }: {
+  profile: Profile; authToken: string; onUpdate: (p: Profile) => void
+}) {
+  const entityStatus = (profile as unknown as Record<string,string>).entity_status ?? "small"
+  const [selected, setSelected] = React.useState(entityStatus)
+  const [saving, setSaving] = React.useState(false)
+  const [saved, setSaved] = React.useState(false)
+
+  const OPTIONS = [
+    { id: 'micro', label: 'Micro Entity', desc: 'Income < ~$239K, ≤ 4 prior NPs, no large-entity obligation', fee: '$320 basic filing' },
+    { id: 'small', label: 'Small Entity', desc: 'Individual inventor or small business < 500 employees', fee: '$720 basic filing' },
+    { id: 'large', label: 'Large Entity', desc: 'Corporation > 500 employees', fee: '$1,440 basic filing' },
+  ]
+
+  async function save() {
+    setSaving(true)
+    await fetch('/api/users/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ entity_status: selected }),
+    }).catch(() => {})
+    setSaving(false); setSaved(true)
+    setTimeout(() => setSaved(false), 2500)
+    onUpdate({ ...profile, entity_status: selected } as unknown as Profile)
+  }
+
+  return (
+    <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+        <h2 className="text-sm font-bold text-[#1a1f36] uppercase tracking-wider">USPTO Entity Status</h2>
+        <p className="text-xs text-gray-500 mt-0.5">Affects filing fees on all patents. Hot Hands IP LLC = Small Entity.</p>
+      </div>
+      <div className="px-6 py-5 space-y-3">
+        {OPTIONS.map(opt => (
+          <label key={opt.id} className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${selected === opt.id ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'}`}>
+            <input type="radio" name="entity_status" value={opt.id} checked={selected === opt.id} onChange={() => setSelected(opt.id)} className="mt-0.5 accent-indigo-600" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-[#1a1f36]">{opt.label}</p>
+              <p className="text-xs text-gray-500">{opt.desc}</p>
+            </div>
+            <span className="text-xs font-mono text-gray-400 shrink-0 mt-0.5">{opt.fee}</span>
+          </label>
+        ))}
+        <div className="flex items-center gap-3 pt-1">
+          <button onClick={save} disabled={saving || selected === entityStatus}
+            className="px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-semibold hover:bg-[#2d3561] disabled:opacity-50">
+            {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Entity Status'}
+          </button>
+          {selected === 'micro' && (
+            <p className="text-xs text-amber-600">⚠️ Micro Entity is risky if you have LLC/commercial obligations. Confirm with a patent attorney before filing.</p>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }

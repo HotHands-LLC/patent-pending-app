@@ -2,7 +2,32 @@
 
 import { useState, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link'
-import type { InvestorListing } from './page'
+// InvestorListing type defined locally (removed from page.tsx during marketplace rewrite)
+interface InvestorListing {
+  id: string
+  title: string
+  slug?: string | null
+  marketplace_slug: string | null
+  status: string
+  stage?: string | null
+  stage_value_usd?: number | null
+  total_raised_usd?: number | null
+  funding_goal_usd?: number | null
+  rev_share_available_pct?: number | null
+  investment_open?: boolean | null
+  deal_page_brief?: string | null
+  deal_page_summary?: string | null
+  ip_readiness_score?: number | null
+  composite_score?: number | null
+  marketplace_tags?: string[] | null
+  marketplace_tagline?: string | null
+  marketplace_description?: string | null
+  marketplace_published_at?: string | null
+  asking_price_range?: string | null
+  tech_domain?: string | null
+  abstract_draft?: string | null
+  novelty_narrative?: string | null
+}
 
 const STAGE_LABELS: Record<string, string> = {
   provisional: 'Provisional',
@@ -100,8 +125,8 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
       result = [...result].sort((a, b) => (b.composite_score ?? 0) - (a.composite_score ?? 0))
     } else if (sort === 'funded') {
       result = [...result].sort((a, b) => {
-        const pctA = a.funding_goal_usd > 0 ? a.total_raised_usd / a.funding_goal_usd : 0
-        const pctB = b.funding_goal_usd > 0 ? b.total_raised_usd / b.funding_goal_usd : 0
+        const pctA = (a.funding_goal_usd ?? 0) > 0 ? (a.total_raised_usd ?? 0) / (a.funding_goal_usd ?? 1) : 0
+        const pctB = (b.funding_goal_usd ?? 0) > 0 ? (b.total_raised_usd ?? 0) / (b.funding_goal_usd ?? 1) : 0
         return pctB - pctA
       })
     }
@@ -284,7 +309,7 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filtered.map(patent => {
               const dealHref   = patent.slug ? `/patents/${patent.slug}` : null
-              const stageBadge = STAGE_COLORS[patent.stage] ?? 'bg-gray-100 text-gray-600'
+              const stageBadge = STAGE_COLORS[patent.stage ?? ''] ?? 'bg-gray-100 text-gray-600'
               const tagline    = patent.marketplace_tagline
               const desc       = patent.marketplace_description?.slice(0, 120)
 
@@ -294,7 +319,7 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
                   <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${stageBadge}`}>
-                        {STAGE_LABELS[patent.stage] ?? patent.stage}
+                        {STAGE_LABELS[patent.stage ?? ''] ?? patent.stage}
                       </span>
                       {patent.tech_domain && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
@@ -326,8 +351,8 @@ export default function InvestorMarketplaceClient({ listings }: { listings: Inve
 
                   {/* Funding bar */}
                   <div className="mt-auto">
-                    <FundingBar raised={patent.total_raised_usd} goal={patent.funding_goal_usd} />
-                    {patent.rev_share_available_pct > 0 && (
+                    <FundingBar raised={patent.total_raised_usd ?? 0} goal={patent.funding_goal_usd ?? 0} />
+                    {(patent.rev_share_available_pct ?? 0) > 0 && (
                       <p className="text-xs text-emerald-600 mt-2">
                         {patent.rev_share_available_pct}% revenue share available to investors
                       </p>

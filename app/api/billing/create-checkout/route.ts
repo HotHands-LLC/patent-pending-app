@@ -1,33 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
-import { STRIPE_PRICE_IDS } from '@/lib/pricing-config'
-
-export const dynamic = 'force-dynamic'
 
 function getStripe() {
   if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY not configured')
   return new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-02-24.acacia' })
 }
 
-function getSupabaseService() {
-  return createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
-  )
-}
+const supabaseService = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 // Stripe Price IDs — sourced from pricing-config.ts (env-var-based with fallbacks)
 // STRIPE_PRO_MONTHLY_PRICE_ID  → $49/mo (price_1T8IP4EtYVLjzMmuiA0sU5j3 fallback) — P-Fix-4 Founder Rate
 // STRIPE_PRO_ANNUAL_PRICE_ID   → $490/yr (price_1T8IP5EtYVLjzMmuoLKun0vw fallback) — P-Fix-4 Founder Rate
 function getPriceId(interval: 'monthly' | 'annual'): string {
-  return STRIPE_PRICE_IDS[interval]
+  if (interval === 'annual') {
+    const id = process.env.STRIPE_PRO_ANNUAL_PRICE_ID
+    if (!id) throw new Error('STRIPE_PRO_ANNUAL_PRICE_ID not configured')
+    return id
+  }
+  const id = process.env.STRIPE_PRO_MONTHLY_PRICE_ID
+  if (!id) throw new Error('STRIPE_PRO_MONTHLY_PRICE_ID not configured')
+  return id
 }
 
 export async function POST(req: NextRequest) {
   try {
     const stripe = getStripe()
-    const supabaseService = getSupabaseService()
 
     // Auth
     const authHeader = req.headers.get('authorization')
@@ -36,8 +37,8 @@ export async function POST(req: NextRequest) {
     }
     const token = authHeader.slice(7)
     const userClient = createClient(
-      (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-      (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     )
     const { data: { user } } = await userClient.auth.getUser()

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Navbar from '@/components/Navbar'
 import { createClient } from '@supabase/supabase-js'
 import { CloudUpload, MessageSquare, Zap, X, ArrowLeft, Mic, MicOff } from 'lucide-react'
+import PattieIntakeInline from '@/components/PattieIntakeInline'
 
 function getSupabase() {
   return createClient(
@@ -12,11 +13,11 @@ function getSupabase() {
   )
 }
 
-type Screen = 'choose' | 'upload' | 'describe' | 'quickstart'
+type Screen = 'pattie' | 'choose' | 'upload' | 'describe' | 'quickstart'
 
 function NewPatentPageInner() {
   const router = useRouter()
-  const [screen, setScreen] = useState<Screen>('choose')
+  const [screen, setScreen] = useState<Screen>('pattie')
 
   // ── Upload state ──────────────────────────────────────────────────────────
   const [dragOver, setDragOver] = useState(false)
@@ -208,8 +209,15 @@ function NewPatentPageInner() {
       <div className="min-h-screen bg-gray-50 pt-16 flex items-center justify-center p-4">
         <div className="w-full max-w-2xl">
 
+          {/* ── Pattie intake screen (default) ───────────────────────────── */}
+          {screen === 'pattie' && (
+            <PattieIntakeInline
+              onManualFallback={() => setScreen('choose')}
+            />
+          )}
+
           {/* Sub-screen header */}
-          {screen !== 'choose' && (
+          {screen !== 'choose' && screen !== 'pattie' && (
             <div className="flex items-center justify-between mb-6">
               <button
                 onClick={() => { setScreen('choose'); resetSubScreenState() }}

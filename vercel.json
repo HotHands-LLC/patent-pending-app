@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/blog-publish",
+      "schedule": "0 12 * * 2-6"
+    },
+    {
       "path": "/api/cron/generate-claims",
       "schedule": "* * * * *"
     },
@@ -27,6 +31,18 @@
     {
       "path": "/api/cron/autoresearch",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/admin/health-check",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/admin/queue/watchdog",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/blog-autopublish",
+      "schedule": "0 12 * * 2-6"
     }
   ]
 }

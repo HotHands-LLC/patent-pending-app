@@ -3,8 +3,6 @@ import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { FROM_ADMIN, withFooter, htmlToText } from '@/lib/email'
 
-export const dynamic = 'force-dynamic'
-
 /**
  * POST /api/admin/users/[userId]/action
  *
@@ -21,13 +19,13 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://patentpending.app'
 
 function getClients(token: string) {
   const anonClient = createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
   const serviceClient = createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
   return { anonClient, serviceClient }
 }
@@ -80,7 +78,7 @@ export async function POST(
   }
 
   const { userId: targetUserId } = await params // may be 'no-account' for invite-only users
-  const resend = new Resend((process.env.RESEND_API_KEY ?? 'placeholder-resend-key'))
+  const resend = new Resend(process.env.RESEND_API_KEY!)
 
   // ── Resolve email ──────────────────────────────────────────────────────────
   let targetEmail = bodyEmail ?? ''

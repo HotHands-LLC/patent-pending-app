@@ -78,6 +78,25 @@ function CallbackHandler() {
       } catch { /* non-fatal */ }
     }
 
+    // ── Save first-touch UTM source to profile ───────────────────────────────
+    // Read from user_metadata (set at signUp) or localStorage
+    const metaUtmSource = user.user_metadata?.utm_source as string | undefined
+    let localUtmSource: string | null = null
+    try {
+      const stored = localStorage.getItem('pp_utm_first')
+      if (stored) localUtmSource = (JSON.parse(stored) as { utm_source?: string }).utm_source ?? null
+    } catch { /* ignore */ }
+    const utmSourceToSave = metaUtmSource ?? localUtmSource ?? null
+    if (utmSourceToSave) {
+      try {
+        await fetch('/api/users/profile', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ utm_source: utmSourceToSave }),
+        })
+      } catch { /* non-fatal */ }
+    }
+
     // ── Attorney partner attribution (reads httpOnly ppa_ref cookie) ─────────
     try {
       await fetch('/api/partner/record-attorney-referral', {
@@ -104,6 +123,22 @@ function CallbackHandler() {
       } catch { /* non-fatal — fall through to dashboard */ }
     }
 
+    // Check if new user (no patents + onboarding_completed=false) → send to onboarding
+    try {
+      const { data: { session: s2 } } = await supabase.auth.getSession()
+      if (s2) {
+        const [{ count }, { data: profile }] = await Promise.all([
+          supabase.from('patents').select('id', { count: 'exact', head: true }).eq('owner_id', s2.user.id),
+          supabase.from('profiles').select('onboarding_completed').eq('id', s2.user.id).single(),
+        ])
+        const hasPatents = (count ?? 0) > 0
+        const alreadyOnboarded = profile?.onboarding_completed === true
+        if (!hasPatents && !alreadyOnboarded) {
+          router.push('/onboarding')
+          return
+        }
+      }
+    } catch { /* non-fatal */ }
     router.push('/dashboard')
   }
 

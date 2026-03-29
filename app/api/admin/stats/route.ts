@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-export const dynamic = 'force-dynamic'
-
 // GET /api/admin/stats
 // Returns global dashboard data for admin panel.
 // Requires is_admin = true on the calling user's profile.
@@ -13,16 +11,16 @@ export async function GET(req: NextRequest) {
   if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const anonClient = createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
   const { data: { user } } = await anonClient.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const serviceClient = createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
   // ── Admin gate ─────────────────────────────────────────────────────────────
@@ -46,6 +44,7 @@ export async function GET(req: NextRequest) {
     { data: usageLogs },
     { data: correspondence },
     { data: clawScores },
+    { data: scoreDeltas },
   ] = await Promise.all([
     serviceClient.from('patents').select('*', { count: 'exact' }),
     serviceClient.from('profiles').select('id, display_name, email, is_admin, created_at, require_2fa, subscription_status'),
@@ -82,6 +81,11 @@ export async function GET(req: NextRequest) {
     serviceClient.from('claw_patents')
       .select('patent_id, composite_score, novelty_score, commercial_score, improvement_day, provisional_ready, spec_draft, claims_draft')
       .not('patent_id', 'is', null),
+    // Score deltas from last 24h
+    serviceClient.from('patent_score_history')
+      .select('patent_id, score_before, score_after, delta, recorded_at')
+      .gte('recorded_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .order('recorded_at', { ascending: false }),
   ])
 
   // ── Aggregate stats ────────────────────────────────────────────────────────
@@ -181,6 +185,13 @@ export async function GET(req: NextRequest) {
     (clawScores ?? []).map((c: ClawScore) => [c.patent_id, c])
   )
 
+  // Build 24h score delta lookup by patent_id (sum all deltas in window)
+  const deltaByPatentId = new Map<string, number>()
+  for (const d of (scoreDeltas ?? []) as Array<{ patent_id: string; delta: number | null }>) {
+    if (!d.patent_id || d.delta == null) continue
+    deltaByPatentId.set(d.patent_id, (deltaByPatentId.get(d.patent_id) ?? 0) + Number(d.delta))
+  }
+
   const patentTable = (patents ?? []).map(p => {
     const claw = p.is_claw_draft ? clawByPatentId.get(p.id) : undefined
     // For Claw patents: derive claims count from claims_draft line count
@@ -213,6 +224,10 @@ export async function GET(req: NextRequest) {
       claw_spec_ok: p.is_claw_draft ? clawSpecOk : null,
       claw_provisional_ready: claw?.provisional_ready ?? null,
       claw_improvement_day: claw?.improvement_day ?? null,
+      score_delta_24h: deltaByPatentId.get(p.id) ?? null,
+      commercial_tier: (p as Record<string, unknown>).commercial_tier as number | null ?? null,
+      tier_rationale: (p as Record<string, unknown>).tier_rationale as string | null ?? null,
+      tier_classified_at: (p as Record<string, unknown>).tier_classified_at as string | null ?? null,
     }
   })
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { MARKETING_GUARDRAILS } from '@/lib/marketing-guardrails'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -43,6 +44,9 @@ function buildPrompt(patentTitle: string, founderStoryContent: string, platforms
 
   return `You are a world-class social media content writer specializing in inventor and founder stories.
 You write content that is raw, specific, and human — not polished PR copy.
+
+${MARKETING_GUARDRAILS}
+
 
 You have been given a founder story document and patent details. Generate exactly 7 content pieces as specified below.
 

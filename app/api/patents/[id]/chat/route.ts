@@ -20,6 +20,8 @@ import {
   type RetrievalContext,
   BLOCKING_TO_TOPIC as _BLOCKING_TO_TOPIC,
 } from '@/lib/pattie-knowledge-retrieval'
+import { getPattieContext } from '@/lib/pattie-context'
+import { getRecentActivity, formatActivityContext } from '@/lib/activity-log'
 
 export const maxDuration = 60
 
@@ -124,7 +126,7 @@ export async function POST(
   const { data: { user } } = await getUserClient(token).auth.getUser()
   if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.GEMINI_API_KEY) {
     return new Response(JSON.stringify({ error: 'AI not configured' }), { status: 503 })
   }
 
@@ -210,7 +212,7 @@ export async function POST(
 
   // ── Build PatentContext for lifecycle ─────────────────────────────────────
   const patentContext: PatentContext = {
-    patent: patent as Parameters<typeof getBlockingConditions>[0]['patent'],
+    patent: patent as unknown as Parameters<typeof getBlockingConditions>[0]["patent"],
     pendingSigningRequests: pendingSigningCount ?? 0,
   }
 
@@ -326,7 +328,13 @@ ${nonprovDeadline ? `Non-provisional deadline: ${new Date(nonprovDeadline).toLoc
 ---
 ` : ''
 
+  // Fetch persistent founder context (non-blocking)
+  const founderContext = await getPattieContext('pp.app', patentId).catch(() => '')
+  const recentActivity = await getRecentActivity(patentId, 10).catch(() => [])
+  const activityContext = formatActivityContext(recentActivity)
+
   const systemPrompt = `You are Pattie, the helpful assistant built into PatentPending — an app that helps inventors file and manage their own patents.
+${founderContext ? `\n${founderContext}\n` : ''}${activityContext ? `\n${activityContext}\n` : ''}
 
 You are currently helping with the patent: "${patent.title}"
 ${founderStoryBlock}
@@ -433,11 +441,23 @@ KNOWLEDGE ACCURACY:
     msgs: Array<{ role: 'user' | 'assistant'; content: string | unknown[] }>,
     includeTools = true
   ) {
-    return fetch('https://api.anthropic.com/v1/messages', {
+    // Check if Anthropic is known-blocked — use Gemini directly if so
+    const anthropicKey = process.env.ANTHROPIC_API_KEY
+    const geminiKey = process.env.GEMINI_API_KEY
+    if (!anthropicKey && geminiKey) {
+      // Gemini non-streaming fallback (tool use not supported but basic chat works)
+      const geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: msgs.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content) }] })), systemInstruction: { parts: [{ text: systemPrompt }] }, generationConfig: { maxOutputTokens: 1024 } }) }
+      )
+      return geminiRes
+    }
+    const fetchRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'x-api-key': anthropicKey!,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
@@ -449,6 +469,16 @@ KNOWLEDGE ACCURACY:
         messages: msgs,
       }),
     })
+    // If limit error, mark blocked and re-throw so caller can handle
+    if (!fetchRes.ok) {
+      const errText = await fetchRes.clone().text()
+      if (errText.includes('usage limits') || errText.includes('rate limit')) {
+        // Mark Anthropic blocked for 24h via non-blocking fire-and-forget
+        const svcClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.SUPABASE_SERVICE_ROLE_KEY ?? '')
+        svcClient.from('llm_budget_config').update({ is_blocked: true, blocked_until: new Date(Date.now() + 86400000).toISOString(), last_error: errText.slice(0, 200) }).eq('provider', 'anthropic').then(() => {}).then(null, () => {})
+      }
+    }
+    return fetchRes
   }
 
   const encoder  = new TextEncoder()

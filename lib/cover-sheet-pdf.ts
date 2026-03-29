@@ -21,7 +21,6 @@
 import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage, RGB } from 'pdf-lib'
 import { sanitizeForPdf } from '@/lib/pdf-sanitize'
 
-
 // ── Page geometry (Letter) ────────────────────────────────────────────────────
 const PTS_PER_INCH = 72
 const PAGE_W       = 8.5 * PTS_PER_INCH   // 612 pt

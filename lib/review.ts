@@ -1,11 +1,10 @@
 // lib/review.ts
-
 // BoClaw's submit-to-review-queue function.
 // Call this instead of posting draft text to Telegram.
 // After calling: message Chad in Telegram with a short ✅ notification only.
 
-const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co')
-const SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 export interface ReviewSubmission {
   patent_id: string

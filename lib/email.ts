@@ -1,5 +1,4 @@
 /**
-
  * Shared email utilities for PatentPending
  * - Consistent from name ("Chad at PatentPending")
  * - Plain-text version alongside HTML (improves deliverability)

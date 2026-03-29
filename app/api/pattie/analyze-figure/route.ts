@@ -45,13 +45,14 @@ export async function POST(req: NextRequest) {
     }, { status: 403 })
   }
 
-  let patentId: string, filename: string, figureNumber: number, storagePath: string
+  let patentId: string, filename: string, figureNumber: number, storagePath: string, userContext: string
   try {
     const body = await req.json()
     patentId = body.patentId
     filename = body.filename
     figureNumber = body.figureNumber ?? 1
     storagePath = body.storagePath
+    userContext = body.userContext ?? ''
     if (!patentId || !filename || !storagePath) throw new Error('patentId, filename, storagePath required')
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 })
@@ -99,13 +100,17 @@ export async function POST(req: NextRequest) {
   // ── Call Gemini vision ────────────────────────────────────────────────────
   const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`
 
+  const contextNote = userContext
+    ? `\n\nThe inventor describes this figure as: "${userContext}"\nUse this context to inform and improve your description.`
+    : ''
+
   const systemPrompt = `You are Pattie, a patent assistant. Analyze the uploaded patent figure and write a clear, USPTO-appropriate figure description.
 
 Format: "FIG. ${figureNumber} is a [type of view — e.g., perspective view, cross-sectional view, block diagram, flowchart] showing [what is depicted]. [One additional sentence describing key elements or reference numerals visible in the figure if identifiable]."
 
 Keep it to 1-2 sentences. Use formal patent description language. Do not speculate about elements you cannot see clearly. If reference numerals are visible (e.g., 100, 102, 104), mention the key ones.
 
-The patent title is: "${patent.title}"`
+The patent title is: "${patent.title}"${contextNote}`
 
   const geminiBody = {
     contents: [{

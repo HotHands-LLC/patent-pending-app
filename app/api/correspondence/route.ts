@@ -8,17 +8,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserTierInfo, tierRequiredResponse } from '@/lib/tier'
 
-export const dynamic = 'force-dynamic'
-
 const supabaseService = createClient(
-  (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-  (process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder-service-key')
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 function getUserClient(token: string) {
   return createClient(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'),
-    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key'),
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { global: { headers: { Authorization: `Bearer ${token}` } } }
   )
 }
@@ -57,11 +55,21 @@ export async function POST(req: NextRequest) {
   if (patent_id && typeof patent_id === 'string') {
     const { data: patent } = await supabaseService
       .from('patents')
-      .select('id, owner_id')
+      .select('id, owner_id, status')
       .eq('id', patent_id)
       .single()
 
     if (!patent) return NextResponse.json({ error: 'Patent not found' }, { status: 404 })
+
+    // ── USPTO Action guard: provisional applications cannot receive office actions ──
+    const USPTO_ACTION_TYPES = ['uspto_action', 'uspto_response', 'office_action']
+    const isProvisional = patent.status === 'provisional' || patent.status === 'research_import'
+    if (USPTO_ACTION_TYPES.includes(type as string) && isProvisional) {
+      return NextResponse.json({
+        error: 'USPTO Office Actions cannot be recorded on provisional applications. Convert to non-provisional first.',
+        code: 'PROVISIONAL_RESTRICTION',
+      }, { status: 400 })
+    }
 
     if (patent.owner_id !== user.id) {
       // Check collaborator access
