@@ -1,5 +1,18 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 
+/**
+ * USPTO Patent Center requires PDF version 1.1–1.6.
+ * pdf-lib generates PDF 1.7 — patch the header before returning.
+ */
+async function fixPdfVersion(pdfBytes: Uint8Array): Promise<Uint8Array> {
+  const buf = Buffer.from(pdfBytes)
+  const header = buf.toString('ascii', 0, 8)
+  if (header.includes('PDF-1.7')) {
+    buf.write('%PDF-1.6', 0, 'ascii')
+  }
+  return new Uint8Array(buf)
+}
+
 export interface SigningRequestData {
   document_type: string
   document_label: string
@@ -132,7 +145,7 @@ export async function generateSignedPdf(
     drawText(`Printed Name: ${request.signer_name}`)
     drawText(`Date: ${request.signed_date}`)
 
-    return await doc.save()
+    return await fixPdfVersion(await doc.save())
   }
 
   if (request.document_type === 'sb0015a') {
@@ -173,7 +186,7 @@ export async function generateSignedPdf(
     drawText(`Printed Name: ${request.signer_name}`)
     drawText(`Date: ${request.signed_date}`)
 
-    return await doc.save()
+    return await fixPdfVersion(await doc.save())
   }
 
   // Generic: assignment, aia_08, other
@@ -194,5 +207,5 @@ export async function generateSignedPdf(
   drawText(`Printed Name: ${request.signer_name}`)
   drawText(`Date: ${request.signed_date}`)
 
-  return await doc.save()
+  return await fixPdfVersion(await doc.save())
 }
