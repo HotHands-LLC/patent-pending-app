@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { computeIpReadinessScore } from '@/lib/ip-readiness'
 import { evaluatePatentPhase } from '@/lib/filing-pipeline'
+import { deriveStage } from '@/lib/patent-stage'
+import type { Patent } from '@/lib/supabase'
 import { logActivity } from '@/lib/activity-log'
 
 const supabaseService = createClient(
@@ -183,6 +185,10 @@ export async function PATCH(
   // Run asynchronously — never blocks the PATCH response
   waitUntil(evaluatePatentPhase(id, supabaseService))
 
+  // ── Stage engine: auto-advance lifecycle stage ────────────────────────────
+  // Derive and persist the correct stage from the updated patent fields
+  waitUntil(advancePatentStage(id, updated as Patent))
+
   return NextResponse.json(updated)
 }
 
@@ -284,4 +290,27 @@ async function checkAndQualifyReferral(patentId: string, ownerId: string) {
   }
 
   console.log(`[referral] ✅ qualified (pending 48hr): partner=${partnerId} user=${ownerId} months=${rewardMonths}`)
+}
+
+
+// ── Stage engine helper ────────────────────────────────────────────────────
+async function advancePatentStage(patentId: string, patent: Patent): Promise<void> {
+  try {
+    const derivedStage = deriveStage(patent)
+    const currentStage = patent.stage ?? null
+    if (derivedStage === currentStage) return
+
+    const { error } = await supabaseService
+      .from('patents')
+      .update({ stage: derivedStage, updated_at: new Date().toISOString() })
+      .eq('id', patentId)
+
+    if (error) {
+      console.error('[advance-stage] async update error:', error.message)
+    } else {
+      console.log(`[advance-stage] patent=${patentId} stage: ${currentStage} → ${derivedStage}`)
+    }
+  } catch (err) {
+    console.error('[advance-stage] unexpected error:', err)
+  }
 }

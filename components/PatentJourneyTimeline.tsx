@@ -13,14 +13,28 @@ export type PatentStatus =
   | 'granted'
   | string  // fallback for other statuses
 
+/** Stage values from the stage-engine (lib/patent-stage.ts) */
+export type PatentLifecycleStage =
+  | 'idea'
+  | 'claims'
+  | 'spec'
+  | 'figures'
+  | 'provisional'
+  | 'nonprovisional'
+  | 'examination'
+  | 'granted'
+  | string
+
 interface StageDate {
   label: string
   value: string
 }
 
 export interface PatentJourneyTimelineProps {
-  /** Current patent status — drives active/completed state */
+  /** Current patent status — drives active/completed state (legacy; used when stage not set) */
   status?: PatentStatus | null
+  /** Live lifecycle stage from DB (from stage-engine). Overrides status-based derivation when set. */
+  stage?: PatentLifecycleStage | null
   /** Provisional filing date */
   filingDate?: string | null
   /** np_filing_steps from patent record */
@@ -136,6 +150,30 @@ const STAGES: Stage[] = [
     tip: 'Set calendar reminders well in advance — these fees cannot be overlooked.',
   },
 ]
+
+// ── Stage engine stage → timeline index ──────────────────────────────────────
+// Maps the DB lifecycle stage (from patent-stage.ts) to the 0-based STAGES array index
+
+function stageEngineToTimelineIndex(stage: PatentLifecycleStage): number {
+  switch (stage) {
+    case 'idea':
+      return 0  // Stage 1: Invention Disclosure
+    case 'claims':
+    case 'spec':
+    case 'figures':
+      return 1  // Stage 2: Provisional Application (still in pre-filing preparation)
+    case 'provisional':
+      return 1  // Stage 2: Provisional Application (active)
+    case 'nonprovisional':
+      return 2  // Stage 3: Non-Provisional Filing (filed, now pending examination)
+    case 'examination':
+      return 3  // Stage 4: USPTO Examination
+    case 'granted':
+      return 7  // Stage 8: Maintenance
+    default:
+      return 0
+  }
+}
 
 // ── Status → stage mapping ────────────────────────────────────────────────────
 
@@ -383,6 +421,7 @@ function TooltipPanel({ stage, state, date }: { stage: Stage; state: StageState;
 
 export default function PatentJourneyTimeline({
   status,
+  stage,
   filingDate,
   npFilingSteps,
   provisionalFiledAt,
@@ -392,8 +431,12 @@ export default function PatentJourneyTimeline({
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
 
   // Demo mode: show completed through examination
-  const effectiveStatus = demoMode ? 'under_examination' : (status ?? 'provisional_draft')
-  const activeIndex = getActiveStageIndex(effectiveStatus)
+  // Priority: stage (from DB stage-engine) > status (legacy) > default
+  const activeIndex = demoMode
+    ? 3  // Stage 4: USPTO Examination
+    : stage
+      ? stageEngineToTimelineIndex(stage as PatentLifecycleStage)
+      : getActiveStageIndex(status ?? 'provisional_draft')
 
   // Build date map for stages that have known dates
   const stageDates: Record<number, StageDate> = {}
