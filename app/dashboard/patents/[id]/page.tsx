@@ -30,6 +30,7 @@ import PattieInlinePanel from '@/components/PattieInlinePanel'
 import PatentActivityTimeline from '@/components/PatentActivityTimeline'
 import { USPTO_FEES } from '@/lib/uspto-fees'
 import PatentJourneyTimeline from '@/components/PatentJourneyTimeline'
+import AdsPreFillCard from '@/components/AdsPreFillCard'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface UploadedFile {
@@ -54,7 +55,7 @@ function isOnHold(patent: { status?: string } | null | undefined): boolean {
   return patent?.status === 'on_hold'
 }
 
-type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'admin' | 'ids'
+type Tab = 'details' | 'claims' | 'filing' | 'enhancement' | 'correspondence' | 'collaborators' | 'leads' | 'admin' | 'ids' | 'ads'
 
 // ── Revision chips ─────────────────────────────────────────────────────────────
 const REVISION_CHIPS = [
@@ -2479,7 +2480,7 @@ export default function PatentDetail() {
           const canView = (feature: string) => !isCollaborator || (collabPerms[feature] ?? false)
           const arc3Active = !!(patent as Patent & { arc3_active?: boolean }).arc3_active
           const isFiled = patent.filing_status === 'provisional_filed' || patent.filing_status === 'nonprov_filed'
-          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'ids', 'correspondence', 'collaborators', 'leads', 'enhancement', 'admin'] as Tab[])
+          const visibleTabs: Tab[] = (['details', 'claims', 'filing', 'ads', 'ids', 'correspondence', 'collaborators', 'leads', 'enhancement', 'admin'] as Tab[])
             .filter(t => {
               if (t === 'filing' && isGranted) return false  // no filing workflow for issued patents
               if (t === 'filing' && isPatentOnHold) return false  // no filing workflow for on_hold patents
@@ -2489,6 +2490,7 @@ export default function PatentDetail() {
               if (t === 'collaborators') return !isCollaborator || canView('collaborators')
               if (t === 'admin') return ADMIN_EMAILS.includes(userEmail)  // admin-only
               if (t === 'ids') return !isCollaborator || canView('ids')
+              if (t === 'ads') return !isCollaborator  // owner-only ADS pre-fill
               return canView(t)
             })
           return (
@@ -2536,6 +2538,7 @@ export default function PatentDetail() {
                 ) : t === 'enhancement' ? '✨ Enhancement'
                 : t === 'admin' ? '⚙️ Admin'
                 : t === 'ids' ? '🔬 IDS'
+                : t === 'ads' ? '📋 Filing Prep'
                 : t === 'details' ? 'Overview'
                 : 'Details'
               }
@@ -4219,6 +4222,11 @@ export default function PatentDetail() {
         {/* ── IDS TAB ─────────────────────────────────────────────────────────── */}
         {tab === 'ids' && patent && authToken && (
           <IDSTab patentId={patent.id} patent={patent} authToken={authToken} isAdmin={isAdmin} showToast={showToast} />
+        )}
+
+        {/* ── FILING PREP (ADS) TAB ───────────────────────────────────────────── */}
+        {tab === 'ads' && patent && authToken && (
+          <AdsPreFillCard patent={patent} authToken={authToken} userEmail={userEmail} />
         )}
 
         {/* ── ADMIN TAB ───────────────────────────────────────────────────────── */}
