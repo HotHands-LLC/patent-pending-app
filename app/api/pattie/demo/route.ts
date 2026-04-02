@@ -403,7 +403,7 @@ export async function POST(req: NextRequest) {
 
   console.log('[Pattie Demo Intent]', intent, '| session:', sessionId.slice(0, 8), '| remaining:', remaining)
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENAI_API_KEY) {
     return new Response(
       JSON.stringify({ error: 'Service unavailable' }),
       { status: 503, headers: { 'Content-Type': 'application/json' } }
@@ -414,7 +414,6 @@ export async function POST(req: NextRequest) {
   const analyticsPromise = recordSession(sessionId, ipHash, intent)
 
   const encoder = new TextEncoder()
-  const decoder = new TextDecoder()
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -424,19 +423,27 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
 
       try {
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
+        // Conversational layer uses gpt-4o-mini for cost optimization (~20x cheaper than Sonnet)
+        // Drafting/claims still route through claude-sonnet-4-6 via standard_task
+        const pattieContext = await getPattieContext('pp.app').catch(() => '')
+        const systemContent = DEMO_SYSTEM_PROMPT + (pattieContext ? '\n\n' + pattieContext : '')
+
+        const openAIMessages = [
+          { role: 'system', content: systemContent },
+          ...messages,
+        ]
+
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-api-key': process.env.ANTHROPIC_API_KEY ?? '',
-            'anthropic-version': '2023-06-01',
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY ?? ''}`,
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
+            model: 'gpt-4o-mini',
             max_tokens: 1024,
             stream: true,
-            system: DEMO_SYSTEM_PROMPT + '\n\n' + (await getPattieContext('pp.app').catch(() => '')),
-            messages,
+            messages: openAIMessages,
           }),
         })
 
@@ -445,7 +452,9 @@ export async function POST(req: NextRequest) {
         }
 
         const reader = res.body.getReader()
+        const decoder = new TextDecoder()
         let buffer = ''
+        let emittedIntent = false
 
         while (true) {
           const { done, value } = await reader.read()
@@ -458,15 +467,16 @@ export async function POST(req: NextRequest) {
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue
             const raw = line.slice(6).trim()
-            if (raw === '[DONE]') continue
+            if (raw === '[DONE]') {
+              if (!emittedIntent) { emit({ type: 'intent', intent }); emittedIntent = true }
+              continue
+            }
 
             try {
+              // OpenAI streaming format: choices[0].delta.content
               const evt = JSON.parse(raw)
-              if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-                emit({ type: 'text', text: evt.delta.text })
-              } else if (evt.type === 'message_stop') {
-                emit({ type: 'intent', intent })
-              }
+              const text = evt?.choices?.[0]?.delta?.content
+              if (text) emit({ type: 'text', text })
             } catch { /* skip malformed */ }
           }
         }
