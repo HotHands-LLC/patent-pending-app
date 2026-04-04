@@ -1,8 +1,8 @@
 /**
  * POST /api/pattie/demo-widget
- * Public (no auth). Floating homepage demo widget — Gemini Flash only.
- * Simple JSON response (non-streaming) for the 5-message try-before-signup widget.
- * Rate limit: 20 requests per hour per IP (in-memory, resets on cold start).
+ * Public (no auth). Homepage Pattie chat — Gemini Flash only.
+ * Unlimited messages (revenue gate is handled client-side at milestone).
+ * Rate limit: 60 requests per hour per IP (in-memory, resets on cold start).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -12,7 +12,7 @@ export const maxDuration = 30
 
 // ── Rate limiter ──────────────────────────────────────────────────────────────
 const ipCounts = new Map<string, { count: number; resetAt: number }>()
-const RATE_LIMIT = 20
+const RATE_LIMIT = 60
 const RATE_WINDOW_MS = 60 * 60 * 1000 // 1 hour
 
 function checkRateLimit(ip: string): { allowed: boolean; remaining: number } {
@@ -37,10 +37,10 @@ function getClientIp(req: NextRequest): string {
 
 // ── Demo system prompt ────────────────────────────────────────────────────────
 const DEMO_SYSTEM_PROMPT =
-  'You are Pattie, an AI patent assistant from PatentPending.app. You help inventors understand the patent process, assess their invention\'s patentability, and draft initial patent claims. You are friendly, encouraging, and expert. In this demo, you can answer 5 questions. After that, invite the user to sign up to continue. Keep responses concise — 2-3 sentences max unless the user asks for detail.'
+  'You are Pattie, an AI patent assistant from PatentPending.app. You help inventors understand the patent process, assess their invention\'s patentability, and draft initial patent claims. You are warm, encouraging, and expert. Keep responses concise — 2-4 sentences unless the user asks for detail. Ask one clarifying question at a time to help the inventor develop their idea. After discussing the concept for several turns, naturally encourage them to sign up at PatentPending.app to generate a full draft specification and filing roadmap.'
 
 // ── Gemini Flash call ─────────────────────────────────────────────────────────
-const GEMINI_MODEL = 'gemini-2.0-flash'
+const GEMINI_MODEL = 'gemini-2.5-flash-preview-04-17'
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
 
 interface GeminiMessage {
@@ -119,26 +119,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No user message provided' }, { status: 400 })
   }
 
-  // Count user messages (client-side is authoritative, but we validate server-side too)
-  const userMessageCount = messages.filter(m => m.role === 'user').length
-  const MAX_MESSAGES = 5
-
-  if (userMessageCount > MAX_MESSAGES) {
-    return NextResponse.json(
-      {
-        reply:
-          "You've used all 5 free demo messages! Ready to keep going? Create your free account to continue — no credit card required.",
-        messages_remaining: 0,
-      },
-      { status: 200 }
-    )
-  }
-
   try {
     const reply = await callGeminiFlash(messages)
-    const messages_remaining = Math.max(0, MAX_MESSAGES - userMessageCount)
 
-    return NextResponse.json({ reply, messages_remaining })
+    return NextResponse.json({ reply })
   } catch (err) {
     console.error('[demo-widget] Error:', err)
     return NextResponse.json(

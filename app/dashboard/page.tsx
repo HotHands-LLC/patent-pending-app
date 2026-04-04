@@ -1,24 +1,123 @@
 'use client'
+/**
+ * Dashboard — simplified single-page view
+ * Sections: Profile · Patents · Deadlines · Settings
+ * No tabs, no heavy chrome, scroll-based.
+ * Admin stays at /admin/* — this is purely user-facing.
+ */
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
-import { supabase, Patent, PatentDeadline, getDaysUntil, getUrgencyBadge } from '@/lib/supabase'
-import PatentPhaseWidget from "@/components/dashboard/PatentPhaseWidget"
-import ReviewQueue from "@/components/dashboard/ReviewQueue"
-import PatentIntakeCard from "@/components/dashboard/PatentIntakeCard"
-import NewPatentModal from "@/components/NewPatentModal"
-import PattieIntakeModal from "@/components/PattieIntakeModal"
+import { supabase, Patent, getDaysUntil, getUrgencyBadge } from '@/lib/supabase'
+import NewPatentModal from '@/components/NewPatentModal'
+import PattieIntakeModal from '@/components/PattieIntakeModal'
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface UserProfile {
+  full_name: string | null
+  name_first: string | null
+  name_last: string | null
+  email: string | null
+  entity_status: string | null
+  subscription_status: string | null
+  company: string | null
+}
+
+interface Deadline {
+  id: string
+  patent_id: string
+  deadline_type: string
+  due_date: string
+  status: string
+  patents: { title: string }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function displayName(p: UserProfile): string {
+  if (p.name_first || p.name_last) return [p.name_first, p.name_last].filter(Boolean).join(' ')
+  return p.full_name || p.email || 'Inventor'
+}
+
+function entityLabel(status: string | null): string {
+  if (!status) return '—'
+  const map: Record<string, string> = {
+    micro: 'Micro Entity',
+    small: 'Small Entity',
+    large: 'Large Entity / Corporation',
+  }
+  return map[status] ?? status
+}
+
+function subLabel(status: string | null): string {
+  if (!status || status === 'free') return 'Free'
+  if (status === 'pro') return 'Pro'
+  if (status === 'complimentary') return 'Complimentary Pro'
+  return status
+}
+
+function statusStage(p: Patent): string {
+  const stage = p.filing_status ?? p.status ?? 'draft'
+  const map: Record<string, string> = {
+    draft: 'Draft',
+    provisional: 'Provisional',
+    approved: 'Ready to File',
+    provisional_filed: 'Provisional Filed',
+    nonprov_pending: 'Non-Prov Pending',
+    nonprov_filed: 'Non-Prov Filed',
+    non_provisional: 'Non-Provisional',
+    published: 'Published',
+    granted: 'Granted ✓',
+    abandoned: 'Abandoned',
+    on_hold: 'On Hold',
+    research_import: 'Research Import',
+  }
+  return map[stage] ?? stage
+}
+
+function deadlineBadge(days: number): string {
+  if (days <= 0) return 'bg-red-100 text-red-700 font-bold'
+  if (days <= 30) return 'bg-red-100 text-red-700'
+  if (days <= 90) return 'bg-orange-100 text-orange-700'
+  if (days <= 180) return 'bg-yellow-100 text-yellow-700'
+  return 'bg-green-100 text-green-600'
+}
+
+// ── Section cards ─────────────────────────────────────────────────────────────
+function SectionCard({ title, icon, children, action }: {
+  title: string
+  icon: string
+  children: React.ReactNode
+  action?: { label: string; href: string }
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 sm:p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{icon}</span>
+          <h2 className="font-semibold text-[#1a1f36] text-sm sm:text-base">{title}</h2>
+        </div>
+        {action && (
+          <Link href={action.href} className="text-xs text-gray-400 hover:text-[#1a1f36] transition-colors">
+            {action.label} →
+          </Link>
+        )}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [patents, setPatents] = useState<Patent[]>([])
-  const [deadlines, setDeadlines] = useState<(PatentDeadline & { patents: { title: string } })[]>([])
+  const [deadlines, setDeadlines] = useState<Deadline[]>([])
   const [loading, setLoading] = useState(true)
-  const [showNewModal, setShowNewModal] = useState(false)
-  const [showPattieIntake, setShowPattieIntake] = useState(false)
   const [authToken, setAuthToken] = useState('')
   const [show2FABanner, setShow2FABanner] = useState(false)
-  const [require2FA, setRequire2FA] = useState(false)
+  const [showNewModal, setShowNewModal] = useState(false)
+  const [showPattieIntake, setShowPattieIntake] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -28,100 +127,98 @@ export default function Dashboard() {
       if (!user) { router.push('/login'); return }
       if (session?.access_token) setAuthToken(session.access_token)
 
-      // ── 2FA tier checks ───────────────────────────────────────────────────
+      // ── 2FA soft prompt ──────────────────────────────────────────────────
       try {
-        // profiles table: has require_2fa, two_fa_prompt_dismissed (NOT subscription_status)
-        // subscription_status lives on patent_profiles
-        const [{ data: profile }, { data: patentProfile }] = await Promise.all([
+        const [{ data: profileRow }, { data: patentProfile }] = await Promise.all([
           supabase.from('profiles').select('require_2fa, two_fa_prompt_dismissed').eq('id', user.id).single(),
-          supabase.from('patent_profiles').select('subscription_status').eq('id', user.id).single(),
+          supabase.from('patent_profiles').select('subscription_status, full_name, name_first, name_last, email, entity_status, company').eq('id', user.id).single(),
         ])
 
-        if (profile) {
+        if (profileRow?.require_2fa) {
           const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-          const isaal2 = aalData?.currentLevel === 'aal2'
-
-          if (profile.require_2fa && !isaal2) {
-            // Hard redirect — agency account requires 2FA
+          if (aalData?.currentLevel !== 'aal2') {
             router.push('/dashboard/security/setup-2fa?required=true&next=/dashboard')
             return
           }
+        }
 
-          // Pro prompt: show dismissible banner on first Pro login
-          const subStatus = patentProfile?.subscription_status ?? 'free'
-          if (
-            !isaal2 &&
-            !profile.two_fa_prompt_dismissed &&
-            (subStatus === 'pro' || subStatus === 'complimentary')
-          ) {
-            setShow2FABanner(true)
-          }
+        setProfile({
+          full_name: patentProfile?.full_name ?? null,
+          name_first: patentProfile?.name_first ?? null,
+          name_last: patentProfile?.name_last ?? null,
+          email: user.email ?? null,
+          entity_status: patentProfile?.entity_status ?? null,
+          subscription_status: patentProfile?.subscription_status ?? 'free',
+          company: patentProfile?.company ?? null,
+        })
+
+        if (!profileRow?.two_fa_prompt_dismissed &&
+            (patentProfile?.subscription_status === 'pro' || patentProfile?.subscription_status === 'complimentary')) {
+          const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+          if (aalData?.currentLevel !== 'aal2') setShow2FABanner(true)
         }
       } catch {
-        // 2FA check non-blocking — don't fail dashboard load
+        // non-blocking — still load patents
+        setProfile({ full_name: null, name_first: null, name_last: null, email: session.user.email ?? null, entity_status: null, subscription_status: 'free', company: null })
       }
 
+      // ── Data loads ───────────────────────────────────────────────────────
       const [{ data: p }, { data: d }] = await Promise.all([
-        supabase.from('patents').select('*').neq('status', 'research_import').order('provisional_deadline', { ascending: true }),
+        supabase.from('patents')
+          .select('*')
+          .neq('status', 'research_import')
+          .order('provisional_deadline', { ascending: true }),
         supabase.from('patent_deadlines')
           .select('*, patents(title)')
           .eq('status', 'pending')
           .order('due_date', { ascending: true })
-          .limit(5)
+          .limit(5),
       ])
 
       setPatents(p || [])
-      setDeadlines((d as (PatentDeadline & { patents: { title: string } })[]) || [])
+      setDeadlines((d as Deadline[]) || [])
       setLoading(false)
     }
     load()
   }, [router])
+
+  async function dismiss2FABanner() {
+    setShow2FABanner(false)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) await supabase.from('profiles').update({ two_fa_prompt_dismissed: true }).eq('id', user.id)
+  }
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />
         <div className="flex items-center justify-center h-64">
-          <div className="text-gray-400">Loading...</div>
+          <div className="text-gray-400 text-sm">Loading...</div>
         </div>
       </div>
     )
   }
 
+  const nextDeadlines = deadlines.slice(0, 3)
   const urgentCount = deadlines.filter(d => getDaysUntil(d.due_date) <= 30).length
-  const warningCount = deadlines.filter(d => { const days = getDaysUntil(d.due_date); return days > 30 && days <= 90 }).length
-
-  async function dismiss2FABanner() {
-    setShow2FABanner(false)
-    await supabase.from('profiles').update({ two_fa_prompt_dismissed: true }).eq('id', (await supabase.auth.getUser()).data.user?.id ?? '')
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
-      <OnboardingChecklist authToken={authToken} patents={patents} />
 
-      {/* Pro 2FA prompt banner */}
+      {/* 2FA Soft Prompt */}
       {show2FABanner && (
         <div className="bg-indigo-50 border-b border-indigo-200 px-4 py-3">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-2 text-sm text-indigo-800">
-              <span>🔐</span>
-              <span>
-                <strong>Secure your Pro account</strong> — we recommend enabling two-factor authentication.
-              </span>
-            </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <Link
-                href="/dashboard/security/setup-2fa?next=/dashboard"
-                className="text-xs font-semibold text-indigo-700 bg-indigo-100 hover:bg-indigo-200 px-3 py-1.5 rounded-lg transition-colors"
-              >
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+            <span className="text-sm text-indigo-800">
+              🔐 <strong>Secure your Pro account</strong> — enable two-factor authentication.
+            </span>
+            <div className="flex items-center gap-3">
+              <Link href="/dashboard/security/setup-2fa?next=/dashboard"
+                className="text-xs font-semibold text-indigo-700 bg-indigo-100 hover:bg-indigo-200 px-3 py-1.5 rounded-lg">
                 Set up 2FA →
               </Link>
-              <button
-                onClick={dismiss2FABanner}
-                className="text-xs text-indigo-500 hover:text-indigo-700"
-              >
+              <button onClick={dismiss2FABanner} className="text-xs text-indigo-400 hover:text-indigo-600">
                 Dismiss
               </button>
             </div>
@@ -129,178 +226,165 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {/* Header */}
-        <div className="mb-6 sm:mb-8">
-          <h1 className="text-xl sm:text-2xl font-bold text-[#1a1f36]">Dashboard</h1>
-          <p className="text-gray-500 mt-1 text-sm">Hot Hands LLC Patent Portfolio</p>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
-          {[
-            { label: 'Total Patents', value: patents.length, color: 'text-[#1a1f36]' },
-            { label: 'Urgent Deadlines', value: urgentCount, color: urgentCount > 0 ? 'text-red-600' : 'text-green-600' },
-            { label: 'Warning Deadlines', value: warningCount, color: warningCount > 0 ? 'text-yellow-600' : 'text-green-600' },
-            { label: 'Granted', value: patents.filter(p => p.status === 'granted').length, color: 'text-green-600' },
-          ].map((stat) => (
-            <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
-              <div className={`text-2xl sm:text-3xl font-bold ${stat.color}`}>{stat.value}</div>
-              <div className="text-xs sm:text-sm text-gray-500 mt-1">{stat.label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Urgent Alert Banner */}
-        {urgentCount > 0 && (
-          <div className="mb-6 sm:mb-8 p-4 bg-red-50 border border-red-200 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3">
-            <div className="flex items-start sm:items-center gap-3 flex-1">
-              <span className="text-red-500 text-xl flex-shrink-0">🚨</span>
-              <div>
-                <span className="font-semibold text-red-800 text-sm">
-                  {urgentCount} deadline{urgentCount > 1 ? 's' : ''} within 30 days — action required
-                </span>
-                <span className="text-red-600 text-xs block mt-0.5">File non-provisional applications before deadlines to preserve patent rights.</span>
-              </div>
-            </div>
-            <Link href="/dashboard/deadlines" className="sm:ml-auto px-3 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 text-center min-h-[44px] flex items-center justify-center">
-              View Deadlines
+      {/* Urgent deadline banner */}
+      {urgentCount > 0 && (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-3">
+          <div className="max-w-3xl mx-auto flex items-center justify-between gap-3 flex-wrap">
+            <span className="text-sm text-red-800 font-medium">
+              🚨 {urgentCount} deadline{urgentCount > 1 ? 's' : ''} within 30 days
+            </span>
+            <Link href="/dashboard/deadlines" className="text-xs text-red-700 font-semibold hover:underline">
+              View deadlines →
             </Link>
           </div>
-        )}
+        </div>
+      )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-          {/* Upcoming Deadlines */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-[#1a1f36] text-sm sm:text-base">Upcoming Deadlines</h2>
-              <Link href="/dashboard/deadlines" className="text-sm text-[#1a1f36]/60 hover:text-[#1a1f36]">View all →</Link>
+      {/* Main content */}
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-5">
+
+        {/* ── My Profile ── */}
+        <SectionCard title="My Profile" icon="👤" action={{ label: 'Edit', href: '/profile' }}>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-[#1a1f36]">
+                {profile ? displayName(profile) : '—'}
+              </span>
+              {profile?.subscription_status && (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  profile.subscription_status === 'pro' || profile.subscription_status === 'complimentary'
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {subLabel(profile.subscription_status)}
+                </span>
+              )}
             </div>
-            {deadlines.length === 0 ? (
-              <p className="text-gray-400 text-sm">No pending deadlines.</p>
-            ) : (
-              <div className="space-y-3">
-                {deadlines.map((d) => {
-                  const days = getDaysUntil(d.due_date)
-                  return (
-                    <div key={d.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0 gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-[#1a1f36] truncate">{d.patents?.title}</div>
-                        <div className="text-xs text-gray-400">{d.deadline_type.replace('_', ' ')} · Due {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                      </div>
-                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${getUrgencyBadge(days)}`}>
-                        {days <= 0 ? 'OVERDUE' : `${days}d`}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
+            {profile?.email && (
+              <p className="text-xs text-gray-400">{profile.email}</p>
             )}
-          </div>
-
-          {/* Patents List */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 sm:p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-[#1a1f36] text-sm sm:text-base">Patents</h2>
-              <Link href="/dashboard/patents" className="text-sm text-[#1a1f36]/60 hover:text-[#1a1f36]">View all →</Link>
+            {profile?.company && (
+              <p className="text-xs text-gray-500">{profile.company}</p>
+            )}
+            <div className="pt-1 flex flex-wrap gap-4 text-xs text-gray-500">
+              <span>
+                <span className="font-medium text-gray-700">Entity Status: </span>
+                {entityLabel(profile?.entity_status ?? null)}
+              </span>
+              <span>
+                <span className="font-medium text-gray-700">Patents: </span>
+                {patents.length}
+              </span>
             </div>
-            {patents.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-gray-400 text-sm mb-4">No patents registered yet.</p>
+          </div>
+        </SectionCard>
 
-        {/* Intake Card — blocks everything else until complete */}
-        <div className="mb-8">
-          <PatentIntakeCard patents={patents ?? []} />
-        </div>
+        {/* ── My Patents ── */}
+        <SectionCard title="My Patents" icon="📋" action={{ label: 'View all', href: '/dashboard/patents' }}>
+          {patents.length === 0 ? (
+            <div className="text-center py-6">
+              <p className="text-gray-400 text-sm mb-4">No patents yet.</p>
+              <button
+                onClick={() => setShowPattieIntake(true)}
+                className="inline-flex items-center gap-1 px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium hover:bg-[#2d3561] transition-colors"
+              >
+                + Add First Patent
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {patents.slice(0, 6).map(p => {
+                const isFiled = p.filing_status === 'provisional_filed' || p.filing_status === 'nonprov_filed'
+                const deadlineStr = isFiled && p.nonprov_deadline_at
+                  ? p.nonprov_deadline_at.split('T')[0]
+                  : p.provisional_deadline
+                const days = deadlineStr ? getDaysUntil(deadlineStr) : null
 
-        {/* Review Queue */}
-        <div className="mb-8">
-          <ReviewQueue />
-        </div>
-
-        {/* Phase Progress Widget */}
-        <div className="mb-8">
-          <PatentPhaseWidget patents={patents ?? []} />
-        </div>
-
-                <button onClick={() => setShowPattieIntake(true)} className="inline-flex items-center px-4 py-2 bg-[#1a1f36] text-white rounded-lg text-sm font-medium min-h-[44px] hover:bg-[#2d3561] transition-colors">
-                  + Add First Patent
+                return (
+                  <Link key={p.id} href={`/dashboard/patents/${p.id}`}
+                    className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50 -mx-2 px-2 rounded-lg transition-colors gap-3 min-h-[44px]">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-[#1a1f36] truncate">{p.title}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">{statusStage(p)}</div>
+                    </div>
+                    {days !== null && (
+                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs ${deadlineBadge(days)}`}>
+                        {days <= 0 ? 'OVERDUE' : isFiled ? `NP ${days}d` : `${days}d`}
+                      </span>
+                    )}
+                  </Link>
+                )
+              })}
+              {patents.length > 6 && (
+                <p className="text-xs text-gray-400 pt-1">+{patents.length - 6} more</p>
+              )}
+              <div className="pt-2">
+                <button
+                  onClick={() => setShowPattieIntake(true)}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                >
+                  + Add Patent
                 </button>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {patents.map((p) => {
-                  // Non-prov countdown takes priority once filed; fall back to provisional deadline
-                  const isFiled = p.filing_status === 'provisional_filed' || p.filing_status === 'nonprov_filed'
-                  const deadlineStr = isFiled && p.nonprov_deadline_at
-                    ? p.nonprov_deadline_at.split('T')[0]
-                    : p.provisional_deadline
-                  const days = deadlineStr ? getDaysUntil(deadlineStr) : null
+            </div>
+          )}
+        </SectionCard>
 
-                  // Color coding: green >180d, yellow 90-180d, orange 30-90d, red <30d
-                  function nonprovBadgeClass(d: number): string {
-                    if (d <= 0)   return 'bg-red-100 text-red-700'
-                    if (d <= 30)  return 'bg-red-100 text-red-700'
-                    if (d <= 90)  return 'bg-orange-100 text-orange-700'
-                    if (d <= 180) return 'bg-yellow-100 text-yellow-700'
-                    return 'bg-green-100 text-green-700'
-                  }
-
-                  return (
-                    <Link key={p.id} href={`/dashboard/patents/${p.id}`}
-                      className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors gap-2 min-h-[44px]">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-[#1a1f36] truncate">{p.title}</div>
-                        <div className="text-xs text-gray-400 capitalize">
-                          {isFiled && p.provisional_app_number
-                            ? `Filed · ${p.provisional_app_number}`
-                            : `${p.status.replace('_', ' ')} · ${p.provisional_number || 'No app #'}`
-                          }
-                        </div>
+        {/* ── My Deadlines ── */}
+        <SectionCard title="My Deadlines" icon="📅" action={{ label: 'View all', href: '/dashboard/deadlines' }}>
+          {nextDeadlines.length === 0 ? (
+            <p className="text-sm text-gray-400">No pending deadlines.</p>
+          ) : (
+            <div className="space-y-2">
+              {nextDeadlines.map(d => {
+                const days = getDaysUntil(d.due_date)
+                return (
+                  <div key={d.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0 gap-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-[#1a1f36] truncate">{d.patents?.title}</div>
+                      <div className="text-xs text-gray-400">
+                        {d.deadline_type.replace(/_/g, ' ')} · Due {new Date(d.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </div>
-                      {days !== null && (
-                        <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${isFiled ? nonprovBadgeClass(days) : getUrgencyBadge(days)}`}>
-                          {days <= 0
-                            ? 'OVERDUE'
-                            : isFiled
-                              ? `NP ${days}d`
-                              : `${days}d`
-                          }
-                        </span>
-                      )}
-                    </Link>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+                    </div>
+                    <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${getUrgencyBadge(days)}`}>
+                      {days <= 0 ? 'OVERDUE' : `${days}d`}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </SectionCard>
 
-        {/* Quick Actions */}
-        <div className="mt-4 sm:mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { href: '#new-patent', icon: '➕', label: 'Add Patent' },
-            { href: '/dashboard/deadlines', icon: '📅', label: 'View Deadlines' },
-            { href: '/dashboard/correspondence', icon: '📬', label: 'Correspondence' },
-            { href: '/dashboard/patents', icon: '📋', label: 'All Patents' },
-          ].map((a) => (
-            a.href === '#new-patent' ? (
-              <button key={a.label} onClick={() => setShowPattieIntake(true)}
-                className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-xl hover:border-[#1a1f36]/30 transition-colors text-center min-h-[80px] justify-center w-full">
-                <span className="text-2xl">{a.icon}</span>
-                <span className="text-xs font-medium text-[#1a1f36]">{a.label}</span>
-              </button>
-            ) : (
-              <Link key={a.label} href={a.href}
-                className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-xl hover:border-[#1a1f36]/30 transition-colors text-center min-h-[80px] justify-center">
-                <span className="text-2xl">{a.icon}</span>
-                <span className="text-xs font-medium text-[#1a1f36]">{a.label}</span>
+        {/* ── My Connections (placeholder) ── */}
+        <SectionCard title="My Connections" icon="🔗">
+          <p className="text-sm text-gray-400">
+            Attorney and partner connections coming soon.{' '}
+            <Link href="/find-counsel" className="text-indigo-600 hover:underline text-xs">
+              Find counsel →
+            </Link>
+          </p>
+        </SectionCard>
+
+        {/* ── My Settings ── */}
+        <SectionCard title="My Settings" icon="⚙️">
+          <div className="flex flex-wrap gap-3">
+            {[
+              { label: 'Edit Profile', href: '/profile' },
+              { label: 'Security & 2FA', href: '/dashboard/security/setup-2fa' },
+              { label: 'Billing', href: '/pricing' },
+            ].map(link => (
+              <Link key={link.href} href={link.href}
+                className="text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-2 hover:border-gray-400 hover:text-[#1a1f36] transition-colors">
+                {link.label}
               </Link>
-            )
-          ))}
-        </div>
+            ))}
+          </div>
+        </SectionCard>
+
       </div>
 
+      {/* Modals */}
       {showPattieIntake && (
         <PattieIntakeModal
           onClose={() => setShowPattieIntake(false)}
@@ -308,89 +392,11 @@ export default function Dashboard() {
           authToken={authToken}
         />
       )}
-
       {showNewModal && (
         <NewPatentModal
           onClose={() => setShowNewModal(false)}
           authToken={authToken}
         />
-      )}
-    </div>
-  )
-}
-
-// ── OnboardingChecklist ───────────────────────────────────────────────────────
-function OnboardingChecklist({ authToken, patents }: { authToken: string; patents: Patent[] }) {
-  const [dismissed, setDismissed] = React.useState(false)
-  const [collapsed, setCollapsed] = React.useState(false)
-  const [intent, setIntent] = React.useState<string | null>(null)
-  const [loaded, setLoaded] = React.useState(false)
-
-  React.useEffect(() => {
-    if (!authToken) return
-    fetch('/api/onboarding', { headers: { Authorization: `Bearer ${authToken}` } })
-      .then(r => r.json())
-      .then(d => {
-        setIntent(d.intent ?? null)
-        setDismissed(d.onboarding_dismissed ?? false)
-        setLoaded(true)
-      }).catch(() => setLoaded(true))
-  }, [authToken])
-
-  async function dismiss() {
-    setDismissed(true)
-    fetch('/api/onboarding', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({ onboarding_dismissed: true }),
-    }).catch(() => {})
-  }
-
-  if (!loaded || dismissed) return null
-
-  const hasPatent = patents.length > 0
-  const hasDraft = patents.some(p => p.claims_draft)
-  const hasReviewed = patents.some(p => p.filing_status === 'approved' || p.filing_status === 'provisional_filed')
-
-  const steps = [
-    { label: 'Create your account', done: true },
-    { label: 'Tell Pattie about your goal', done: !!intent },
-    { label: 'Add your first invention', done: hasPatent },
-    { label: 'Review your patent draft', done: hasDraft },
-    { label: 'Check your filing readiness', done: hasReviewed },
-  ]
-
-  const nextStep = steps.find(s => !s.done)
-  const allDone = steps.every(s => s.done)
-
-  if (allDone) return null
-
-  return (
-    <div className="fixed bottom-24 right-6 z-30 w-72 bg-white rounded-2xl shadow-xl border border-indigo-100 overflow-hidden">
-      <div className="px-4 py-3 bg-indigo-600 text-white flex items-center justify-between">
-        <span className="text-sm font-bold">🚀 Getting Started</span>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setCollapsed(c => !c)} className="text-indigo-200 hover:text-white text-xs">{collapsed ? '▲' : '▼'}</button>
-          <button onClick={dismiss} className="text-indigo-200 hover:text-white text-sm leading-none">✕</button>
-        </div>
-      </div>
-      {!collapsed && (
-        <div className="px-4 py-3 space-y-2">
-          {steps.map((step, i) => (
-            <div key={i} className="flex items-center gap-2.5">
-              <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 text-[10px] font-bold ${step.done ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300'}`}>
-                {step.done ? '✓' : ''}
-              </span>
-              <span className={`text-xs ${step.done ? 'text-gray-400 line-through' : 'text-gray-700 font-medium'}`}>{step.label}</span>
-            </div>
-          ))}
-          {nextStep && (
-            <a href={nextStep.label.includes('invention') ? '/dashboard/patents/new' : nextStep.label.includes('Pattie') ? '/welcome' : '/dashboard/patents'}
-              className="block mt-3 w-full text-center py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-colors">
-              Continue →
-            </a>
-          )}
-        </div>
       )}
     </div>
   )
